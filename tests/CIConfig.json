@@ -5,7 +5,7 @@
   },
   "runtimes": {
     "<team-name>": "../bin/libgazrt.so"
-  }, 
+  },
   "toolchains": {
     "gazprea-llc": [
       {
@@ -13,17 +13,17 @@
         "executablePath": "$EXE",
         "arguments": ["$INPUT", "$OUTPUT"],
         "output": "gaz.ll",
-        "allowError": true 
-      }, 
+        "allowError": true
+      },
       {
         "stepName": "llc",
-        "executablePath": "/opt/llvm/bin/llc",
+        "executablePath": "/usr/local/llvm/bin/llc",
         "arguments": ["-filetype=obj", "$INPUT", "-o", "$OUTPUT"],
         "output": "gaz.o"
       },
       {
         "stepName": "clang",
-        "executablePath": "/usr/bin/clang",
+        "executablePath": "/usr/local/llvm/bin/clang",
         "arguments": ["$INPUT", "-o", "$OUTPUT", "-L$RT_PATH", "-l$RT_LIB"],
         "output": "gaz"
       },
@@ -35,6 +35,6 @@
         "usesRuntime": true,
         "allowError": true
       }
-    ] 
+    ]
   }
 }
