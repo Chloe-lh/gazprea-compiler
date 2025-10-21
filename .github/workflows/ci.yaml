@@ -10,7 +10,7 @@ on:
 
 jobs:
   build:
-    runs-on: gazprea
+    runs-on: self-hosted
     container: ghcr.io/cmput415/gaz-utils:latest
 
     steps:
