@@ -1,0 +1,21 @@
+============================================================================================
+*** Meeting Date/Time start/end: 
+    October 24th
+    start: 2:35pm - 
+*** Attendees: Jacob, Chloe, Abdulrehman, Max
+*** Progress: 
+    Chloe - started grammar, reached until Tuples
+    Planning AST implementation and Semantic Analysis based on previous project experience
+    group:
+    working on software build plan
+        - branches for features
+        - using Conventional Commit: FIX, FEAT, 
+        - Re use foundational structures from VCalc
+        - discussing features we worked on
+        - we would like to add AST nodes as we go so we can parallelize work
+    Abdulrehman - will help work on grammar tonight
+    We would like to be working on basic types over the weekend and have a good foundation for Monday
+*** Issues: 
+    Just discussing conventions we would all like to use to avoid merge conflicts and breaking the code
+*** Actions:
+    
