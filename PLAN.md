@@ -10,7 +10,7 @@ Commit **Frequently**. More small commits > huge unreadable commits.
 ## Merging to main
 
 1. Pull from main, deal with any merge conflicts locally.
-2. Ensure your code will **compile**.
+2. Ensure CI job run passes, i.e. code builds.
 3. Submit a pull request.
 
 ## How to name commits
