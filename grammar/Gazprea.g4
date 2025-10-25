@@ -66,6 +66,29 @@ real
     | INT (UPPER_E|LOWER_E) (ADD|MINUS)? INT
     ;
 
+CHAR: '\'' (ESC_SEQ | ~[\\']) '\'';
+
+fragment ESC_SEQ:
+      '\\0'  // Null
+    | '\\a'  // Bell
+    | '\\b'  // Backspace
+    | '\\t'  // Tab
+    | '\\n'  // Line Feed
+    | '\\r'  // Carriage Return
+    | '\\"'  // Quotation Mark
+    | '\\\'' // Apostrophe
+    | '\\\\' // Backslash
+    ;
+INT: [0-9]+;
+TUPLE_INT: [1-9][0-9]+;
+
+FLOAT
+    : INT? DECIM INT // .0
+    | INT DECIM INT?; // 32.
+
+ID: [a-zA-Z_][a-zA-Z0-9_]*;
+
+// operators and punctuation
 END: ';';
 
 ADD: '+';
@@ -135,32 +158,6 @@ VAR: 'var';
 VECTOR: 'vector';
 WHILE: 'while';
 XOR: 'xor';
-
-CHAR: '\'' (ESC_SEQ | ~[\\']) '\'';
-
-fragment ESC_SEQ:
-      '\\0'  // Null
-    | '\\a'  // Bell
-    | '\\b'  // Backspace
-    | '\\t'  // Tab
-    | '\\n'  // Line Feed
-    | '\\r'  // Carriage Return
-    | '\\"'  // Quotation Mark
-    | '\\\'' // Apostrophe
-    | '\\\\' // Backslash
-    ;
-INT: [0-9]+;
-TUPLE_INT: [1-9][0-9]+;
-
-FLOAT
-    : INT? DECIM INT // .0
-    | INT DECIM INT?; // 32.
-
-// id can be any length
-// used by variables, functions, and procedures
-// shared by the same namespace in a scope
-
-ID: [a-zA-Z_][a-zA-Z0-9_]*;
 
 //skip whitespace and comments
 SL_COMMENT: '//'.*? -> skip; 
