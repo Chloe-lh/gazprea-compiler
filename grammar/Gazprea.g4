@@ -121,11 +121,11 @@ FLOAT: INT? DECIM INT // .0
 // used by variables, functions, and procedures
 // shared by the same namespace in a scope
 
-ID: [a-zA-Z_]+[a-zA-Z0-9_]*;
+ID: [a-zA-Z_][a-zA-Z0-9_]*;
 
-SL_COMMENT: '//'.*?; 
-ML_COMMENT: '/*' .*? '*/'; //cannot be nested
-// Skip whitespace
+//skip whitespace and comments
+SL_COMMENT: '//'.*? -> skip; 
+ML_COMMENT: '/*' .*? '*/' -> skip; //cannot be nested
 WS : [ \t\r\n]+ -> skip ;
 
 
