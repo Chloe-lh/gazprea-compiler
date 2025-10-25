@@ -33,6 +33,7 @@ expr
     | FALSE                                    #FalseExpr
     | CHAR                                     #CharExpr
     | INT                                      #IntExpr
+    | real                                     #RealExpr
     | ID                                       #IdExpr
     ;
 
@@ -61,8 +62,8 @@ qualifier: VAR //mutable
 // paren > index > range > mult/div >add/sub > rem/exp > un neg/plus > lt/gt > eq/neq
 
 real
-    : FLOAT (UPPER_E|LOWER_E)? (ADD INT |MINUS INT)?
-    | INT (UPPER_E|LOWER_E) INT
+    : FLOAT (UPPER_E|LOWER_E)? (ADD INT | MINUS INT | INT)?
+    | INT (UPPER_E|LOWER_E) (ADD|MINUS)? INT
     ;
 
 END: ';';
