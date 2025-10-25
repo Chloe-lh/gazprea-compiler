@@ -8,13 +8,33 @@ dec
     | qualifier ID EQ expr                   #InferredTypeDecl
     ;
 
+stat
+    : ID EQ expr
+    ;
+
 type //this should include basic types
     : BOOLEAN
     | CHARACTER
     | INTEGER
     ;
 
-tuple_dec: TUPLE PARENLEFT tuple_element PARENRIGHT ID;
+expr
+    :bool_expr
+    ;
+
+bool_expr
+    : PARENLEFT bool_expr PARENRIGHT    #BoolParenExpr
+    | <assoc=right>NOT bool_expr        #BoolNotExpr
+    | bool_expr (EQ|NE) bool_expr       #BoolEqExpr
+    | bool_expr AND bool_expr           #BoolAndExpr
+    | bool_expr (OR|XOR) bool_expr      #BoolOrExpr
+    | TRUE                              #BoolTrueExpr
+    | FALSE                             #BoolFalseExpr
+    | ID                                #BoolIdExpr
+    ;
+
+
+tuple_dec:TUPLE PARENLEFT tuple_element PARENRIGHT ID;
 tuple_element: tuple_type (COMMA tuple_type)+;
 // t1.1, t2.4 - starts at one not zero
 tuple_access: ID DECIM TUPLE_INT;
