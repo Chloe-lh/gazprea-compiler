@@ -4,11 +4,11 @@ file: .*? EOF;
 
 
 dec: 
-    | qualifier? type ID (EQ expr)?     #ExplicitTypedDecl
-    | qualifier ID EQ expr              #InferredTypeDecl
+    | qualifier? (type|ID) ID (EQ expr)?     #ExplicitTypedDecl //it needs to be type|ID to account for aliases
+    | qualifier ID EQ expr                   #InferredTypeDecl
     ;
 
-type: 
+type: //this should include basic types
     | BOOLEAN
     | CHARACTER
     | INTEGER
