@@ -3,13 +3,13 @@ grammar Gazprea;
 file: .*? EOF;
 
 
-dec: 
-    | qualifier? (type|ID) ID (EQ expr)?     #ExplicitTypedDecl //it needs to be type|ID to account for aliases
+dec
+    : qualifier? (type|ID) ID (EQ expr)?     #ExplicitTypedDecl //it needs to be type|ID to account for aliases
     | qualifier ID EQ expr                   #InferredTypeDecl
     ;
 
-type: //this should include basic types
-    | BOOLEAN
+type //this should include basic types
+    : BOOLEAN
     | CHARACTER
     | INTEGER
     ;
@@ -21,8 +21,8 @@ tuple_access: ID DECIM TUPLE_INT;
 // tuple_expr: 
 // tuple list must contain at least two elements
 // the elements are mutable
-tuple_type:
-         | INTEGER
+tuple_type
+         : INTEGER
          | CHARACTER
          | REAL
          | 
@@ -37,7 +37,8 @@ qualifier: VAR //mutable
 // Expression precedence:
 // paren > index > range > mult/div >add/sub > rem/exp > un neg/plus > lt/gt > eq/neq
 
-real: FLOAT (UPPER_E|LOWER_E)? (ADD INT |MINUS INT)?
+real
+    : FLOAT (UPPER_E|LOWER_E)? (ADD INT |MINUS INT)?
     | INT (UPPER_E|LOWER_E) INT
     ;
 
@@ -114,8 +115,9 @@ XOR: 'xor';
 INT: [0-9]+;
 TUPLE_INT: [1-9][0-9]+;
 
-FLOAT: INT? DECIM INT // .0
-     | INT DECIM INT?; // 32.
+FLOAT
+    : INT? DECIM INT // .0
+    | INT DECIM INT?; // 32.
 
 // id can be any length
 // used by variables, functions, and procedures
