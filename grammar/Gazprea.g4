@@ -19,14 +19,22 @@ type //this should include basic types
     ;
 
 expr
-    : PARENLEFT expr PARENRIGHT #ParenExpr
-    | <assoc=right>NOT expr     #NotExpr
-    | expr (EQ|NE) expr         #EqExpr
-    | expr AND expr             #AndExpr
-    | expr (OR|XOR) expr        #OrExpr
-    | TRUE                      #TrueExpr
-    | FALSE                     #FalseExpr
-    | ID                        #IdExpr
+    : PARENLEFT expr PARENRIGHT                #ParenExpr
+    | <assoc=right> ADD expr                   #PlusExpr
+    | <assoc=right> MINUS expr                 #NegExpr
+    | <assoc=right> expr EXP expr              #ExpExpr
+    | expr op=(MULT|DIV|REM) expr              #MultExpr
+    | expr op=(ADD|MINUS) expr                 #AddExpr
+    | expr op=(LT|GT|LTE|GTE) expr             #CompExpr
+    | <assoc=right>NOT expr                    #NotExpr
+    | expr op=(EQ|NE) expr                     #EqExpr
+    | expr AND expr                            #AndExpr
+    | expr op=(OR|XOR) expr                    #OrExpr
+    | TRUE                                     #TrueExpr
+    | FALSE                                    #FalseExpr
+    | CHAR                                     #CharExpr
+    | INT                                      #IntExpr
+    | ID                                       #IdExpr
     ;
 
 
