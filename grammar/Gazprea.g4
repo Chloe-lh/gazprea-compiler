@@ -128,6 +128,19 @@ VECTOR: 'vector';
 WHILE: 'while';
 XOR: 'xor';
 
+CHAR: '\'' (ESC_SEQ | ~[\\']) '\'';
+
+fragment ESC_SEQ:
+      '\\0'  // Null
+    | '\\a'  // Bell
+    | '\\b'  // Backspace
+    | '\\t'  // Tab
+    | '\\n'  // Line Feed
+    | '\\r'  // Carriage Return
+    | '\\"'  // Quotation Mark
+    | '\\\'' // Apostrophe
+    | '\\\\' // Backslash
+    ;
 INT: [0-9]+;
 TUPLE_INT: [1-9][0-9]+;
 
