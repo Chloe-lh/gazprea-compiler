@@ -20,8 +20,7 @@ type //this should include basic types
 
 expr
     : PARENLEFT expr PARENRIGHT                #ParenExpr
-    | <assoc=right> ADD expr                   #PlusExpr
-    | <assoc=right> MINUS expr                 #NegExpr
+    | <assoc=right> (ADD|MINUS) expr           #UnaryExpr
     | <assoc=right> expr EXP expr              #ExpExpr
     | expr op=(MULT|DIV|REM) expr              #MultExpr
     | expr op=(ADD|MINUS) expr                 #AddExpr
