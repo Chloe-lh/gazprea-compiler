@@ -19,18 +19,14 @@ type //this should include basic types
     ;
 
 expr
-    :bool_expr
-    ;
-
-bool_expr
-    : PARENLEFT bool_expr PARENRIGHT    #BoolParenExpr
-    | <assoc=right>NOT bool_expr        #BoolNotExpr
-    | bool_expr (EQ|NE) bool_expr       #BoolEqExpr
-    | bool_expr AND bool_expr           #BoolAndExpr
-    | bool_expr (OR|XOR) bool_expr      #BoolOrExpr
-    | TRUE                              #BoolTrueExpr
-    | FALSE                             #BoolFalseExpr
-    | ID                                #BoolIdExpr
+    : PARENLEFT expr PARENRIGHT #ParenExpr
+    | <assoc=right>NOT expr     #NotExpr
+    | expr (EQ|NE) expr         #EqExpr
+    | expr AND expr             #AndExpr
+    | expr (OR|XOR) expr        #OrExpr
+    | TRUE                      #TrueExpr
+    | FALSE                     #FalseExpr
+    | ID                        #IdExpr
     ;
 
 
