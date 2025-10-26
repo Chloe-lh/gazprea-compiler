@@ -2,11 +2,19 @@ grammar Gazprea;
 
 file: .*? EOF;
 
+func
+    : FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS type block       #FunctionBlock
+    | FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS tuple_dec block  #FunctionBlockTupleReturn
+    | FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS type EQ stat     #FunctionStat
+    | FUNCTION ID PARENLEFT (type ID? (COMMA type ID?)*)? PARENRIGHT RETURNS type END       #FunctionPrototype
+    | FUNCTION ID PARENLEFT (type ID? (COMMA type ID?)*)? PARENRIGHT RETURNS tuple_dec END  #FunctionPrototypeTupleReturn
+    ;
+
 
 dec
-    : qualifier? type ID (EQ expr)? END                                                     #ExplicitTypedDec //it needs to be type|ID to account for aliases
-    | qualifier ID EQ expr END                                                              #InferredTypeDec
-    | qualifier? tuple_dec ID (EQ expr)? END                                                #TupleTypedDec
+    : qualifier? type ID (EQ expr)? END          #ExplicitTypedDec
+    | qualifier ID EQ expr END                   #InferredTypeDec
+    | qualifier? tuple_dec ID (EQ expr)? END     #TupleTypedDec
     ;
 
 stat
