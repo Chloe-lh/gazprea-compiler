@@ -77,7 +77,7 @@ block: CURLLEFT dec* stat* CURLRIGHT;
 if: IF PARENLEFT expr PARENRIGHT (block|stat) (ELSE (block|stat))?;
 
 loop
-    : LOOP (block|stat) (WHILE PARENLEFT expr PARENRIGHT END)? #Loop
+    : LOOP (block|stat) (WHILE PARENLEFT expr PARENRIGHT END)? #LoopDefault
     | LOOP (WHILE PARENLEFT expr PARENRIGHT) (block|stat) #WhileLoopBlock
     ;
 
