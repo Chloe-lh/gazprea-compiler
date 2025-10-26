@@ -10,6 +10,7 @@ func
     | FUNCTION ID PARENLEFT (type ID? (COMMA type ID?)*)? PARENRIGHT RETURNS tuple_dec END  #FunctionPrototypeTupleReturn
     ;
 
+procedure: PROCEDURE ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT block;
 
 dec
     : qualifier? type ID (EQ expr)? END          #ExplicitTypedDec
@@ -24,6 +25,7 @@ stat
     | BREAK END                     #BreakStat
     | CONTINUE END                  #ContinueStat
     | RETURN expr? END              #ReturnStat
+    | CALL ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT END  #CallStat
     ;
 
 type //this should include basic types
@@ -42,6 +44,7 @@ type_alias
 
 expr
     : tuple_access                                      #TupleAccessExpr
+    | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr
     | PARENLEFT expr PARENRIGHT                         #ParenExpr
     | <assoc=right> (ADD|MINUS) expr                    #UnaryExpr
     | <assoc=right> expr EXP expr                       #ExpExpr
