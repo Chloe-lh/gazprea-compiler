@@ -6,7 +6,9 @@ file: .*? EOF;
 dec
     : qualifier? type ID (EQ expr)?                                #ExplicitTypedDec //it needs to be type|ID to account for aliases
     | qualifier ID EQ expr                                         #InferredTypeDec
-    | qualifier? TUPLE PARENLEFT type (COMMA type)+ PARENRIGHT ID (EQ expr)?  #TupleTypedDec 
+    | qualifier? TUPLE PARENLEFT type (COMMA type)+ PARENRIGHT ID (EQ expr)?  #TupleTypedDec
+    | STRUCT ID PARENLEFT type ID (COMMA type ID)* PARENRIGHT  #StructTypedDec
+    | qualifier? STRUCT ID PARENLEFT type ID (COMMA type ID)* PARENRIGHT ID (EQ expr)?  #StructIDTypedDec
     ;
 
 stat
@@ -39,12 +41,16 @@ expr
     | real                               #RealExpr
     | tuple_literal                      #TupleLitExpr
     | tuple_access                       #TupleAccessExpr
+    | struct_literal                     #StructLitExpr
+    | struct_access                      #StructAccessExpr
     | ID                                 #IdExpr
     ;
 
 tuple_literal: PARENLEFT expr (COMMA expr)+ PARENRIGHT;
 tuple_access: ID DECIM TUPLE_INT;
 
+struct_literal: ID PARENLEFT type ID EQ expr (COMMA type ID EQ expr)* PARENRIGHT;
+struct_access: ID DECIM ID;
 
 // declarations must be placed at the start of the block
 block: CURLLEFT dec* stat* CURLRIGHT;
@@ -152,6 +158,7 @@ VAR: 'var';
 VECTOR: 'vector';
 WHILE: 'while';
 XOR: 'xor';
+STRUCT: 'struct';
 
 //skip whitespace and comments
 SL_COMMENT: '//'.*? -> skip; 
