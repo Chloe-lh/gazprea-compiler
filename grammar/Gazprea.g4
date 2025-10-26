@@ -32,7 +32,8 @@ type_alias
 
 
 expr
-    : PARENLEFT expr PARENRIGHT                         #ParenExpr
+    : tuple_access                                      #TupleAccessExpr
+    | PARENLEFT expr PARENRIGHT                         #ParenExpr
     | <assoc=right> (ADD|MINUS) expr                    #UnaryExpr
     | <assoc=right> expr EXP expr                       #ExpExpr
     | expr op=(MULT|DIV|REM) expr                       #MultExpr
@@ -48,9 +49,6 @@ expr
     | INT                                               #IntExpr
     | real                                              #RealExpr
     | tuple_literal                                     #TupleLitExpr
-    | tuple_access                                      #TupleAccessExpr
-    | struct_literal                                    #StructLitExpr
-    | struct_access                                     #StructAccessExpr
     | AS '<' type '>' PARENLEFT expr PARENRIGHT         #TypeCastExpr
     | AS '<' tuple_dec  '>' PARENLEFT expr PARENRIGHT   #TupleTypeCastExpr
     | ID                                                #IdExpr
@@ -58,10 +56,7 @@ expr
 
 tuple_dec: TUPLE PARENLEFT type (COMMA type)+ PARENRIGHT;
 tuple_literal: PARENLEFT expr (COMMA expr)+ PARENRIGHT;
-tuple_access: ID DECIM TUPLE_INT;
-
-struct_literal: ID PARENLEFT type ID EQ expr (COMMA type ID EQ expr)* PARENRIGHT;
-struct_access: ID DECIM ID;
+tuple_access: ID DECIM expr;
 
 // declarations must be placed at the start of the block
 block: CURLLEFT dec* stat* CURLRIGHT;
@@ -89,7 +84,6 @@ fragment ESC_SEQ:
     | '\\\\' // Backslash
     ;
 INT: [0-9]+;
-TUPLE_INT: [1-9][0-9]+;
 
 FLOAT
     : INT? DECIM INT // .0
