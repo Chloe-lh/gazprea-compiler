@@ -6,7 +6,7 @@ file: .*? EOF;
 dec
     : qualifier? type ID (EQ expr)?                                #ExplicitTypedDec //it needs to be type|ID to account for aliases
     | qualifier ID EQ expr                                         #InferredTypeDec
-    | qualifier? TUPLE PARENLEFT type (COMMA type)+ PARENRIGHT ID (EQ expr)?  #TupleTypedDec
+    | qualifier? tuple_dec ID (EQ expr)?  #TupleTypedDec
     | STRUCT ID PARENLEFT type ID (COMMA type ID)* PARENRIGHT  #StructTypedDec
     | qualifier? STRUCT ID PARENLEFT type ID (COMMA type ID)* PARENRIGHT ID (EQ expr)?  #StructIDTypedDec
     ;
@@ -24,28 +24,31 @@ type //this should include basic types
     ;
 
 expr
-    : PARENLEFT expr PARENRIGHT          #ParenExpr
-    | <assoc=right> (ADD|MINUS) expr     #UnaryExpr
-    | <assoc=right> expr EXP expr        #ExpExpr
-    | expr op=(MULT|DIV|REM) expr        #MultExpr
-    | expr op=(ADD|MINUS) expr           #AddExpr
-    | expr op=(LT|GT|LTE|GTE) expr       #CompExpr
-    | <assoc=right>NOT expr              #NotExpr
-    | expr op=(EQ|NE) expr               #EqExpr
-    | expr AND expr                      #AndExpr
-    | expr op=(OR|XOR) expr              #OrExpr
-    | TRUE                               #TrueExpr
-    | FALSE                              #FalseExpr
-    | CHAR                               #CharExpr
-    | INT                                #IntExpr
-    | real                               #RealExpr
-    | tuple_literal                      #TupleLitExpr
-    | tuple_access                       #TupleAccessExpr
-    | struct_literal                     #StructLitExpr
-    | struct_access                      #StructAccessExpr
-    | ID                                 #IdExpr
+    : PARENLEFT expr PARENRIGHT                         #ParenExpr
+    | <assoc=right> (ADD|MINUS) expr                    #UnaryExpr
+    | <assoc=right> expr EXP expr                       #ExpExpr
+    | expr op=(MULT|DIV|REM) expr                       #MultExpr
+    | expr op=(ADD|MINUS) expr                          #AddExpr
+    | expr op=(LT|GT|LTE|GTE) expr                      #CompExpr
+    | <assoc=right>NOT expr                             #NotExpr
+    | expr op=(EQ|NE) expr                              #EqExpr
+    | expr AND expr                                     #AndExpr
+    | expr op=(OR|XOR) expr                             #OrExpr
+    | TRUE                                              #TrueExpr
+    | FALSE                                             #FalseExpr
+    | CHAR                                              #CharExpr
+    | INT                                               #IntExpr
+    | real                                              #RealExpr
+    | tuple_literal                                     #TupleLitExpr
+    | tuple_access                                      #TupleAccessExpr
+    | struct_literal                                    #StructLitExpr
+    | struct_access                                     #StructAccessExpr
+    | AS '<' type '>' PARENLEFT expr PARENRIGHT         #TypeCastExpr
+    | AS '<' tuple_dec  '>' PARENLEFT expr PARENRIGHT   #TupleTypeCastExpr
+    | ID                                                #IdExpr
     ;
 
+tuple_dec: TUPLE PARENLEFT type (COMMA type)+ PARENRIGHT;
 tuple_literal: PARENLEFT expr (COMMA expr)+ PARENRIGHT;
 tuple_access: ID DECIM TUPLE_INT;
 
@@ -57,9 +60,6 @@ block: CURLLEFT dec* stat* CURLRIGHT;
 qualifier: VAR //mutable
         | CONST //immutable -  DEFAULT
         ; //annotate AST with mutability flag
-
-// Expression precedence:
-// paren > index > range > mult/div >add/sub > rem/exp > un neg/plus > lt/gt > eq/neq
 
 real
     : FLOAT (UPPER_E|LOWER_E)? (ADD INT | MINUS INT | INT)?
