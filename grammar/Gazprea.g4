@@ -4,7 +4,7 @@ file: .*? EOF;
 
 
 dec
-    : qualifier? (type|ID) ID (EQ expr)?     #ExplicitTypedDecl //it needs to be type|ID to account for aliases
+    : qualifier? type ID (EQ expr)?     #ExplicitTypedDecl //it needs to be type|ID to account for aliases
     | qualifier ID EQ expr                   #InferredTypeDecl
     ;
 
@@ -16,6 +16,8 @@ type //this should include basic types
     : BOOLEAN
     | CHARACTER
     | INTEGER
+    | REAL
+    | ID
     ;
 
 expr
@@ -38,19 +40,6 @@ expr
     ;
 
 
-tuple_dec:TUPLE PARENLEFT tuple_element PARENRIGHT ID;
-tuple_element: tuple_type (COMMA tuple_type)+;
-// t1.1, t2.4 - starts at one not zero
-tuple_access: ID DECIM TUPLE_INT;
-// tuple_expr: 
-// tuple list must contain at least two elements
-// the elements are mutable
-tuple_type
-         : INTEGER
-         | CHARACTER
-         | REAL
-         | 
-         ;
 
 // declarations must be placed at the start of the block
 block: CURLLEFT dec* stat* CURLRIGHT;
