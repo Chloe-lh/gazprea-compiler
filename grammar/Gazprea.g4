@@ -4,11 +4,9 @@ file: .*? EOF;
 
 
 dec
-    : qualifier? type ID (EQ expr)? END                               #ExplicitTypedDec //it needs to be type|ID to account for aliases
-    | qualifier ID EQ expr END                                       #InferredTypeDec
-    | qualifier? tuple_dec ID (EQ expr)? END #TupleTypedDec
-    | STRUCT ID PARENLEFT type ID (COMMA type ID)* PARENRIGHT END #StructTypedDec
-    | qualifier? STRUCT ID PARENLEFT type ID (COMMA type ID)* PARENRIGHT ID (EQ expr)? END  #StructIDTypedDec
+    : qualifier? type ID (EQ expr)? END                                                     #ExplicitTypedDec //it needs to be type|ID to account for aliases
+    | qualifier ID EQ expr END                                                              #InferredTypeDec
+    | qualifier? tuple_dec ID (EQ expr)? END                                                #TupleTypedDec
     ;
 
 stat
@@ -17,6 +15,7 @@ stat
     | ID '<-' STD_INPUT  END        #InputStat
     | BREAK END                     #BreakStat
     | CONTINUE END                  #ContinueStat
+    | RETURN expr? END              #ReturnStat
     ;
 
 type //this should include basic types
