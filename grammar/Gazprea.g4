@@ -56,7 +56,8 @@ expr
 
 tuple_dec: TUPLE PARENLEFT type (COMMA type)+ PARENRIGHT;
 tuple_literal: PARENLEFT expr (COMMA expr)+ PARENRIGHT;
-tuple_access: ID DECIM expr;
+tuple_access: ID DECIM TUPLE_INT;
+TUPLE_INT: [1-9][0-9]*;
 
 // declarations must be placed at the start of the block
 block: CURLLEFT dec* stat* CURLRIGHT;
