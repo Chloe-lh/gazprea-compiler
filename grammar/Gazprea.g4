@@ -12,9 +12,11 @@ dec
     ;
 
 stat
-    : ID EQ expr END    #AssignStat
-    | expr '->' STD_OUTPUT END #OutputStat
-    | ID '<-' STD_INPUT  END #InputStat
+    : ID EQ expr END                #AssignStat
+    | expr '->' STD_OUTPUT END      #OutputStat
+    | ID '<-' STD_INPUT  END        #InputStat
+    | BREAK END                     #BreakStat
+    | CONTINUE END                  #ContinueStat
     ;
 
 type //this should include basic types
@@ -62,9 +64,11 @@ TUPLE_INT: [1-9][0-9]*;
 // declarations must be placed at the start of the block
 block: CURLLEFT dec* stat* CURLRIGHT;
 
-if
-    : IF PARENLEFT expr PARENRIGHT block (ELSE block)? #IfBlock
-    | IF PARENLEFT expr PARENRIGHT dec* stat*  (ELSE dec* stat*)?     #IfExpr
+if: IF PARENLEFT expr PARENRIGHT (block|stat) (ELSE (block|stat))?;
+
+loop
+    : LOOP (block|stat) (WHILE PARENLEFT expr PARENRIGHT END)? #Loop
+    | LOOP (WHILE PARENLEFT expr PARENRIGHT) (block|stat) #WhileLoopBlock
     ;
 
 
