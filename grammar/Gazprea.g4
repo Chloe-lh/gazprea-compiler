@@ -62,6 +62,12 @@ TUPLE_INT: [1-9][0-9]*;
 // declarations must be placed at the start of the block
 block: CURLLEFT dec* stat* CURLRIGHT;
 
+if
+    : IF PARENLEFT expr PARENRIGHT block (ELSE block)? #IfBlock
+    | IF PARENLEFT expr PARENRIGHT dec* stat*  (ELSE dec* stat*)?     #IfExpr
+    ;
+
+
 qualifier: VAR //mutable
         | CONST //immutable -  DEFAULT
         ; //annotate AST with mutability flag
