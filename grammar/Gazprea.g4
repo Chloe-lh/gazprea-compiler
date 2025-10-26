@@ -19,14 +19,22 @@ type //this should include basic types
     ;
 
 expr
-    : PARENLEFT expr PARENRIGHT #ParenExpr
-    | <assoc=right>NOT expr     #NotExpr
-    | expr (EQ|NE) expr         #EqExpr
-    | expr AND expr             #AndExpr
-    | expr (OR|XOR) expr        #OrExpr
-    | TRUE                      #TrueExpr
-    | FALSE                     #FalseExpr
-    | ID                        #IdExpr
+    : PARENLEFT expr PARENRIGHT                #ParenExpr
+    | <assoc=right> (ADD|MINUS) expr           #UnaryExpr
+    | <assoc=right> expr EXP expr              #ExpExpr
+    | expr op=(MULT|DIV|REM) expr              #MultExpr
+    | expr op=(ADD|MINUS) expr                 #AddExpr
+    | expr op=(LT|GT|LTE|GTE) expr             #CompExpr
+    | <assoc=right>NOT expr                    #NotExpr
+    | expr op=(EQ|NE) expr                     #EqExpr
+    | expr AND expr                            #AndExpr
+    | expr op=(OR|XOR) expr                    #OrExpr
+    | TRUE                                     #TrueExpr
+    | FALSE                                    #FalseExpr
+    | CHAR                                     #CharExpr
+    | INT                                      #IntExpr
+    | real                                     #RealExpr
+    | ID                                       #IdExpr
     ;
 
 
@@ -54,10 +62,33 @@ qualifier: VAR //mutable
 // paren > index > range > mult/div >add/sub > rem/exp > un neg/plus > lt/gt > eq/neq
 
 real
-    : FLOAT (UPPER_E|LOWER_E)? (ADD INT |MINUS INT)?
-    | INT (UPPER_E|LOWER_E) INT
+    : FLOAT (UPPER_E|LOWER_E)? (ADD INT | MINUS INT | INT)?
+    | INT (UPPER_E|LOWER_E) (ADD|MINUS)? INT
     ;
 
+CHAR: '\'' (ESC_SEQ | ~[\\']) '\'';
+
+fragment ESC_SEQ:
+      '\\0'  // Null
+    | '\\a'  // Bell
+    | '\\b'  // Backspace
+    | '\\t'  // Tab
+    | '\\n'  // Line Feed
+    | '\\r'  // Carriage Return
+    | '\\"'  // Quotation Mark
+    | '\\\'' // Apostrophe
+    | '\\\\' // Backslash
+    ;
+INT: [0-9]+;
+TUPLE_INT: [1-9][0-9]+;
+
+FLOAT
+    : INT? DECIM INT // .0
+    | INT DECIM INT?; // 32.
+
+ID: [a-zA-Z_][a-zA-Z0-9_]*;
+
+// operators and punctuation
 END: ';';
 
 ADD: '+';
@@ -128,34 +159,10 @@ VECTOR: 'vector';
 WHILE: 'while';
 XOR: 'xor';
 
-CHAR: '\'' (ESC_SEQ | ~[\\']) '\'';
-
-fragment ESC_SEQ:
-      '\\0'  // Null
-    | '\\a'  // Bell
-    | '\\b'  // Backspace
-    | '\\t'  // Tab
-    | '\\n'  // Line Feed
-    | '\\r'  // Carriage Return
-    | '\\"'  // Quotation Mark
-    | '\\\'' // Apostrophe
-    | '\\\\' // Backslash
-    ;
-INT: [0-9]+;
-TUPLE_INT: [1-9][0-9]+;
-
-FLOAT
-    : INT? DECIM INT // .0
-    | INT DECIM INT?; // 32.
-
-// id can be any length
-// used by variables, functions, and procedures
-// shared by the same namespace in a scope
-
-ID: [a-zA-Z_][a-zA-Z0-9_]*;
-
 //skip whitespace and comments
 SL_COMMENT: '//'.*? -> skip; 
 ML_COMMENT: '/*' .*? '*/' -> skip; //cannot be nested
 WS : [ \t\r\n]+ -> skip ;
+
+
 
