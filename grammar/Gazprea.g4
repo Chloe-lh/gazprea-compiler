@@ -4,8 +4,9 @@ file: .*? EOF;
 
 
 dec
-    : qualifier? type ID (EQ expr)?     #ExplicitTypedDecl //it needs to be type|ID to account for aliases
-    | qualifier ID EQ expr                   #InferredTypeDecl
+    : qualifier? type ID (EQ expr)?                                #ExplicitTypedDec //it needs to be type|ID to account for aliases
+    | qualifier ID EQ expr                                         #InferredTypeDec
+    | qualifier? TUPLE PARENLEFT type (COMMA type)+ PARENRIGHT ID (EQ expr)?  #TupleTypedDec 
     ;
 
 stat
@@ -21,24 +22,28 @@ type //this should include basic types
     ;
 
 expr
-    : PARENLEFT expr PARENRIGHT                #ParenExpr
-    | <assoc=right> (ADD|MINUS) expr           #UnaryExpr
-    | <assoc=right> expr EXP expr              #ExpExpr
-    | expr op=(MULT|DIV|REM) expr              #MultExpr
-    | expr op=(ADD|MINUS) expr                 #AddExpr
-    | expr op=(LT|GT|LTE|GTE) expr             #CompExpr
-    | <assoc=right>NOT expr                    #NotExpr
-    | expr op=(EQ|NE) expr                     #EqExpr
-    | expr AND expr                            #AndExpr
-    | expr op=(OR|XOR) expr                    #OrExpr
-    | TRUE                                     #TrueExpr
-    | FALSE                                    #FalseExpr
-    | CHAR                                     #CharExpr
-    | INT                                      #IntExpr
-    | real                                     #RealExpr
-    | ID                                       #IdExpr
+    : PARENLEFT expr PARENRIGHT          #ParenExpr
+    | <assoc=right> (ADD|MINUS) expr     #UnaryExpr
+    | <assoc=right> expr EXP expr        #ExpExpr
+    | expr op=(MULT|DIV|REM) expr        #MultExpr
+    | expr op=(ADD|MINUS) expr           #AddExpr
+    | expr op=(LT|GT|LTE|GTE) expr       #CompExpr
+    | <assoc=right>NOT expr              #NotExpr
+    | expr op=(EQ|NE) expr               #EqExpr
+    | expr AND expr                      #AndExpr
+    | expr op=(OR|XOR) expr              #OrExpr
+    | TRUE                               #TrueExpr
+    | FALSE                              #FalseExpr
+    | CHAR                               #CharExpr
+    | INT                                #IntExpr
+    | real                               #RealExpr
+    | tuple_literal                      #TupleLitExpr
+    | tuple_access                       #TupleAccessExpr
+    | ID                                 #IdExpr
     ;
 
+tuple_literal: PARENLEFT expr (COMMA expr)+ PARENRIGHT;
+tuple_access: ID DECIM TUPLE_INT;
 
 
 // declarations must be placed at the start of the block
