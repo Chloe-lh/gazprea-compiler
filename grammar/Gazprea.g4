@@ -4,15 +4,17 @@ file: .*? EOF;
 
 
 dec
-    : qualifier? type ID (EQ expr)?                                #ExplicitTypedDec //it needs to be type|ID to account for aliases
-    | qualifier ID EQ expr                                         #InferredTypeDec
-    | qualifier? tuple_dec ID (EQ expr)?  #TupleTypedDec
-    | STRUCT ID PARENLEFT type ID (COMMA type ID)* PARENRIGHT  #StructTypedDec
-    | qualifier? STRUCT ID PARENLEFT type ID (COMMA type ID)* PARENRIGHT ID (EQ expr)?  #StructIDTypedDec
+    : qualifier? type ID (EQ expr)? END                               #ExplicitTypedDec //it needs to be type|ID to account for aliases
+    | qualifier ID EQ expr END                                       #InferredTypeDec
+    | qualifier? tuple_dec ID (EQ expr)? END #TupleTypedDec
+    | STRUCT ID PARENLEFT type ID (COMMA type ID)* PARENRIGHT END #StructTypedDec
+    | qualifier? STRUCT ID PARENLEFT type ID (COMMA type ID)* PARENRIGHT ID (EQ expr)? END  #StructIDTypedDec
     ;
 
 stat
-    : ID EQ expr
+    : ID EQ expr END    #AssignStat
+    | expr '->' STD_OUTPUT END #OutputStat
+    | ID '<-' STD_INPUT  END #InputStat
     ;
 
 type //this should include basic types
@@ -22,6 +24,12 @@ type //this should include basic types
     | REAL
     | ID
     ;
+
+type_alias
+    : TYPEALIAS ID ID   #BasicTypeAlias
+    | TYPEALIAS tuple_dec ID  #TupleTypeAlias
+    ;
+
 
 expr
     : PARENLEFT expr PARENRIGHT                         #ParenExpr
@@ -57,6 +65,7 @@ struct_access: ID DECIM ID;
 
 // declarations must be placed at the start of the block
 block: CURLLEFT dec* stat* CURLRIGHT;
+
 qualifier: VAR //mutable
         | CONST //immutable -  DEFAULT
         ; //annotate AST with mutability flag
