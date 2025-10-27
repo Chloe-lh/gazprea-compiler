@@ -110,7 +110,6 @@ FLOAT
     : INT? DECIM INT // .0
     | INT DECIM INT?; // 32.
 
-ID: [a-zA-Z_][a-zA-Z0-9_]*;
 
 // operators and punctuation
 END: ';';
@@ -183,6 +182,8 @@ VECTOR: 'vector';
 WHILE: 'while';
 XOR: 'xor';
 STRUCT: 'struct';
+
+ID: [a-zA-Z_][a-zA-Z0-9_]*;
 
 //skip whitespace and comments
 SL_COMMENT: '//'.*? -> skip; 
