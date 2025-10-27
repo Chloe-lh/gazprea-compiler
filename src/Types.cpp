@@ -24,14 +24,22 @@ ValueType promote(ValueType from, ValueType to)
         case ValueType::BOOL:
             switch(to) {
                 case ValueType::BOOL:       return ValueType::BOOL;
-                case ValueType::VECTOR:     return ValueType::VECTOR; // implicit
+
+                // Implicit promotions
+                case ValueType::ARRAY:      return ValueType::ARRAY;
+                case ValueType::VECTOR:     return ValueType::VECTOR; 
+                case ValueType::MATRIX:     return ValueType::MATRIX;
             }
             break;
         case ValueType::INTEGER:
             switch (to) {
                 case ValueType::INTEGER:    return ValueType::INTEGER; 
-                case ValueType::VECTOR:     return ValueType::VECTOR;   // implicit
                 case ValueType::REAL:       return ValueType::REAL;
+
+                // Implicit promotions
+                case ValueType::ARRAY:      return ValueType::ARRAY;
+                case ValueType::VECTOR:     return ValueType::VECTOR; 
+                case ValueType::MATRIX:     return ValueType::MATRIX;
             }
             break;
         case ValueType::VECTOR:
@@ -42,6 +50,11 @@ ValueType promote(ValueType from, ValueType to)
         case ValueType::REAL:
             switch (to) {
                 case ValueType::REAL:       return ValueType::REAL;
+
+                // Implicit promotions
+                case ValueType::ARRAY:      return ValueType::ARRAY;
+                case ValueType::VECTOR:     return ValueType::VECTOR; 
+                case ValueType::MATRIX:     return ValueType::MATRIX;
             }
             break;
         case ValueType::TUPLE:
