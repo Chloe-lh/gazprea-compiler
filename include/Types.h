@@ -13,7 +13,8 @@ enum class ValueType {
     VECTOR,
     REAL,
     TUPLE,
-    STRING
+    STRING,
+    STRUCT
 };
 
 std::string toString(ValueType type);
