@@ -186,6 +186,55 @@ void SemanticAnalysisVisitor::visit(PrintNode *node) {
     }
 }
 
+void SemanticAnalysisVisitor::visit(UnaryExpr* node) {
+    node->operand->accept(*this); // eval operand type
+
+    if (node->operand->type == ValueType::UNKNOWN) {
+        throw std::runtime_error("Semantic Analysis error: Applying operator '" + node->op + "' to operand with type UNKNOWN.");
+    }
+
+    std::string op = node->op;
+    if (op == "-" || op == "+") {
+        // Not permitted: bool, character, tuple, struct, string
+        // permitted: int, real, arrays(int, real), vector(int, real), matrix(int, real)
+        const ValueType illegalTypes[] = {ValueType::BOOL, ValueType::CHARACTER, ValueType::TUPLE, ValueType::STRUCT, ValueType::STRING};
+
+        if (std::find(std::begin(illegalTypes), std::end(illegalTypes), node->operand->type) != std::end(illegalTypes)) {
+            throwOperandError(op, {node->operand->type});
+        }
+
+        // TODO pt2: check element-wise types for arrays, vectors, matrices
+
+    } else if (op == "not") {
+        // Not permitted: character, int, real, tuple, struct, string
+        // permitted: bool, arrays(bool), vector(bool), matrices(bool)
+        const ValueType illegalTypes[] = {ValueType::CHARACTER, ValueType::INTEGER, ValueType::REAL, ValueType::TUPLE, ValueType::STRUCT, ValueType::STRING};
+
+        if (std::find(std::begin(illegalTypes), std::end(illegalTypes), node->operand->type) != std::end(illegalTypes)) {
+            throwOperandError(op, {node->operand->type});
+        }
+
+        // TODO pt2: check element-wise types for arrays, vectors, matrices
+    } else {
+        throw std::runtime_error("Semantic Analysis error: Unknown unary operator '" + node->op + "'.");
+    }
+}
+
+void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std::vector<ValueType>& operands) {
+    std::stringstream ss;
+    ss << "Semantic Analysis error: Applying operator '" << op << "' to operand";
+
+    if (operands.size() > 1) ss << "s";
+    ss << ": ";
+
+    for (size_t i = 0; i < operands.size(); ++i) {
+        ss << "'" << toString(operands[i]) << "'";
+        if (i < operands.size() - 1) ss << ", ";
+    }
+
+    throw std::runtime_error(ss.str());
+}
+
 void SemanticAnalysisVisitor::enterScopeFor(const ASTNode* ownerCtx) {
     // Init root
     if (current_ == nullptr) {

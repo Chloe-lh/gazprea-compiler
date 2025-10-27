@@ -27,11 +27,16 @@ class SemanticAnalysisVisitor: ASTVisitor {
         
         void visit(PrintNode* node) override;
 
+        // New gazprea methods
+        void visit(UnaryExpr* node) override;
+
     private:
         // Persistent scope tree and context index
         std::unique_ptr<Scope> root_;
         Scope* current_ = nullptr;
         std::unordered_map<const ASTNode*, Scope*> scopeByCtx_;
+
+        void throwOperandError(const std::string op, const std::vector<ValueType>& operands);
 
         void enterScopeFor(const ASTNode* ownerCtx);
         void exitScope();
