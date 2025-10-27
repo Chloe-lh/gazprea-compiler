@@ -28,8 +28,9 @@ class SemanticAnalysisVisitor: ASTVisitor {
         void visit(PrintNode* node) override;
 
         // New gazprea methods
-        void visit(UnaryExpr* node) override;
-        void visit(ExpExpr* node) override;
+        void visit(UnaryExpr* node) override;   // unary+, unary-, not
+        void visit(ExpExpr* node) override;     // ^
+        void visit(MultExpr* node) override;    // *,/,%
 
     private:
         // Persistent scope tree and context index
