@@ -1,6 +1,6 @@
 grammar Gazprea;
 
-file: .*? EOF;
+file: (dec|func|procedure|type_alias)* EOF;
 
 func
     : FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS type block       #FunctionBlock
