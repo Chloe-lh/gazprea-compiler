@@ -200,7 +200,7 @@ void SemanticAnalysisVisitor::visit(UnaryExpr* node) {
         const ValueType illegalTypes[] = {ValueType::BOOL, ValueType::CHARACTER, ValueType::TUPLE, ValueType::STRUCT, ValueType::STRING};
 
         if (std::find(std::begin(illegalTypes), std::end(illegalTypes), node->operand->type) != std::end(illegalTypes)) {
-            throwOperandError(op, {node->operand->type});
+            throwOperandError(op, {node->operand->type}, "");
         }
 
         // TODO pt2: check element-wise types for arrays, vectors, matrices
@@ -211,7 +211,7 @@ void SemanticAnalysisVisitor::visit(UnaryExpr* node) {
         const ValueType illegalTypes[] = {ValueType::CHARACTER, ValueType::INTEGER, ValueType::REAL, ValueType::TUPLE, ValueType::STRUCT, ValueType::STRING};
 
         if (std::find(std::begin(illegalTypes), std::end(illegalTypes), node->operand->type) != std::end(illegalTypes)) {
-            throwOperandError(op, {node->operand->type});
+            throwOperandError(op, {node->operand->type}, "");
         }
 
         // TODO pt2: check element-wise types for arrays, vectors, matrices
@@ -222,7 +222,45 @@ void SemanticAnalysisVisitor::visit(UnaryExpr* node) {
     node->type = node->operand->type; // Resulting type == operand type
 }
 
-void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std::vector<ValueType>& operands) {
+void SemanticAnalysisVisitor::visit(ExpExpr* node) {
+    node->left->accept(*this);
+    node->right->accept(*this);
+
+    if (node->op != "^") {
+        throw std::runtime_error("Semantic Analysis error: unexpected operator in exponentiation '" + node->op + "'.");
+    }
+
+    // only automatic type mixing: int -> real OR int -> array/
+    // permitted: int, real, (array+vector+matrix(real, int)|same size)
+    // not permitted: boolean, character, tuple, struct, string
+    // TODO: pt2 handle array/vector/matrix element-wise type checking
+    // TODO: pt2 handle int/real -> array/vector/matrix promotion
+    const ValueType illegalTypes[] = {ValueType::BOOL, ValueType::CHARACTER, ValueType::TUPLE, ValueType::STRUCT, ValueType::STRING};
+
+    const ValueType leftOperandType = node->left->type;
+    const ValueType rightOperandType = node->right->type;
+
+    // Ensure both operands legal
+    if (std::find(std::begin(illegalTypes), std::end(illegalTypes), leftOperandType)) {
+        throwOperandError("^", {leftOperandType}, "Illegal left operand");
+    }
+    if (std::find(std::begin(illegalTypes), std::end(illegalTypes), rightOperandType)) {
+        throwOperandError("^", {rightOperandType}, "Illegal right operand");
+    }
+
+    ValueType finalType = promote(leftOperandType, rightOperandType);
+    if (finalType == ValueType::UNKNOWN) {
+        finalType = promote(rightOperandType, leftOperandType);
+    }
+
+    if (finalType == ValueType::UNKNOWN) {
+        throwOperandError("^", {leftOperandType, rightOperandType}, "No promotion possible between operands");
+    }
+
+    node->type = finalType;
+}
+
+void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std::vector<ValueType>& operands, std::string additionalInfo) {
     std::stringstream ss;
     ss << "Semantic Analysis error: Applying operator '" << op << "' to operand";
 
@@ -232,6 +270,10 @@ void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std:
     for (size_t i = 0; i < operands.size(); ++i) {
         ss << "'" << toString(operands[i]) << "'";
         if (i < operands.size() - 1) ss << ", ";
+    }
+
+    if (!additionalInfo.empty()) {
+        ss << "\n" + additionalInfo;
     }
 
     throw std::runtime_error(ss.str());
