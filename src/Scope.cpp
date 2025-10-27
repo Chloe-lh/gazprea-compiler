@@ -36,6 +36,14 @@ const SymbolInfo* Scope::resolve(const std::string& identifier) const {
     return nullptr;
 }
 
+void Scope::leaveStartOfBlock() {
+    this->startOfBlock = false;
+}
+
+bool Scope::isStartOfBlock() {
+    return this->startOfBlock;
+}
+
 Scope* Scope::createChild() {
     children_.push_back(std::make_unique<Scope>(this));
     return children_.back().get();
