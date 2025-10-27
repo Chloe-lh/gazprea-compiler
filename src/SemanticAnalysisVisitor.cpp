@@ -219,7 +219,11 @@ void SemanticAnalysisVisitor::visit(UnaryExpr* node) {
         throw std::runtime_error("Semantic Analysis error: Unknown unary operator '" + node->op + "'.");
     }
 
-    node->type = node->operand->type; // Resulting type == operand type
+    if (op == "not") {
+        node->type = ValueType::BOOL;
+    } else {
+        node->type = node->operand->type; 
+    }    
 }
 
 void SemanticAnalysisVisitor::visit(ExpExpr* node) {
