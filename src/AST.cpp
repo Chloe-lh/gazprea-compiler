@@ -70,3 +70,9 @@ InferredDecNode::InferredDecNode(
     const std::string& qualifier,
     std::unique_ptr<ExprNode> init)
     : name(name), qualifier(qualifier), init(std::move(init)) {}
+
+//statements
+CallStatNode::CallStatNode(
+    const std::string& name,
+    std::vecotr<std::unique_ptr<ExprNode>> args)
+    : name(name), args(args) {}

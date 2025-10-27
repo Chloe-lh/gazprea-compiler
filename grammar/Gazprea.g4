@@ -1,65 +1,90 @@
 grammar Gazprea;
 
-file: .*? EOF;
+file: (dec|func|procedure|type_alias)* EOF;
 
+func
+    : FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS type block       #FunctionBlock
+    | FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS tuple_dec block  #FunctionBlockTupleReturn
+    | FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS type EQ stat     #FunctionStat
+    | FUNCTION ID PARENLEFT (type ID? (COMMA type ID?)*)? PARENRIGHT RETURNS type END       #FunctionPrototype
+    | FUNCTION ID PARENLEFT (type ID? (COMMA type ID?)*)? PARENRIGHT RETURNS tuple_dec END  #FunctionPrototypeTupleReturn
+    ;
+
+procedure: PROCEDURE ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT block;
 
 dec
-    : qualifier? (type|ID) ID (EQ expr)?     #ExplicitTypedDecl //it needs to be type|ID to account for aliases
-    | qualifier ID EQ expr                   #InferredTypeDecl
+    : qualifier? type ID (EQ expr)? END          #ExplicitTypedDec
+    | qualifier ID EQ expr END                   #InferredTypeDec
+    | qualifier? tuple_dec ID (EQ expr)? END     #TupleTypedDec
     ;
 
 stat
-    : ID EQ expr
+    : ID EQ expr END                #AssignStat
+    | expr '->' STD_OUTPUT END      #OutputStat
+    | ID '<-' STD_INPUT  END        #InputStat
+    | BREAK END                     #BreakStat
+    | CONTINUE END                  #ContinueStat
+    | RETURN expr? END              #ReturnStat
+    | CALL ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT END  #CallStat
     ;
 
 type //this should include basic types
     : BOOLEAN
     | CHARACTER
     | INTEGER
+    | REAL
+    | ID
     ;
+
+type_alias
+    : TYPEALIAS ID ID   #BasicTypeAlias
+    | TYPEALIAS tuple_dec ID  #TupleTypeAlias
+    ;
+
 
 expr
-    : PARENLEFT expr PARENRIGHT                #ParenExpr
-    | <assoc=right> (ADD|MINUS) expr           #UnaryExpr
-    | <assoc=right> expr EXP expr              #ExpExpr
-    | expr op=(MULT|DIV|REM) expr              #MultExpr
-    | expr op=(ADD|MINUS) expr                 #AddExpr
-    | expr op=(LT|GT|LTE|GTE) expr             #CompExpr
-    | <assoc=right>NOT expr                    #NotExpr
-    | expr op=(EQ|NE) expr                     #EqExpr
-    | expr AND expr                            #AndExpr
-    | expr op=(OR|XOR) expr                    #OrExpr
-    | TRUE                                     #TrueExpr
-    | FALSE                                    #FalseExpr
-    | CHAR                                     #CharExpr
-    | INT                                      #IntExpr
-    | real                                     #RealExpr
-    | ID                                       #IdExpr
+    : tuple_access                                      #TupleAccessExpr
+    | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr
+    | PARENLEFT expr PARENRIGHT                         #ParenExpr
+    | <assoc=right> (ADD|MINUS) expr                    #UnaryExpr
+    | <assoc=right> expr EXP expr                       #ExpExpr
+    | expr op=(MULT|DIV|REM) expr                       #MultExpr
+    | expr op=(ADD|MINUS) expr                          #AddExpr
+    | expr op=(LT|GT|LTE|GTE) expr                      #CompExpr
+    | <assoc=right>NOT expr                             #NotExpr
+    | expr op=(EQ|NE) expr                              #EqExpr
+    | expr AND expr                                     #AndExpr
+    | expr op=(OR|XOR) expr                             #OrExpr
+    | TRUE                                              #TrueExpr
+    | FALSE                                             #FalseExpr
+    | CHAR                                              #CharExpr
+    | INT                                               #IntExpr
+    | real                                              #RealExpr
+    | tuple_literal                                     #TupleLitExpr
+    | AS '<' type '>' PARENLEFT expr PARENRIGHT         #TypeCastExpr
+    | AS '<' tuple_dec  '>' PARENLEFT expr PARENRIGHT   #TupleTypeCastExpr
+    | ID                                                #IdExpr
     ;
 
-
-tuple_dec:TUPLE PARENLEFT tuple_element PARENRIGHT ID;
-tuple_element: tuple_type (COMMA tuple_type)+;
-// t1.1, t2.4 - starts at one not zero
+tuple_dec: TUPLE PARENLEFT type (COMMA type)+ PARENRIGHT;
+tuple_literal: PARENLEFT expr (COMMA expr)+ PARENRIGHT;
 tuple_access: ID DECIM TUPLE_INT;
-// tuple_expr: 
-// tuple list must contain at least two elements
-// the elements are mutable
-tuple_type
-         : INTEGER
-         | CHARACTER
-         | REAL
-         | 
-         ;
+TUPLE_INT: [1-9][0-9]*;
 
 // declarations must be placed at the start of the block
 block: CURLLEFT dec* stat* CURLRIGHT;
+
+if: IF PARENLEFT expr PARENRIGHT (block|stat) (ELSE (block|stat))?;
+
+loop
+    : LOOP (block|stat) (WHILE PARENLEFT expr PARENRIGHT END)? #LoopDefault
+    | LOOP (WHILE PARENLEFT expr PARENRIGHT) (block|stat) #WhileLoopBlock
+    ;
+
+
 qualifier: VAR //mutable
         | CONST //immutable -  DEFAULT
         ; //annotate AST with mutability flag
-
-// Expression precedence:
-// paren > index > range > mult/div >add/sub > rem/exp > un neg/plus > lt/gt > eq/neq
 
 real
     : FLOAT (UPPER_E|LOWER_E)? (ADD INT | MINUS INT | INT)?
@@ -80,13 +105,11 @@ fragment ESC_SEQ:
     | '\\\\' // Backslash
     ;
 INT: [0-9]+;
-TUPLE_INT: [1-9][0-9]+;
 
 FLOAT
     : INT? DECIM INT // .0
     | INT DECIM INT?; // 32.
 
-ID: [a-zA-Z_][a-zA-Z0-9_]*;
 
 // operators and punctuation
 END: ';';
@@ -158,6 +181,9 @@ VAR: 'var';
 VECTOR: 'vector';
 WHILE: 'while';
 XOR: 'xor';
+STRUCT: 'struct';
+
+ID: [a-zA-Z_][a-zA-Z0-9_]*;
 
 //skip whitespace and comments
 SL_COMMENT: '//'.*? -> skip; 
