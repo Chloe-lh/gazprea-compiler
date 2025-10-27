@@ -1,6 +1,6 @@
 #pragma once
 #include "AST.h"
-#include "VCalcBaseVisitor.h"
+#include "GazpreaBaseVisitor.h"
 
 class ASTVisitor{
     public:
