@@ -245,10 +245,10 @@ void SemanticAnalysisVisitor::visit(ExpExpr* node) {
     const ValueType rightOperandType = node->right->type;
 
     // Ensure both operands legal
-    if (std::find(std::begin(illegalTypes), std::end(illegalTypes), leftOperandType)) {
+    if (std::find(std::begin(illegalTypes), std::end(illegalTypes), leftOperandType) != std::end(illegalTypes)) {
         throwOperandError("^", {leftOperandType}, "Illegal left operand");
     }
-    if (std::find(std::begin(illegalTypes), std::end(illegalTypes), rightOperandType)) {
+    if (std::find(std::begin(illegalTypes), std::end(illegalTypes), rightOperandType) != std::end(illegalTypes)) {
         throwOperandError("^", {rightOperandType}, "Illegal right operand");
     }
 
