@@ -52,7 +52,7 @@ expr
     | expr op=(ADD|MINUS) expr                          #AddExpr
     | expr op=(LT|GT|LTE|GTE) expr                      #CompExpr
     | <assoc=right>NOT expr                             #NotExpr
-    | expr op=(EQ|NE) expr                              #EqExpr
+    | expr op=(EQEQ|NE) expr                            #EqExpr
     | expr AND expr                                     #AndExpr
     | expr op=(OR|XOR) expr                             #OrExpr
     | TRUE                                              #TrueExpr
@@ -125,6 +125,7 @@ GT: '>';
 LTE: '<=';
 GTE: '>=';
 NE:'!=';
+EQEQ: '==';
 EQ: '=';
 
 // for floating point
