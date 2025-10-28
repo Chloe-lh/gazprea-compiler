@@ -1,96 +1,116 @@
 #include "Types.h"
+#include <sstream>
 
-std::string toString(ValueType type) {
+std::string toString(BaseType type) {
     switch (type) {
-        case ValueType::UNKNOWN:    return "unknown";
-        case ValueType::BOOL:       return "boolean";
-        case ValueType::CHARACTER:  return "character";
-        case ValueType::INTEGER:    return "integer";
-        case ValueType::VECTOR:     return "vector";
-        case ValueType::REAL:       return "real";
-        case ValueType::TUPLE:      return "tuple";
-        case ValueType::STRING:     return "string";
-        case ValueType::STRUCT:     return "struct";
-        case ValueType::ARRAY:      return "array";
-        case ValueType::MATRIX:     return "matrix";
+        case BaseType::UNKNOWN:    return "unknown";
+        case BaseType::BOOL:       return "boolean";
+        case BaseType::CHARACTER:  return "character";
+        case BaseType::INTEGER:    return "integer";
+        case BaseType::VECTOR:     return "vector";
+        case BaseType::REAL:       return "real";
+        case BaseType::TUPLE:      return "tuple";
+        case BaseType::STRING:     return "string";
+        case BaseType::STRUCT:     return "struct";
+        case BaseType::ARRAY:      return "array";
+        case BaseType::MATRIX:     return "matrix";
     }
     return "unknown";
+}
+
+std::string toString(const CompleteType& type) {
+    std::ostringstream oss;
+    oss << toString(type.baseType);
+
+    if (!type.subTypes.empty()) {
+        oss << "<";
+        for (size_t i = 0; i < type.subTypes.size(); ++i) {
+            oss << toString(type.subTypes[i]);
+            if (i + 1 < type.subTypes.size()) {
+                oss << ", ";
+            }
+        }
+        oss << ">";
+    }
+
+
+    return oss.str();
 }
 /* TODO pt2
     - handle character array <-> character vector <-> string promotions
 */
-ValueType promote(ValueType from, ValueType to)
+BaseType promote(BaseType from, BaseType to)
 {
     switch (from) {
-        case ValueType::UNKNOWN:
-            return ValueType::UNKNOWN;
+        case BaseType::UNKNOWN:
+            return BaseType::UNKNOWN;
             break;
-        case ValueType::BOOL:
+        case BaseType::BOOL:
             switch(to) {
-                case ValueType::BOOL:       return ValueType::BOOL;
+                case BaseType::BOOL:       return BaseType::BOOL;
 
                 // Implicit promotions
-                case ValueType::ARRAY:      return ValueType::ARRAY;
-                case ValueType::VECTOR:     return ValueType::VECTOR; 
-                case ValueType::MATRIX:     return ValueType::MATRIX;
+                case BaseType::ARRAY:      return BaseType::ARRAY;
+                case BaseType::VECTOR:     return BaseType::VECTOR; 
+                case BaseType::MATRIX:     return BaseType::MATRIX;
             }
             break;
-        case ValueType::CHARACTER:
+        case BaseType::CHARACTER:
             switch (to) {
-                case ValueType::CHARACTER:  return ValueType::CHARACTER; 
+                case BaseType::CHARACTER:  return BaseType::CHARACTER; 
             }
             break;
-        case ValueType::INTEGER:
+        case BaseType::INTEGER:
             switch (to) {
-                case ValueType::INTEGER:    return ValueType::INTEGER; 
-                case ValueType::REAL:       return ValueType::REAL;
+                case BaseType::INTEGER:    return BaseType::INTEGER; 
+                case BaseType::REAL:       return BaseType::REAL;
 
                 // Implicit promotions
-                case ValueType::ARRAY:      return ValueType::ARRAY;
-                case ValueType::VECTOR:     return ValueType::VECTOR; 
-                case ValueType::MATRIX:     return ValueType::MATRIX;
+                case BaseType::ARRAY:      return BaseType::ARRAY;
+                case BaseType::VECTOR:     return BaseType::VECTOR; 
+                case BaseType::MATRIX:     return BaseType::MATRIX;
             }
             break;
-        case ValueType::VECTOR:
+        case BaseType::VECTOR:
             switch (to) {
-                case ValueType::VECTOR:     return ValueType::VECTOR;
+                case BaseType::VECTOR:     return BaseType::VECTOR;
             }
             break;
-        case ValueType::REAL:
+        case BaseType::REAL:
             switch (to) {
-                case ValueType::REAL:       return ValueType::REAL;
+                case BaseType::REAL:       return BaseType::REAL;
 
                 // Implicit promotions
-                case ValueType::ARRAY:      return ValueType::ARRAY;
-                case ValueType::VECTOR:     return ValueType::VECTOR; 
-                case ValueType::MATRIX:     return ValueType::MATRIX;
+                case BaseType::ARRAY:      return BaseType::ARRAY;
+                case BaseType::VECTOR:     return BaseType::VECTOR; 
+                case BaseType::MATRIX:     return BaseType::MATRIX;
             }
             break;
-        case ValueType::TUPLE:
+        case BaseType::TUPLE:
             switch (to) {
-                case ValueType::TUPLE:      return ValueType::TUPLE;    // only valid if same len + internal types are convertible element-wise
+                case BaseType::TUPLE:      return BaseType::TUPLE;    // only valid if same len + internal types are convertible element-wise
             }
             break;
-        case ValueType::STRING:
+        case BaseType::STRING:
             switch (to) {
-                case ValueType::STRING:     return ValueType::STRING;   // not the same as vector<char>. 
+                case BaseType::STRING:     return BaseType::STRING;   // not the same as vector<char>. 
             }
             break;
-        case ValueType::STRUCT:
+        case BaseType::STRUCT:
             switch (to) {
-                case ValueType::STRUCT:     return ValueType::STRUCT;    
+                case BaseType::STRUCT:     return BaseType::STRUCT;    
             }
             break;
-        case ValueType::ARRAY:
+        case BaseType::ARRAY:
             switch (to) {
-                case ValueType::ARRAY:      return ValueType::ARRAY;    // only valid if same len
+                case BaseType::ARRAY:      return BaseType::ARRAY;    // only valid if same len
             }
             break;
-        case ValueType::MATRIX:
+        case BaseType::MATRIX:
             switch (to) {
-                case ValueType::MATRIX:     return ValueType::MATRIX;   // only valid if same len - special case with multiplication.
+                case BaseType::MATRIX:     return BaseType::MATRIX;   // only valid if same len - special case with multiplication.
             }
             break;
     }
-    return ValueType::UNKNOWN;
+    return BaseType::UNKNOWN;
 }
