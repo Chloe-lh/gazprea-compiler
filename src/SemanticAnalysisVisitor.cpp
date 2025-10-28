@@ -271,7 +271,7 @@ void SemanticAnalysisVisitor::visit(MultExpr* node) {
     const std::unordered_map<std::string, std::string> legalOperators = {
         {"*", "multiplication"},
         {"/", "division"},
-        {"%", "remainder"}
+        {"%", "remainder"} // FIXME: Double check what return type is expected for % use with real/ints
     };
 
     if (legalOperators.find(node->op) == legalOperators.end()) {
