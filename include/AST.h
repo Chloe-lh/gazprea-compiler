@@ -9,6 +9,8 @@
 class ASTVisitor;
 //forward declarations
 class TupleDecNode;
+class BlockNode;
+
 
 class ASTNode{ //virtual class
     public:
@@ -71,7 +73,60 @@ public:
     bool isPrototype = false;
     bool isTupleReturn = false;
 };
+
 // function classes
+class FuncBlockNode : public FuncNode {
+    public:
+        FuncBlockNode(
+            const std::string& name,
+            const std::vector<std::pair<std::string, std::string>>& parameters,
+            const std::string& returnType,
+            std::unique_ptr<BlockNode> body
+        );
+        void accept(ASTVisitor& visitor) override;
+};
+
+class FuncBlockTupleReturnNode : public FuncNode {
+    public:
+        FuncBlockTupleReturnNode(
+            const std::string& name,
+            const std::vector<std::pair<std::string, std::string>>& parameters,
+            std::unique_ptr<TupleDecNode> returnTupleType,
+            std::unique_ptr<BlockNode> body
+        );
+        void accept(ASTVisitor& visitor) override;
+};
+
+class FuncStatNode : public FuncNode {
+public:
+    FuncStatNode(
+        const std::string& name,
+        const std::vector<std::pair<std::string, std::string>>& parameters,
+        const std::string& returnType,
+        std::unique_ptr<StatNode> returnStat
+    );
+    void accept(ASTVisitor& visitor) override;
+};
+
+class FuncPrototypeNode : public FuncNode {
+public:
+    FuncPrototypeNode(
+        const std::string& name,
+        const std::vector<std::pair<std::string, std::string>>& parameters,
+        const std::string& returnType
+    );
+    void accept(ASTVisitor& visitor) override;
+};
+
+class FuncPrototypeTupleReturnNode : public FuncNode {
+public:
+    FuncPrototypeTupleReturnNode(
+        const std::string& name,
+        const std::vector<std::pair<std::string, std::string>>& parameters,
+        std::unique_ptr<TupleDecNode> returnTupleType
+    );
+    void accept(ASTVisitor& visitor) override;
+};
 
 // expression classes
 class ParenExpr: public ExprNode {
@@ -116,12 +171,12 @@ class EqExpr: public BinaryExprNode {
 };
 class AndExpr: public BinaryExprNode {
     public:
-        AndExpr(const std::string& op, std::unique_ptr<ExprNode> operand);
+        AndExpr(const std::string& op, std::unique_ptr<ExprNode> l, std::unique_ptr<ExprNode> r);
         void accept(ASTVisitor& visitor)override;
 };
 class OrExpr: public BinaryExprNode {
     public:
-        OrExpr(const std::string& op, std::unique_ptr<ExprNode> operand);
+        OrExpr(const std::string& op, std::unique_ptr<ExprNode> l, std::unique_ptr<ExprNode> r);
         void accept(ASTVisitor& visitor)override;
 };
 class TrueNode: public LiteralExprNode {
@@ -169,8 +224,8 @@ public:
     TypedDecNode(
         const std::string& name,
         const std::string& type_alias,
-        std::unique_ptr<ExprNode> init = nullptr,
-        const std::string& qualifier = ""
+        const std::string& qualifier = "",
+        std::unique_ptr<ExprNode> init = nullptr
     );
     void accept(ASTVisitor& visitor) override;
 };
@@ -195,10 +250,11 @@ class OutputStatNode: public ASTNode{
         OutputStatNode(std::unique_ptr<ExprNode> expr);
         void accept(ASTVisitor& visitor) override;
 };
-class InputStatNode: public ASTNode{
-    public:
-        std::string name;
-        explicit InputStatNode(const std::string& name) value(name);
+class InputStatNode: public StatNode {
+public:
+    std::string name;
+    explicit InputStatNode(const std::string& name) : name(name) {}
+    void accept(ASTVisitor& visitor) override;
 };
 class BreakStatNode: public ASTNode{
     public:
@@ -215,19 +271,123 @@ class ReturnStatNode: public ASTNode{
         ReturnStatNode() = default;
         void accept(ASTVisitor& visitor) override;
 };
-class CallStatNode{
-    public:
-        std::string funcName;
-        std::vector<std::unique_ptr<ExprNode>> args;
-        CallStatNode(const std::string& funcName, std::vector<std::unique_ptr<ExprNode>> args)
-        void accept(ASTVisitor& visitor) override;
+class CallStatNode : public ASTNode {
+public:
+    std::string funcName;
+    std::vector<std::unique_ptr<ExprNode>> args;
+    CallStatNode(const std::string& funcName, std::vector<std::unique_ptr<ExprNode>> args);
+    void accept(ASTVisitor& visitor) override;
 };
 
+class IfNode : public StatNode {
+public:
+    std::unique_ptr<ExprNode> condition;
+    std::unique_ptr<BlockNode> thenBlock;
+    std::unique_ptr<BlockNode> elseBlock; // optional
+    IfNode(std::unique_ptr<ExprNode> condition,
+           std::unique_ptr<BlockNode> thenBlock,
+           std::unique_ptr<BlockNode> elseBlock = nullptr)
+        : condition(std::move(condition)),
+          thenBlock(std::move(thenBlock)),
+          elseBlock(std::move(elseBlock)) {}
+    void accept(ASTVisitor& visitor) override;
+};
+
+class LoopNode : public StatNode {
+public:
+    std::unique_ptr<BlockNode> body;
+    std::unique_ptr<ExprNode> condition; // optional (for while)
+    LoopNode(std::unique_ptr<BlockNode> body,
+             std::unique_ptr<ExprNode> condition = nullptr)
+        : body(std::move(body)), condition(std::move(condition)) {}
+    void accept(ASTVisitor& visitor) override;
+};
+
+class BlockNode : public ASTNode {
+    public:
+        std::vector<std::unique_ptr<DecNode>> decs;
+        std::vector<std::unique_ptr<StatNode>> stats;
+
+        BlockNode(
+            std::vector<std::unique_ptr<DecNode>> declarations,
+            std::vector<std::unique_ptr<StatNode>> statements
+        )
+            : decs(std::move(declarations)), stats(std::move(statements)) {}
+        void accept(ASTVisitor& visitor) override;
+};
 class FileNode : public ASTNode {
     public:
         explicit FileNode();
         void accept(ASTVisitor& visitor) override;
 };
+
+class ProcedureNode : public ASTNode {
+public:
+    std::string name;
+    std::vector<std::pair<std::string, std::string>> parameters;
+    std::unique_ptr<BlockNode> body;
+    ProcedureNode(
+        const std::string& name,
+        const std::vector<std::pair<std::string, std::string>>& parameters,
+        std::unique_ptr<BlockNode> body
+    );
+    void accept(ASTVisitor& visitor) override;
+};
+
+class TypeAliasNode : public ASTNode {
+public:
+    std::string aliasName;
+    std::string typeName;
+    TypeAliasNode(const std::string& aliasName, const std::string& typeName);
+    void accept(ASTVisitor& visitor) override;
+};
+
+class TupleTypeAliasNode : public ASTNode {
+public:
+    std::string aliasName;
+    std::unique_ptr<TupleDecNode> tupleType;
+    TupleTypeAliasNode(const std::string& aliasName, std::unique_ptr<TupleDecNode> tupleType);
+    void accept(ASTVisitor& visitor) override;
+};
+
+class TupleLiteralNode : public ExprNode {
+public:
+    std::vector<std::unique_ptr<ExprNode>> elements;
+    TupleLiteralNode(std::vector<std::unique_ptr<ExprNode>> elements);
+    void accept(ASTVisitor& visitor) override;
+};
+
+class TupleAccessNode : public ExprNode {
+public:
+    std::string tupleName;
+    int index;
+    TupleAccessNode(const std::string& tupleName, int index);
+    void accept(ASTVisitor& visitor) override;
+};
+
+class TypeCastNode : public ExprNode {
+public:
+    std::string targetType;
+    std::unique_ptr<ExprNode> expr;
+    TypeCastNode(const std::string& targetType, std::unique_ptr<ExprNode> expr);
+    void accept(ASTVisitor& visitor) override;
+};
+
+class TupleTypeCastNode : public ExprNode {
+public:
+    std::unique_ptr<TupleDecNode> targetTupleType;
+    std::unique_ptr<ExprNode> expr;
+    TupleTypeCastNode(std::unique_ptr<TupleDecNode> targetTupleType, std::unique_ptr<ExprNode> expr);
+    void accept(ASTVisitor& visitor) override;
+};
+
+class RealNode : public LiteralExprNode {
+public:
+    double value;
+    explicit RealNode(double value);
+    void accept(ASTVisitor& visitor) override;
+};
+
 
 
 
