@@ -78,11 +78,11 @@ TupleDecNode::TupleDecNode(const std::string& name, std::vector<std::string>& ty
     : DecNode(), elementTypes(types) { this->name = name; }
 TypedDecNode::TypedDecNode(
     const std::string& name,
-    const std::string& type_alias,
+    std::unique_ptr<TypeAliasNode> type_alias,
     const std::string& qualifier,
     std::unique_ptr<ExprNode> init
 )
-: DecNode(), type_alias(type_alias), qualifier(qualifier), init(std::move(init)) { this->name = name; }
+: DecNode(), type_alias(std::move(type_alias)), qualifier(qualifier), init(std::move(init)) { this->name = name; }
 InferredDecNode::InferredDecNode(
     const std::string& name,
     const std::string& qualifier,
@@ -97,7 +97,7 @@ CallStatNode::CallStatNode(const std::string& funcName, std::vector<std::unique_
 ProcedureNode::ProcedureNode(const std::string& name,
     const std::vector<std::pair<std::string, std::string>>& parameters,
     std::unique_ptr<BlockNode> body)
-    : name(name), parameters(parameters), body(std::move(body)) {}
+    : name(name), params(parameters), body(std::move(body)) {}
 void ProcedureNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 
 TypeAliasNode::TypeAliasNode(const std::string& aliasName, const std::string& typeName)
