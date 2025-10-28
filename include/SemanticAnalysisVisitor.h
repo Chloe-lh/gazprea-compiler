@@ -2,8 +2,12 @@
 #include "AST.h"
 #include "Scope.h"
 #include <unordered_map>
+#include <algorithm>
+#include <sstream>
+#include <set>
+#include <iterator>
 
-class SemanticAnalysisVisitor: ASTVisitor {
+class SemanticAnalysisVisitor: public ASTVisitor {
     public:
         void visit(FileNode* node) override;
         void visit(CondNode* node) override;
@@ -31,6 +35,7 @@ class SemanticAnalysisVisitor: ASTVisitor {
         void visit(UnaryExpr* node) override;   // unary+, unary-, not
         void visit(ExpExpr* node) override;     // ^
         void visit(MultExpr* node) override;    // *,/,%
+        void visit(AddExpr* node) override;     // +, -
 
     private:
         // Persistent scope tree and context index

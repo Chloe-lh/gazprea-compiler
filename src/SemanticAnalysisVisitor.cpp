@@ -308,6 +308,45 @@ void SemanticAnalysisVisitor::visit(MultExpr* node) {
     node->type = finalType;
 }
 
+void SemanticAnalysisVisitor::visit(AddExpr* node) {
+    node->left->accept(*this);
+    node->right->accept(*this);
+
+    std::set<std::string> legalOperators = {"+", "-"};
+
+    if (legalOperators.find(node->op) == legalOperators.end()) {
+        throw std::runtime_error("Semantic Analysis error: unexpected operator in add/sub node '" + node->op + "'.");
+    }
+
+    // only automatic type mixing: int -> real OR int -> array/
+    // permitted: int, real, (array+vector+matrix(real, int)|same size)
+    // not permitted: boolean, character, tuple, struct, string
+    // TODO: pt2 handle array/vector/matrix element-wise type checking
+    // TODO: pt2 handle int/real -> array/vector/matrix promotion.
+    const ValueType illegalTypes[] = {ValueType::BOOL, ValueType::CHARACTER, ValueType::TUPLE, ValueType::STRUCT, ValueType::STRING};
+    const ValueType leftOperandType = node->left->type;
+    const ValueType rightOperandType = node->right->type;
+
+    // Ensure both operands legal
+    if (std::find(std::begin(illegalTypes), std::end(illegalTypes), leftOperandType) != std::end(illegalTypes)) {
+        throwOperandError(node->op, {leftOperandType}, "Illegal left operand");
+    }
+    if (std::find(std::begin(illegalTypes), std::end(illegalTypes), rightOperandType) != std::end(illegalTypes)) {
+        throwOperandError(node->op, {rightOperandType}, "Illegal right operand");
+    }
+
+    ValueType finalType = promote(leftOperandType, rightOperandType);
+    if (finalType == ValueType::UNKNOWN) {
+        finalType = promote(rightOperandType, leftOperandType);
+    }
+
+    if (finalType == ValueType::UNKNOWN) {
+        throwOperandError(node->op, {leftOperandType, rightOperandType}, "No promotion possible between operands");
+    }
+
+    node->type = finalType;
+}
+
 void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std::vector<ValueType>& operands, std::string additionalInfo) {
     std::stringstream ss;
     ss << "Semantic Analysis error: Applying operator '" << op << "' to operand";
