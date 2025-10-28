@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 #include <utility>
+#include "Types.h"
 
 //abstract class that is extended by the different passes in the pipeline
 class ASTVisitor;
@@ -14,6 +15,7 @@ class ASTNode{ //virtual class
         // type
         virtual ~ASTNode() = default;
         virtual void accept(ASTVisitor& visitor) = 0;
+        ValueType type = ValueType::UNKNOWN;
 };
 // super classes
 class DecNode: public ASTNode{
