@@ -16,7 +16,9 @@ std::string toString(ValueType type) {
     }
     return "unknown";
 }
-
+/* TODO pt2
+    - handle character array <-> character vector <-> string promotions
+*/
 ValueType promote(ValueType from, ValueType to)
 {
     switch (from) {
@@ -31,6 +33,11 @@ ValueType promote(ValueType from, ValueType to)
                 case ValueType::ARRAY:      return ValueType::ARRAY;
                 case ValueType::VECTOR:     return ValueType::VECTOR; 
                 case ValueType::MATRIX:     return ValueType::MATRIX;
+            }
+            break;
+        case ValueType::CHARACTER:
+            switch (to) {
+                case ValueType::CHARACTER:  return ValueType::CHARACTER; 
             }
             break;
         case ValueType::INTEGER:
@@ -61,7 +68,27 @@ ValueType promote(ValueType from, ValueType to)
             break;
         case ValueType::TUPLE:
             switch (to) {
-                case ValueType::TUPLE:      return ValueType::TUPLE;    // only if same len + internal types are convertible element-wise
+                case ValueType::TUPLE:      return ValueType::TUPLE;    // only valid if same len + internal types are convertible element-wise
+            }
+            break;
+        case ValueType::STRING:
+            switch (to) {
+                case ValueType::STRING:     return ValueType::STRING;   // not the same as vector<char>. 
+            }
+            break;
+        case ValueType::STRUCT:
+            switch (to) {
+                case ValueType::STRUCT:     return ValueType::STRUCT;    
+            }
+            break;
+        case ValueType::ARRAY:
+            switch (to) {
+                case ValueType::ARRAY:      return ValueType::ARRAY;    // only valid if same len
+            }
+            break;
+        case ValueType::MATRIX:
+            switch (to) {
+                case ValueType::MATRIX:     return ValueType::MATRIX;   // only valid if same len - special case with multiplication.
             }
             break;
     }
