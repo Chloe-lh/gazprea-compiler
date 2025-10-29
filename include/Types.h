@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <variant>
+#include <assert.h>
 
 // Base Types
 enum class BaseType {
@@ -10,13 +11,29 @@ enum class BaseType {
     BOOL,
     CHARACTER,
     INTEGER,
-    VECTOR,
     REAL,
     TUPLE,
+    VECTOR,
     STRING,
     STRUCT,
     MATRIX,
     ARRAY
+};
+
+BaseType flatTypes[] = {
+    BaseType::BOOL,
+    BaseType::CHARACTER,
+    BaseType::INTEGER,
+    BaseType::REAL
+};
+
+BaseType compositionTypes[] = {
+    BaseType::TUPLE,
+    BaseType::VECTOR,
+    BaseType::STRING,
+    BaseType::STRUCT,
+    BaseType::MATRIX,
+    BaseType::ARRAY
 };
 
 struct CompleteType {
@@ -36,3 +53,8 @@ std::string toString(BaseType type);
 std::string toString(const CompleteType& type);
 
 BaseType promote(BaseType from, BaseType to);
+
+// Promote a full type, including nested subtypes. Returns UNKNOWN on failure.
+CompleteType promote(const CompleteType& from, const CompleteType& to);
+
+void validateSubtypes(CompleteType completeType);
