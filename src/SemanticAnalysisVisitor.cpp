@@ -431,16 +431,6 @@ void SemanticAnalysisVisitor::visit(EqExpr* node) {
         throwOperandError(node->op, {leftOperandType, rightOperandType}, "No promotion possible between operands");
     }
 
-    // Handle element-wise tuple checks
-    if (finalType.baseType == BaseType::TUPLE) {
-        auto* leftTuple = dynamic_cast<TupleLiteralNode*>(node->left.get());
-        auto* rightTuple = dynamic_cast<TupleLiteralNode*>(node->right.get());
-
-        if (!(leftTuple && rightTuple)) {
-            throwOperandError(node->op, {BaseType::TUPLE, BaseType::TUPLE}, "Failed to narrow Expr cast to Tuple literals");
-        }
-    }
-
     node->type = BaseType::BOOL;
 }
 
