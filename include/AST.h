@@ -71,8 +71,17 @@ public:
     std::unique_ptr<TupleDecNode> returnTupleType; // optional
     std::unique_ptr<BlockNode> body; // optional
     std::unique_ptr<StatNode> returnStat; // optional
-    bool isPrototype = false;
-    bool isTupleReturn = false;
+
+    FuncNode(
+        const std::string& name,
+        const std::vector<std::pair<std::string, std::string>>& parameters,
+        const std::string& returnType = "",
+        std::unique_ptr<TupleDecNode> returnTupleType = nullptr,
+        std::unique_ptr<BlockNode> body = nullptr,
+        std::unique_ptr<StatNode> returnStat = nullptr
+    ) : name(name), parameters(parameters), returnType(returnType),
+        returnTupleType(std::move(returnTupleType)), body(std::move(body)),
+        returnStat(std::move(returnStat)) {}
 };
 
 // function classes
