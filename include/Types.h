@@ -43,6 +43,14 @@ struct CompleteType {
     CompleteType(BaseType baseType) : baseType(baseType) {}
     CompleteType(BaseType baseType, std::vector<CompleteType> subTypes)
         : baseType(baseType), subTypes(std::move(subTypes)) {}
+
+
+    bool operator==(const CompleteType& other) const noexcept {
+        return baseType == other.baseType && subTypes == other.subTypes;
+    }
+    bool operator!=(const CompleteType& other) const noexcept {
+        return !(*this == other);
+    }
 };
 
 // Stringify base types (primitive kind only)
