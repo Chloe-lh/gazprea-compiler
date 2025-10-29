@@ -315,9 +315,10 @@ class BlockNode : public ASTNode {
         void accept(ASTVisitor& visitor) override;
 };
 class FileNode : public ASTNode {
-    public:
-        explicit FileNode();
-        void accept(ASTVisitor& visitor) override;
+public:
+    std::vector<std::unique_ptr<ASTNode>> stats;
+    explicit FileNode(std::vector<std::unique_ptr<ASTNode>> stats) : stats(std::move(stats)) {}
+    void accept(ASTVisitor& visitor) override;
 };
 
 class ProcedureNode : public ASTNode {
