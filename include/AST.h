@@ -10,6 +10,7 @@ class ASTVisitor;
 //forward declarations
 class TupleDecNode;
 class BlockNode;
+class TypeAliasNode;
 
 
 class ASTNode{ //virtual class
@@ -219,11 +220,11 @@ class TupleDecNode : public DecNode {
 class TypedDecNode : public DecNode {
 public:
     std::string qualifier; // optional
-    std::string type_alias; // type OR alias
+    std::unique_ptr<TypeAliasNode> type_alias; // type OR alias
     std::unique_ptr<ExprNode> init; // optional initializer
     TypedDecNode(
         const std::string& name,
-        const std::string& type_alias,
+        std::unique_ptr<TypeAliasNode> type_alias,
         const std::string& qualifier = "",
         std::unique_ptr<ExprNode> init = nullptr
     );
@@ -281,13 +282,13 @@ public:
 
 class IfNode : public StatNode {
 public:
-    std::unique_ptr<ExprNode> condition;
+    std::unique_ptr<ExprNode> cond;
     std::unique_ptr<BlockNode> thenBlock;
     std::unique_ptr<BlockNode> elseBlock; // optional
     IfNode(std::unique_ptr<ExprNode> condition,
            std::unique_ptr<BlockNode> thenBlock,
            std::unique_ptr<BlockNode> elseBlock = nullptr)
-        : condition(std::move(condition)),
+        : cond(std::move(condition)),
           thenBlock(std::move(thenBlock)),
           elseBlock(std::move(elseBlock)) {}
     void accept(ASTVisitor& visitor) override;
@@ -296,10 +297,10 @@ public:
 class LoopNode : public StatNode {
 public:
     std::unique_ptr<BlockNode> body;
-    std::unique_ptr<ExprNode> condition; // optional (for while)
+    std::unique_ptr<ExprNode> cond; // optional (for while)
     LoopNode(std::unique_ptr<BlockNode> body,
-             std::unique_ptr<ExprNode> condition = nullptr)
-        : body(std::move(body)), condition(std::move(condition)) {}
+             std::unique_ptr<ExprNode> cond= nullptr)
+        : body(std::move(body)), cond(std::move(cond)) {}
     void accept(ASTVisitor& visitor) override;
 };
 
@@ -324,11 +325,11 @@ class FileNode : public ASTNode {
 class ProcedureNode : public ASTNode {
 public:
     std::string name;
-    std::vector<std::pair<std::string, std::string>> parameters;
+    std::vector<std::pair<std::string, std::string>> params;
     std::unique_ptr<BlockNode> body;
     ProcedureNode(
         const std::string& name,
-        const std::vector<std::pair<std::string, std::string>>& parameters,
+        const std::vector<std::pair<std::string, std::string>>& params,
         std::unique_ptr<BlockNode> body
     );
     void accept(ASTVisitor& visitor) override;
