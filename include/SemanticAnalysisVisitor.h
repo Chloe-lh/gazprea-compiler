@@ -10,6 +10,9 @@
 class SemanticAnalysisVisitor: public ASTVisitor {
     public:
         void visit(FileNode* node) override;
+        void visit(BlockNode* node) override;
+
+        void visit(FuncBlockNode* node) override;
 
         // Operators
         void visit(UnaryExpr* node) override;   // unary+, unary-, not

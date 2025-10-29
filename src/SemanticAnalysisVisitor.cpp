@@ -6,9 +6,30 @@ void SemanticAnalysisVisitor::visit(FileNode* node) {
     current_ = nullptr;
     enterScopeFor(node);
 
-    for (std::shared_ptr<ASTNode> statNode: node->statements) {
-        statNode->accept(*this);
+    for (const auto& line: node->stats) {
+        line->accept(*this);
     }
+
+    exitScope();
+}
+
+void SemanticAnalysisVisitor::visit(BlockNode* node) {
+    // Init and enter block scope
+    enterScopeFor(node);
+
+    for (const auto& line: node->stats) {
+        line->accept(*this);
+    }
+
+    exitScope();
+}
+
+void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
+    // Init and enter block scope
+    enterScopeFor(node);
+
+
+    exitScope();
 }
 
 /* TODO pt2
