@@ -46,7 +46,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         Scope* current_ = nullptr;
         std::unordered_map<const ASTNode*, Scope*> scopeByCtx_;
 
-        void throwOperandError(const std::string op, const std::vector<ValueType>& operands, std::string additionalInfo);
+        void throwOperandError(const std::string op, const std::vector<CompleteType>& operands, std::string additionalInfo);
 
         void enterScopeFor(const ASTNode* ownerCtx);
         void exitScope();

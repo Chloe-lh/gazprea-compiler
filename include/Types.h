@@ -20,14 +20,14 @@ enum class BaseType {
     ARRAY
 };
 
-BaseType flatTypes[] = {
+inline constexpr BaseType flatTypes[] = {
     BaseType::BOOL,
     BaseType::CHARACTER,
     BaseType::INTEGER,
     BaseType::REAL
 };
 
-BaseType compositionTypes[] = {
+inline constexpr BaseType compositeTypes[] = {
     BaseType::TUPLE,
     BaseType::VECTOR,
     BaseType::STRING,
