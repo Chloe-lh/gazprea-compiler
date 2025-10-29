@@ -11,7 +11,9 @@ void SemanticAnalysisVisitor::visit(FileNode* node) {
     }
 }
 
-
+/* TODO pt2
+    - check element-wise types for arrays, vectors, matrices
+*/
 void SemanticAnalysisVisitor::visit(UnaryExpr* node) {
     node->operand->accept(*this); // eval operand type
 
@@ -29,8 +31,6 @@ void SemanticAnalysisVisitor::visit(UnaryExpr* node) {
             throwOperandError(op, {node->operand->type}, "");
         }
 
-        // TODO pt2: check element-wise types for arrays, vectors, matrices
-
     } else if (op == "not") {
         // Not permitted: character, int, real, tuple, struct, string
         // permitted: bool, arrays(bool), vector(bool), matrices(bool)
@@ -40,7 +40,6 @@ void SemanticAnalysisVisitor::visit(UnaryExpr* node) {
             throwOperandError(op, {node->operand->type}, "");
         }
 
-        // TODO pt2: check element-wise types for arrays, vectors, matrices
     } else {
         throw std::runtime_error("Semantic Analysis error: Unknown unary operator '" + node->op + "'.");
     }
@@ -52,6 +51,10 @@ void SemanticAnalysisVisitor::visit(UnaryExpr* node) {
     }    
 }
 
+/* TODO pt2
+    - handle array/vector/matrix element-wise type + len checking
+    - handle int/real -> array/vector/matrix promotion
+*/
 void SemanticAnalysisVisitor::visit(ExpExpr* node) {
     node->left->accept(*this);
     node->right->accept(*this);
@@ -63,8 +66,6 @@ void SemanticAnalysisVisitor::visit(ExpExpr* node) {
     // only automatic type mixing: int -> real OR int -> array/
     // permitted: int, real, (array+vector+matrix(real, int)|same size)
     // not permitted: boolean, character, tuple, struct, string
-    // TODO: pt2 handle array/vector/matrix element-wise type + len checking
-    // TODO: pt2 handle int/real -> array/vector/matrix promotion
     const BaseType illegalTypes[] = {BaseType::BOOL, BaseType::CHARACTER, BaseType::TUPLE, BaseType::STRUCT, BaseType::STRING};
 
     const CompleteType& leftOperandType = node->left->type;
@@ -90,6 +91,10 @@ void SemanticAnalysisVisitor::visit(ExpExpr* node) {
     node->type = finalType;
 }
 
+/* TODO pt2
+    - handle array/vector/matrix element-wise type + len checking. Note matrix mult. requires a special check
+    - pt2 handle int/real -> array/vector promotion. ONLY promote to matrix if square.
+*/
 void SemanticAnalysisVisitor::visit(MultExpr* node) {
     node->left->accept(*this);
     node->right->accept(*this);
@@ -107,8 +112,6 @@ void SemanticAnalysisVisitor::visit(MultExpr* node) {
     // only automatic type mixing: int -> real OR int -> array/
     // permitted: int, real, (array+vector+matrix(real, int)|same size)
     // not permitted: boolean, character, tuple, struct, string
-    // TODO: pt2 handle array/vector/matrix element-wise type + len checking. Note matrix mult. requires a special check
-    // TODO: pt2 handle int/real -> array/vector promotion. ONLY promote to matrix if square.
     const BaseType illegalTypes[] = {BaseType::BOOL, BaseType::CHARACTER, BaseType::TUPLE, BaseType::STRUCT, BaseType::STRING};
 
     const CompleteType& leftOperandType = node->left->type;
@@ -134,6 +137,10 @@ void SemanticAnalysisVisitor::visit(MultExpr* node) {
     node->type = finalType;
 }
 
+/* TODO pt2
+    - handle array/vector/matrix element-wise type + len checking
+    - pt2 handle int/real -> array/vector/matrix promotion.
+*/
 void SemanticAnalysisVisitor::visit(AddExpr* node) {
     node->left->accept(*this);
     node->right->accept(*this);
@@ -147,8 +154,6 @@ void SemanticAnalysisVisitor::visit(AddExpr* node) {
     // only automatic type mixing: int -> real OR int -> array/
     // permitted: int, real, (array+vector+matrix(real, int)|same size)
     // not permitted: boolean, character, tuple, struct, string
-    // TODO: pt2 handle array/vector/matrix element-wise type + len checking
-    // TODO: pt2 handle int/real -> array/vector/matrix promotion.
     const BaseType illegalTypes[] = {BaseType::BOOL, BaseType::CHARACTER, BaseType::TUPLE, BaseType::STRUCT, BaseType::STRING};
     const CompleteType& leftOperandType = node->left->type;
     const CompleteType& rightOperandType = node->right->type;
@@ -174,8 +179,8 @@ void SemanticAnalysisVisitor::visit(AddExpr* node) {
 }
 
 /* TODO pt2
-- handle array/vector/matrix element-wise type + len checking. These should return compositeType<boolean>
-- handle int/real -> array/vector/matrix promotion.
+    - handle array/vector/matrix element-wise type + len checking. These should return compositeType<boolean>
+    - handle int/real -> array/vector/matrix promotion.
 */
 void SemanticAnalysisVisitor::visit(CompExpr* node) {
     node->left->accept(*this);
@@ -218,6 +223,11 @@ void SemanticAnalysisVisitor::visit(CompExpr* node) {
     }
 }
 
+/* TODO pt2
+    - handle array/vector/matrix + tuple + element-wise type + len checking. Note that this operator yields true iff all elements of array/vector/matrix type are equal.
+    - handle int/real -> array/vector/matrix promotion.
+    - handle error throw when struct types mismatch
+*/
 void SemanticAnalysisVisitor::visit(EqExpr* node) {
    node->left->accept(*this);
     node->right->accept(*this);
@@ -231,11 +241,6 @@ void SemanticAnalysisVisitor::visit(EqExpr* node) {
     // only automatic type mixing: int -> real OR int -> array/
     // permitted: boolean,character, int, real, tuple, struct, (array+vector+matrix(real, int)|same size), string
     // not permitted: nothing
-    /* TODO pt2
-        - handle array/vector/matrix + tuple + element-wise type + len checking. Note that this operator yields true iff all elements of array/vector/matrix type are equal.
-        - handle int/real -> array/vector/matrix promotion.
-        - handle error throw when struct types mismatch
-    */
     const BaseType illegalTypes[] = {BaseType::BOOL, BaseType::CHARACTER, BaseType::TUPLE, BaseType::STRUCT, BaseType::STRING};
     const CompleteType& leftOperandType = node->left->type;
     const CompleteType& rightOperandType = node->right->type;
