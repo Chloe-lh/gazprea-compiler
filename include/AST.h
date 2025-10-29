@@ -17,7 +17,7 @@ class ASTNode{ //virtual class
         // type
         virtual ~ASTNode() = default;
         virtual void accept(ASTVisitor& visitor) = 0;
-        ValueType type = ValueType::UNKNOWN;
+        CompleteType type = CompleteType(BaseType::UNKNOWN);
 };
 // super classes
 class DecNode: public ASTNode{
