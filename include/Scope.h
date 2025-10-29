@@ -9,19 +9,20 @@
 
 struct SymbolInfo {
     std::string identifier;
-    ValueType type;
+    CompleteType type;
+    bool isConst;
 };
 
 class Scope {
 public:
     explicit Scope(Scope* parent = nullptr);
 
-    bool declare(const std::string& identifier, ValueType type);
+    bool declare(const std::string& identifier, CompleteType type, bool isConst);
 
     SymbolInfo* resolve(const std::string& identifier);
     const SymbolInfo* resolve(const std::string& identifier) const;
-    void leaveStartOfBlock(); // For ensuring declrs are at the top of each block
-    bool isStartOfBlock();
+    void disableDeclarations(); // For ensuring declrs are at the top of each block
+    bool isDeclarationAllowed();
 
     Scope* parent() const { return parent_; }
     const std::unordered_map<std::string, SymbolInfo>& symbols() const { return symbols_; }
@@ -38,5 +39,5 @@ private:
     std::unordered_map<std::string, SymbolInfo> symbols_;
     Scope* parent_;
     std::vector<std::unique_ptr<Scope>> children_;
-    bool startOfBlock = true;
+    bool declarationAllowed = true;
 };

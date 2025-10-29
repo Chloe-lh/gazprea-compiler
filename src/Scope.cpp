@@ -5,12 +5,12 @@
 
 Scope::Scope(Scope* parent) : parent_(parent) {}
 
-bool Scope::declare(const std::string& identifier, ValueType type) {
+bool Scope::declare(const std::string& identifier, CompleteType type, bool isConst) {
     if (symbols_.find(identifier) != symbols_.end()) {
         return false;
     }
 
-    symbols_.emplace(identifier, SymbolInfo{identifier, type});
+    symbols_.emplace(identifier, SymbolInfo{identifier, type, isConst});
     return true;
 }
 
@@ -36,12 +36,12 @@ const SymbolInfo* Scope::resolve(const std::string& identifier) const {
     return nullptr;
 }
 
-void Scope::leaveStartOfBlock() {
-    this->startOfBlock = false;
+void Scope::disableDeclarations() {
+    this->declarationAllowed = false;
 }
 
-bool Scope::isStartOfBlock() {
-    return this->startOfBlock;
+bool Scope::isDeclarationAllowed() {
+    return this->declarationAllowed;
 }
 
 Scope* Scope::createChild() {
