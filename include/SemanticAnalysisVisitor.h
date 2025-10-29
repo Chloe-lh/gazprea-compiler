@@ -39,6 +39,9 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         void visit(CompExpr* node) override;    // <, >, <=, >=
         void visit(EqExpr* node) override;      // ==, !=
         void visit(AndExpr* node) override;     // and
+        void visit(OrExpr* node) override;      // or, xor
+
+
 
     private:
         // Persistent scope tree and context index

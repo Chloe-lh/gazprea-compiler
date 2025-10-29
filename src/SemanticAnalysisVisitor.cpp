@@ -434,6 +434,41 @@ void SemanticAnalysisVisitor::visit(EqExpr* node) {
     node->type = BaseType::BOOL;
 }
 
+void SemanticAnalysisVisitor::visit(AndExpr* node) {
+    node->left->accept(*this);
+    node->right->accept(*this);
+
+    if (node->op != "and") {
+        throw std::runtime_error("Semantic Analysis error: unexpected operator in 'and' node '" + node->op + "'.");
+    }
+
+    const CompleteType& leftOperandType = node->left->type;
+    const CompleteType& rightOperandType = node->right->type;
+    if (leftOperandType.baseType != BaseType::BOOL || rightOperandType.baseType != BaseType::BOOL) {
+        throwOperandError(node->op, {leftOperandType, rightOperandType}, "Illegal operand(s) in 'and' expr.");
+    }
+
+    node->type = BaseType::BOOL;
+}
+
+void SemanticAnalysisVisitor::visit(OrExpr* node) {
+    node->left->accept(*this);
+    node->right->accept(*this);
+
+    std::set<std::string> legalOperators = {"or", "xor"};
+    if (legalOperators.find(node->op) == std::end(legalOperators)) {
+        throw std::runtime_error("Semantic Analysis error: unexpected operator in or/xor node '" + node->op + "'.");
+    }
+
+    const CompleteType& leftOperandType = node->left->type;
+    const CompleteType& rightOperandType = node->right->type;
+    if (leftOperandType.baseType != BaseType::BOOL || rightOperandType.baseType != BaseType::BOOL) {
+        throwOperandError(node->op, {leftOperandType, rightOperandType}, "Illegal operand(s) in or/xor expr.");
+    }
+
+    node->type = BaseType::BOOL;
+}
+
 void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std::vector<CompleteType>& operands, std::string additionalInfo) {
     std::stringstream ss;
     ss << "Semantic Analysis error: Applying operator '" << op << "' to operand";
