@@ -22,7 +22,7 @@ std::string toString(const CompleteType& type) {
     std::ostringstream oss;
     oss << toString(type.baseType);
 
-    if (std::find(std::begin(flatTypes), std::end(flatTypes), type.baseType) != std::end(flatTypes)) {
+    if (std::find(std::begin(compositeTypes), std::end(compositeTypes), type.baseType) != std::end(compositeTypes)) {
         oss << "<";
         for (size_t i = 0; i < type.subTypes.size(); ++i) {
             oss << toString(type.subTypes[i]);
@@ -208,10 +208,10 @@ void validateSubtypes(CompleteType completeType) {
     if (std::find(std::begin(flatTypes), std::end(flatTypes), completeType.baseType) != std::end(flatTypes)) {
 
         if (!completeType.subTypes.empty()) {
-            throw std::runtime_error("Semantic Validation: Non-compositional type of '" + toString(completeType.baseType) + "' cannot have subtypes.");
+            throw std::runtime_error("Semantic Validation: Non-composite type of '" + toString(completeType.baseType) + "' cannot have subtypes.");
         }
 
-    } else { // Compositional type validation
+    } else { // composite type validation
         if (completeType.baseType == BaseType::TUPLE && completeType.subTypes.size() < 2) {
             throw std::runtime_error("Semantic Validation: Tuple must have at least 2 subtypes.");
         }
