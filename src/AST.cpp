@@ -35,12 +35,13 @@ void IntNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void RealNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 
 // Declarations
-void TupleDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
+void TupleTypeNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
+void TupleTypedDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
+
 void TypedDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void InferredDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 
 // Functions
-void FuncBlockNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void FuncBlockTupleReturnNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void FuncStatNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void FuncPrototypeNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
@@ -71,52 +72,51 @@ void TupleTypeCastNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 // ─────────────────────────────────────────────────────────────
 
 // Expressions
-UnaryExpr::UnaryExpr(const std::string& op, std::unique_ptr<ExprNode> operand)
+UnaryExpr::UnaryExpr(const std::string& op, std::shared_ptr<ExprNode> operand)
     : UnaryExprNode(op, std::move(operand)) {}
 
-ExpExpr::ExpExpr(const std::string& op, std::unique_ptr<ExprNode> left, std::unique_ptr<ExprNode> right)
+ExpExpr::ExpExpr(const std::string& op, std::shared_ptr<ExprNode> left, std::shared_ptr<ExprNode> right)
     : BinaryExprNode(op, std::move(left), std::move(right)) {}
 
-MultExpr::MultExpr(const std::string& op, std::unique_ptr<ExprNode> left, std::unique_ptr<ExprNode> right)
+MultExpr::MultExpr(const std::string& op, std::shared_ptr<ExprNode> left, std::shared_ptr<ExprNode> right)
     : BinaryExprNode(op, std::move(left), std::move(right)) {}
 
-AddExpr::AddExpr(const std::string& op, std::unique_ptr<ExprNode> left, std::unique_ptr<ExprNode> right)
+AddExpr::AddExpr(const std::string& op, std::shared_ptr<ExprNode> left, std::shared_ptr<ExprNode> right)
     : BinaryExprNode(op, std::move(left), std::move(right)) {}
 
-CompExpr::CompExpr(const std::string& op, std::unique_ptr<ExprNode> left, std::unique_ptr<ExprNode> right)
+CompExpr::CompExpr(const std::string& op, std::shared_ptr<ExprNode> left, std::shared_ptr<ExprNode> right)
     : BinaryExprNode(op, std::move(left), std::move(right)) {}
 
-NotExpr::NotExpr(const std::string& op, std::unique_ptr<ExprNode> operand)
+NotExpr::NotExpr(const std::string& op, std::shared_ptr<ExprNode> operand)
     : UnaryExprNode(op, std::move(operand)) {}
 
-AndExpr::AndExpr(const std::string& op, std::unique_ptr<ExprNode> left, std::unique_ptr<ExprNode> right)
+AndExpr::AndExpr(const std::string& op, std::shared_ptr<ExprNode> left, std::shared_ptr<ExprNode> right)
     : BinaryExprNode(op, std::move(left), std::move(right)) {}
 
-OrExpr::OrExpr(const std::string& op, std::unique_ptr<ExprNode> left, std::unique_ptr<ExprNode> right)
+OrExpr::OrExpr(const std::string& op, std::shared_ptr<ExprNode> left, std::shared_ptr<ExprNode> right)
+    : BinaryExprNode(op, std::move(left), std::move(right)) {}
+EqExpr::EqExpr(const std::string& op, std::shared_ptr<ExprNode> left, std::shared_ptr<ExprNode> right)
     : BinaryExprNode(op, std::move(left), std::move(right)) {}
 
-ParenExpr::ParenExpr() : ExprNode() {}
+ParenExpr::ParenExpr(std::shared_ptr<ExprNode> expr)
+    : expr(std::move(expr)) {}
 CharNode::CharNode(char v) : value(v) {}
 IntNode::IntNode(int v) : value(v) {}
 RealNode::RealNode(double value) : value(value) {}
 IdNode::IdNode(const std::string& id) : id(id) {}
 
-// Declarations
-TupleDecNode::TupleDecNode(const std::string& name, std::vector<std::string>& types)
-    : DecNode(), elementTypes(types) { this->name = name; }
+TupleTypeNode::TupleTypeNode(const std::vector<std::string>& elementTypes)
+    : elementTypes(elementTypes) {}
+
+TupleTypedDecNode::TupleTypedDecNode(const std::string& name, std::shared_ptr<TupleTypeNode> tupleType)
+    : tupleType(std::move(tupleType)) { this->name = name; }
 
 // Function nodes
-FuncBlockNode::FuncBlockNode(const std::string& name,
-    const std::vector<std::pair<std::string, std::string>>& parameters,
-    const std::string& returnType,
-    std::unique_ptr<BlockNode> body)
-    : FuncNode(name, parameters, returnType, nullptr, std::move(body), nullptr) {}
-
 FuncBlockTupleReturnNode::FuncBlockTupleReturnNode(
     const std::string& name,
     const std::vector<std::pair<std::string, std::string>>& parameters,
-    std::unique_ptr<TupleDecNode> returnTupleType,
-    std::unique_ptr<BlockNode> body
+    std::shared_ptr<TupleTypeNode> returnTupleType,
+    std::shared_ptr<BlockNode> body
 )
 : FuncNode(name, parameters, "", std::move(returnTupleType), std::move(body), nullptr) {}
 
@@ -124,7 +124,7 @@ FuncStatNode::FuncStatNode(
     const std::string& name,
     const std::vector<std::pair<std::string, std::string>>& parameters,
     const std::string& returnType,
-    std::unique_ptr<StatNode> returnStat
+    std::shared_ptr<StatNode> returnStat
 )
 : FuncNode(name, parameters, returnType, nullptr, nullptr, std::move(returnStat)) {}
 
@@ -135,29 +135,39 @@ FuncPrototypeNode::FuncPrototypeNode(const std::string& name,
 
 FuncPrototypeTupleReturnNode::FuncPrototypeTupleReturnNode(const std::string& name,
     const std::vector<std::pair<std::string, std::string>>& parameters,
-    std::unique_ptr<TupleDecNode> returnTupleType)
+    std::shared_ptr<TupleTypeNode> returnTupleType)
     : FuncNode(name, parameters, "", std::move(returnTupleType), nullptr, nullptr) {}
 
 // Extended nodes
 ProcedureNode::ProcedureNode(const std::string& name,
     const std::vector<std::pair<std::string, std::string>>& params,
-    std::unique_ptr<BlockNode> body)
+    std::shared_ptr<BlockNode> body)
     : name(name), params(params), body(std::move(body)) {}
 
 TypeAliasNode::TypeAliasNode(const std::string& aliasName, const std::string& typeName)
     : aliasName(aliasName), typeName(typeName) {}
 
-TupleTypeAliasNode::TupleTypeAliasNode(const std::string& aliasName, std::unique_ptr<TupleDecNode> tupleType)
+TupleTypeAliasNode::TupleTypeAliasNode(const std::string& aliasName, std::shared_ptr<TupleTypeNode> tupleType)
     : aliasName(aliasName), tupleType(std::move(tupleType)) {}
 
-TupleLiteralNode::TupleLiteralNode(std::vector<std::unique_ptr<ExprNode>> elements)
+TupleLiteralNode::TupleLiteralNode(std::vector<std::shared_ptr<ExprNode>> elements)
     : elements(std::move(elements)) {}
 
 TupleAccessNode::TupleAccessNode(const std::string& tupleName, int index)
     : tupleName(tupleName), index(index) {}
 
-TypeCastNode::TypeCastNode(const std::string& targetType, std::unique_ptr<ExprNode> expr)
+TypeCastNode::TypeCastNode(const std::string& targetType, std::shared_ptr<ExprNode> expr)
     : targetType(targetType), expr(std::move(expr)) {}
 
-TupleTypeCastNode::TupleTypeCastNode(std::unique_ptr<TupleDecNode> targetTupleType, std::unique_ptr<ExprNode> expr)
+TupleTypeCastNode::TupleTypeCastNode(std::shared_ptr<TupleTypeNode> targetTupleType, std::shared_ptr<ExprNode> expr)
     : targetTupleType(std::move(targetTupleType)), expr(std::move(expr)) {}
+
+// Statements
+ReturnStatNode::ReturnStatNode(std::shared_ptr<ExprNode> expr)
+    : expr(std::move(expr)) {}
+AssignStatNode::AssignStatNode(const std::string& name, std::shared_ptr<ExprNode> expr)
+    : name(name), expr(std::move(expr)) {}
+OutputStatNode::OutputStatNode(std::shared_ptr<ExprNode> expr)
+    : expr(std::move(expr)) {}
+CallStatNode::CallStatNode(const std::string& funcName, std::vector<std::shared_ptr<ExprNode>> args)
+    : funcName(funcName), args(std::move(args)) {}
