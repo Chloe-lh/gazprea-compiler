@@ -7,18 +7,144 @@
 using namespace gazprea;
 using namespace antlr4;
 
+/*
+        DONE std::any visitFile(GazpreaParser::FileContext *ctx) override; 
+        std::any visitFunctionBlock(GazpreaParser::FunctionBlockContext *ctx) override;
+        std::any visitFunctionBlockTupleReturn(GazpreaParser::FunctionBlockTupleReturnContext *ctx) override;
+        std::any visitFunctionStat(GazpreaParser::FunctionStatContext *ctx) override;
+        std::any visitFunctionPrototype(GazpreaParser::FunctionPrototypeContext *ctx) override;
+        std::any visitFunctionPrototypeTupleReturn(GazpreaParser::FunctionPrototypeTupleReturnContext *ctx) override;
+        std::any visitProcedure(GazpreaParser::ProcedureContext *ctx) override;
+        std::any visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) override;
+        std::any visitInferredTypeDec(GazpreaParser::InferredTypeDecContext *ctx) override;
+        std::any visitTupleTypedDec(GazpreaParser::TupleTypedDecContext *ctx) override;
+        std::any visitAssignStat(GazpreaParser::AssignStatContext *ctx) override;
+        std::any visitOutputStat(GazpreaParser::OutputStatContext *ctx) override;
+        std::any visitInputStat(GazpreaParser::InputStatContext *ctx) override;
+        std::any visitBreakStat(GazpreaParser::BreakStatContext *ctx) override;
+        std::any visitContinueStat(GazpreaParser::ContinueStatContext *ctx) override;
+        std::any visitReturnStat(GazpreaParser::ReturnStatContext *ctx) override;
+        std::any visitCallStat(GazpreaParser::CallStatContext *ctx) override;
+        std::any visitType(GazpreaParser::TypeContext *ctx) override;
+        std::any visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) override;
+        std::any visitTupleTypeAlias(GazpreaParser::TupleTypeAliasContext *ctx) override;
+        std::any visitAndExpr(GazpreaParser::AndExprContext *ctx) override;
+        std::any visitTrueExpr(GazpreaParser::TrueExprContext *ctx) override;
+        DONE std::any visitIdExpr(GazpreaParser::IdExprContext *ctx) override;
+        std::any visitMultExpr(GazpreaParser::MultExprContext *ctx) override;
+        std::any visitAddExpr(GazpreaParser::AddExprContext *ctx) override;
+        std::any visitCompExpr(GazpreaParser::CompExprContext *ctx) override;
+        std::any visitExpExpr(GazpreaParser::ExpExprContext *ctx) override;
+        std::any visitUnaryExpr(GazpreaParser::UnaryExprContext *ctx) override;
+        std::any visitTupleTypeCastExpr(GazpreaParser::TupleTypeCastExprContext *ctx) override;
+        std::any visitOrExpr(GazpreaParser::OrExprContext *ctx) override;
+        std::any visitFalseExpr(GazpreaParser::FalseExprContext *ctx) override;
+        DONE std::any visitCharExpr(GazpreaParser::CharExprContext *ctx) override;
+        std::any visitTupleAccessExpr(GazpreaParser::TupleAccessExprContext *ctx) override;
+        std::any visitTupleLitExpr(GazpreaParser::TupleLitExprContext *ctx) override;
+        std::any visitEqExpr(GazpreaParser::EqExprContext *ctx) override;
+        std::any visitNotExpr(GazpreaParser::NotExprContext *ctx) override;
+        DONE ::any visitIntExpr(GazpreaParser::IntExprContext *ctx) override;
+        std::any visitParenExpr(GazpreaParser::ParenExprContext *ctx) override;
+        DONE std::any visitRealExpr(GazpreaParser::RealExprContext *ctx) override;
+        std::any visitTypeCastExpr(GazpreaParser::TypeCastExprContext *ctx) override;
+        std::any visitFuncCallExpr(GazpreaParser::FuncCallExprContext *ctx) override;
+        std::any visitTuple_dec(GazpreaParser::Tuple_decContext *ctx) override;
+        std::any visitTuple_literal(GazpreaParser::Tuple_literalContext *ctx) override;
+        std::any visitTuple_access(GazpreaParser::Tuple_accessContext *ctx) override;
+        std::any visitBlock(GazpreaParser::BlockContext *ctx) override;
+        std::any visitIf(GazpreaParser::IfContext *ctx) override;
+        std::any visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx) override;
+        std::any visitWhileLoopBlock(GazpreaParser::WhileLoopBlockContext *ctx) override;
+        std::any visitQualifier(GazpreaParser::QualifierContext *ctx) override;
+        std::any visitReal(GazpreaParser::RealContext *ctx) override;
+*/
 std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
-    std::vector<std::shared_ptr<ASTNode>> statements;
-    for (auto statCtx : ctx->stat()) {
-        // Ensure we dispatch into the concrete rule within 'stat' and not the trailing ';'
-        std::shared_ptr<ASTNode> stmt = std::any_cast<std::shared_ptr<ASTNode>>(visitStat(statCtx));
-        if (stmt) {
-            statements.push_back(std::move(stmt));
-        }
+    std::vector<std::shared_ptr<ASTNode>> nodes;
+    for (auto child: ctx->children) { 
+        auto anyNode = visit(child);
+        if (anyNode.has_value()){
+            auto node = std::any_cast<std::shared_ptr<ASTNode>>(anyNode);
+            if(node) nodes.push_back(node);
+        }   
     }
-    return std::make_shared<FileNode>(std::move(statements));
+    return std::make_shared<FileNode>(std::move(nodes));
+}
+std::any ASTBuilder::visitIntExpr(GazpreaParser::IntExprContext *ctx){
+    try{
+        int64_t value64 = std::stoll(ctx->INT());
+        if(value64 < std::numeric_limits<int32_t>::min()||
+            value64 > std::numeric_limits<int32_t>::max()){
+                throw LiteralError(ctx->getStart()->getLine(), "integer literal exceeds 32 bits")
+            }
+        int value32 = static_cast<int>(value64);
+        return std::make_shared<IntNode>(value32);
+    }catch(const std::out_of_range&){
+        throw LiteralError(ctx->getStart()->getLine(), "integer literal out of bounds");
+    }catch(const std::invalid_argument&){
+        throw LiteralError(ctx->getStart()->getLine(), "invalid integer literal")
+    }
+}
+std::any ASTBuilder::visitIdExpr(GazpreaParser::IdExprContext *ctx){
+    std::string name = ctx->ID()->getText();
+    return std::make_shared<IdNode>(name);
+}
+std::any ASTBuilder::visitCharExpr(GazpreaParser::CharExprContext *ctx){
+    std::string text = ctx->getText();
+    char value;
+    // 'c'
+    if(text.length() >= 3 && text.front()=="'" && text.back()=="'"){
+        // remove ticks
+        std::string sub = text.substr(1, text.length()-2);
+        if(sub.length()==1){
+            value = sub[0];
+        }else if(sub[0]== '\\'){ // '\\' is one char
+            switch (sub[1]){ // gets the next char
+                case '0': value = '\0'; break; //null
+                case 'a': value = '\a'; break; //bell
+                case 'b': value = '\b'; break; //backspace
+                case 't': value = '\t'; break; //tab
+                case 'n': value = '\n'; break; //line feed
+                case 'r': value = '\r'; break; //carriage return
+                case '"': value = '\"'; break; //quotation mark
+                case '\'': value = '\''; break; //apostrophe
+                case '\\': value = '\\'; break; //backslash
+                default: value = sub[1];
+            }
+        }else{
+            value = sub[0];
+        }
+    }else{ //invalid character
+        throw LiteralError(ctx->getStart()->getLine(), "invalid character");
+    }
+    return std::make_shared<CharNode>(value);
 }
 
+std::any ASTBuilder::visitRealExpr(GazpreaParser::RealExprContext *ctx){
+    std::string text = ctx->REAL()->getText();
+    // apply leading zero
+    double value;
+    if (!text.empty() && text[0] == '.'){
+        text = "0"+ text;
+    }else if(text.size>=2 && text[0]=='-' && text[1]=='.'){
+        text = "-0" + text.substr(1);
+    }
+    try{
+        value = std::stod(text); //convert to real
+    }catch(const std::out_of_range&){
+        throw LiteralError(ctx->getStart()->getLine(), "real literal out of bounds");
+    }catch(const std::invalid_argument&){
+        throw LiteralError(ctx->getStart()->getLine(), "invalid real literal");
+    }
+    return std::make_shared<RealNode>(value);
+}
+
+std::any ASTBuilder::visitTrueExpr(GazpreaParser::TrueExprContext *ctx){
+    return std::make_shared<TrueNode>();
+}
+std::any ASTBuilder::visitFalseExpr(GazpreaParser::FalseExprContext *ctx){
+    return std::make_shared<FalseNode>();
+}
 std::any ASTBuilder::visitStat(GazpreaParser::StatContext *ctx) {
     // Route to the actual statement inside 'stat: <rule> END'
     if (ctx->intDec())       return visitIntDec(ctx->intDec());
