@@ -8,10 +8,8 @@ public:
     virtual void visit(FileNode* node) = 0;
 
     // Functions
-    virtual void visit(FuncBlockTupleReturnNode* node) = 0;
     virtual void visit(FuncStatNode* node) = 0;
     virtual void visit(FuncPrototypeNode* node) = 0;
-    virtual void visit(FuncPrototypeTupleReturnNode* node) = 0;
     virtual void visit(ProcedureNode* node) = 0;
 
     // Declarations
@@ -20,7 +18,6 @@ public:
     virtual void visit(TupleTypedDecNode* node) = 0;
     virtual void visit(TypeAliasNode* node) = 0;
     virtual void visit(TupleTypeAliasNode* node) = 0;
-    virtual void visit(TupleTypeNode* node) = 0;
 
     // Statements
     virtual void visit(AssignStatNode* node) = 0;
