@@ -185,6 +185,14 @@ class IdNode: public ExprNode {
         void accept(ASTVisitor& visitor) override;
 };
 
+class TypeAliasDecNode: public DecNode {
+    public: 
+        std::string alias;
+
+    TypeAliasDecNode(const std::string& alias, CompleteType type);
+    void accept(ASTVisitor& visitor) override;
+};
+
 class TupleTypedDecNode : public DecNode {
 public:
     std::shared_ptr<ExprNode> init;
@@ -319,6 +327,15 @@ public:
     void accept(ASTVisitor& visitor) override;
 };
 
+// Declaration node for type aliases, e.g., `typealias integer int`
+class TypeAliasDecNode : public ASTNode {
+public:
+    std::string aliasName;
+    // Underlying aliased type is stored in inherited `ASTNode::type`
+    TypeAliasDecNode(const std::string& aliasName, const CompleteType& aliasedType);
+    void accept(ASTVisitor& visitor) override;
+};
+
 class TupleTypeAliasNode : public ASTNode {
 public:
     std::string aliasName;
@@ -362,7 +379,6 @@ public:
     explicit RealNode(double value);
     void accept(ASTVisitor& visitor) override;
 };
-
 
 
 

@@ -35,6 +35,8 @@ void IntNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void RealNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 
 // Declarations
+void TypeAliasDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
+
 void TupleTypedDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 
 void TypedDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
@@ -58,6 +60,7 @@ void LoopNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 // Extended nodes
 void ProcedureNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void TypeAliasNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
+void TypeAliasDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void TupleTypeAliasNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void TupleLiteralNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void TupleAccessNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
@@ -124,6 +127,9 @@ ProcedureNode::ProcedureNode(const std::string& name,
 
 TypeAliasNode::TypeAliasNode(const std::string& aliasName, const CompleteType& type)
     : aliasName(aliasName) {this->type = type;}
+
+TypeAliasDecNode::TypeAliasDecNode(const std::string& aliasName, const CompleteType& aliasedType)
+    : aliasName(aliasName) { this->type = aliasedType; }
 
 TupleTypeAliasNode::TupleTypeAliasNode(const std::string& aliasName, CompleteType tupleType)
     : aliasName(aliasName) {this->type = tupleType;}
