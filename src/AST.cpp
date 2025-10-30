@@ -35,17 +35,14 @@ void IntNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void RealNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 
 // Declarations
-void TupleTypeNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void TupleTypedDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 
 void TypedDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void InferredDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 
 // Functions
-void FuncBlockTupleReturnNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void FuncStatNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void FuncPrototypeNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
-void FuncPrototypeTupleReturnNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 
 // Statements
 void CallStatNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
@@ -105,38 +102,19 @@ IntNode::IntNode(int v) : value(v) {}
 RealNode::RealNode(double value) : value(value) {}
 IdNode::IdNode(const std::string& id) : id(id) {}
 
-TupleTypeNode::TupleTypeNode(const std::vector<std::string>& elementTypes)
-    : elementTypes(elementTypes) {}
-
-TupleTypedDecNode::TupleTypedDecNode(const std::string& name, std::shared_ptr<TupleTypeNode> tupleType)
-    : tupleType(std::move(tupleType)) { this->name = name; }
-
 // Function nodes
-FuncBlockTupleReturnNode::FuncBlockTupleReturnNode(
-    const std::string& name,
-    const std::vector<std::pair<std::string, std::string>>& parameters,
-    std::shared_ptr<TupleTypeNode> returnTupleType,
-    std::shared_ptr<BlockNode> body
-)
-: FuncNode(name, parameters, "", std::move(returnTupleType), std::move(body), nullptr) {}
-
 FuncStatNode::FuncStatNode(
     const std::string& name,
     const std::vector<std::pair<std::string, std::string>>& parameters,
-    const std::string& returnType,
+    CompleteType returnType,
     std::shared_ptr<StatNode> returnStat
 )
-: FuncNode(name, parameters, returnType, nullptr, nullptr, std::move(returnStat)) {}
+: FuncNode(name, parameters, std::move(returnType), nullptr, std::move(returnStat)) {}
 
 FuncPrototypeNode::FuncPrototypeNode(const std::string& name,
     const std::vector<std::pair<std::string, std::string>>& parameters,
-    const std::string& returnType)
-    : FuncNode(name, parameters, returnType, nullptr, nullptr, nullptr) {}
-
-FuncPrototypeTupleReturnNode::FuncPrototypeTupleReturnNode(const std::string& name,
-    const std::vector<std::pair<std::string, std::string>>& parameters,
-    std::shared_ptr<TupleTypeNode> returnTupleType)
-    : FuncNode(name, parameters, "", std::move(returnTupleType), nullptr, nullptr) {}
+    CompleteType returnType)
+    : FuncNode(name, parameters, std::move(returnType), nullptr, nullptr) {}
 
 // Extended nodes
 ProcedureNode::ProcedureNode(const std::string& name,
@@ -144,11 +122,11 @@ ProcedureNode::ProcedureNode(const std::string& name,
     std::shared_ptr<BlockNode> body)
     : name(name), params(params), body(std::move(body)) {}
 
-TypeAliasNode::TypeAliasNode(const std::string& aliasName, const std::string& typeName)
-    : aliasName(aliasName), typeName(typeName) {}
+TypeAliasNode::TypeAliasNode(const std::string& aliasName, const CompleteType& type)
+    : aliasName(aliasName) {this->type = type;}
 
-TupleTypeAliasNode::TupleTypeAliasNode(const std::string& aliasName, std::shared_ptr<TupleTypeNode> tupleType)
-    : aliasName(aliasName), tupleType(std::move(tupleType)) {}
+TupleTypeAliasNode::TupleTypeAliasNode(const std::string& aliasName, CompleteType tupleType)
+    : aliasName(aliasName) {this->type = tupleType;}
 
 TupleLiteralNode::TupleLiteralNode(std::vector<std::shared_ptr<ExprNode>> elements)
     : elements(std::move(elements)) {}
@@ -159,8 +137,8 @@ TupleAccessNode::TupleAccessNode(const std::string& tupleName, int index)
 TypeCastNode::TypeCastNode(const std::string& targetType, std::shared_ptr<ExprNode> expr)
     : targetType(targetType), expr(std::move(expr)) {}
 
-TupleTypeCastNode::TupleTypeCastNode(std::shared_ptr<TupleTypeNode> targetTupleType, std::shared_ptr<ExprNode> expr)
-    : targetTupleType(std::move(targetTupleType)), expr(std::move(expr)) {}
+TupleTypeCastNode::TupleTypeCastNode(CompleteType targetTupleType, std::shared_ptr<ExprNode> expr)
+    : expr(std::move(expr)) {this->type = targetTupleType;}
 
 // Statements
 ReturnStatNode::ReturnStatNode(std::shared_ptr<ExprNode> expr)

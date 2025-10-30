@@ -9,7 +9,6 @@
 //abstract class that is extended by the different passes in the pipeline
 class ASTVisitor;
 //forward declarations
-class TupleTypeNode;
 class BlockNode;
 class TypeAliasNode;
 
@@ -68,32 +67,18 @@ class FuncNode : public ASTNode {
 public:
     std::string name;
     std::vector<std::pair<std::string, std::string>> parameters; // (type, name)
-    std::string returnType;
-    std::shared_ptr<TupleTypeNode> returnTupleType; // optional
+    CompleteType returnType; // optional
     std::shared_ptr<BlockNode> body; // optional
     std::shared_ptr<StatNode> returnStat; // optional
 
     FuncNode(
         const std::string& name,
         const std::vector<std::pair<std::string, std::string>>& parameters,
-        const std::string& returnType = "",
-        std::shared_ptr<TupleTypeNode> returnTupleType = nullptr,
+        CompleteType returnType,
         std::shared_ptr<BlockNode> body = nullptr,
         std::shared_ptr<StatNode> returnStat = nullptr
-    ) : name(name), parameters(parameters), returnType(returnType),
-        returnTupleType(std::move(returnTupleType)), body(std::move(body)),
+    ) : name(name), parameters(parameters), returnType(std::move(returnType)), body(std::move(body)),
         returnStat(std::move(returnStat)) {}
-};
-
-class FuncBlockTupleReturnNode : public FuncNode {
-    public:
-        FuncBlockTupleReturnNode(
-            const std::string& name,
-            const std::vector<std::pair<std::string, std::string>>& parameters,
-            std::shared_ptr<TupleTypeNode> returnTupleType,
-            std::shared_ptr<BlockNode> body
-        );
-        void accept(ASTVisitor& visitor) override;
 };
 
 class FuncStatNode : public FuncNode {
@@ -101,7 +86,7 @@ public:
     FuncStatNode(
         const std::string& name,
         const std::vector<std::pair<std::string, std::string>>& parameters,
-        const std::string& returnType,
+        CompleteType returnType,
         std::shared_ptr<StatNode> returnStat
     );
     void accept(ASTVisitor& visitor) override;
@@ -112,17 +97,7 @@ public:
     FuncPrototypeNode(
         const std::string& name,
         const std::vector<std::pair<std::string, std::string>>& parameters,
-        const std::string& returnType
-    );
-    void accept(ASTVisitor& visitor) override;
-};
-
-class FuncPrototypeTupleReturnNode : public FuncNode {
-public:
-    FuncPrototypeTupleReturnNode(
-        const std::string& name,
-        const std::vector<std::pair<std::string, std::string>>& parameters,
-        std::shared_ptr<TupleTypeNode> returnTupleType
+        CompleteType returnType
     );
     void accept(ASTVisitor& visitor) override;
 };
@@ -210,17 +185,10 @@ class IdNode: public ExprNode {
         void accept(ASTVisitor& visitor) override;
 };
 
-class TupleTypeNode : public ASTNode {
-public:
-    std::vector<std::string> elementTypes;
-    TupleTypeNode(const std::vector<std::string>& elementTypes);
-    void accept(ASTVisitor& visitor) override;
-};
-
 class TupleTypedDecNode : public DecNode {
 public:
-    std::shared_ptr<TupleTypeNode> tupleType;
-    TupleTypedDecNode(const std::string& name, std::shared_ptr<TupleTypeNode> tupleType);
+    std::shared_ptr<ExprNode> init;
+    TupleTypedDecNode(const std::string& name, CompleteType tupleType);
     void accept(ASTVisitor& visitor) override;
 };
 
@@ -347,16 +315,14 @@ public:
 class TypeAliasNode : public ASTNode {
 public:
     std::string aliasName;
-    std::string typeName;
-    TypeAliasNode(const std::string& aliasName, const std::string& typeName);
+    TypeAliasNode(const std::string& aliasName, const CompleteType& type);
     void accept(ASTVisitor& visitor) override;
 };
 
 class TupleTypeAliasNode : public ASTNode {
 public:
     std::string aliasName;
-    std::shared_ptr<TupleTypeNode> tupleType;
-    TupleTypeAliasNode(const std::string& aliasName, std::shared_ptr<TupleTypeNode> tupleType);
+    TupleTypeAliasNode(const std::string& aliasName, CompleteType tupleType);
     void accept(ASTVisitor& visitor) override;
 };
 
@@ -385,9 +351,8 @@ public:
 
 class TupleTypeCastNode : public ExprNode {
 public:
-    std::shared_ptr<TupleTypeNode> targetTupleType;
     std::shared_ptr<ExprNode> expr;
-    TupleTypeCastNode(std::shared_ptr<TupleTypeNode> targetTupleType, std::shared_ptr<ExprNode> expr);
+    TupleTypeCastNode(CompleteType targetTupleType, std::shared_ptr<ExprNode> expr);
     void accept(ASTVisitor& visitor) override;
 };
 
@@ -397,7 +362,6 @@ public:
     explicit RealNode(double value);
     void accept(ASTVisitor& visitor) override;
 };
-
 
 
 
