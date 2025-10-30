@@ -11,8 +11,10 @@ class SemanticAnalysisVisitor: public ASTVisitor {
     public:
         void visit(FileNode* node) override;
         void visit(BlockNode* node) override;
-
-        void visit(FuncBlockNode* node) override;
+        
+        virtual void visit(TypedDecNode* node) override;
+        virtual void visit(InferredDecNode* node) override;
+        virtual void visit(TupleTypedDecNode* node) override;
 
         // Operators
         void visit(UnaryExpr* node) override;   // unary+, unary-, not
@@ -33,6 +35,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         std::unordered_map<const ASTNode*, Scope*> scopeByCtx_;
 
         void throwOperandError(const std::string op, const std::vector<CompleteType>& operands, std::string additionalInfo);
+        void throwAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType);
 
         void enterScopeFor(const ASTNode* ownerCtx);
         void exitScope();

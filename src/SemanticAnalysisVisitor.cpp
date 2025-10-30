@@ -2,6 +2,8 @@
 
 void SemanticAnalysisVisitor::visit(FileNode* node) {
     // Init and enter global scope
+    // TODO: handle type aliases here
+    // note: can shadow other symbol names
     scopeByCtx_.clear();
     current_ = nullptr;
     enterScopeFor(node);
@@ -24,12 +26,47 @@ void SemanticAnalysisVisitor::visit(BlockNode* node) {
     exitScope();
 }
 
-void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
-    // Init and enter block scope
-    enterScopeFor(node);
+void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
+    node->init->accept(*this);
+    node->type_alias->accept(*this);
 
+    bool isConst = true;
+    if (node->qualifier == "var") {
+        isConst = false;
+    } else if (node->qualifier == "const") {
+    } else {
+        throw std::runtime_error("Semantic Analysis: Invalid qualifier provided for typed declaration '" + node->qualifier + "'.");
+    }
 
-    exitScope();
+    CompleteType& varType = node->type_alias->type;
+
+    // Ensure not already declared in scope
+    if (!current_->declareVar(node->name, varType, isConst)) {
+        throw std::runtime_error("Semantic Analysis: redeclaration of var '" + node->name + "'.");
+    }
+
+    // Ensure init expr type matches with var type (if provided)
+    if (node->init != nullptr && promote(node->init->type, varType) != varType) {
+        throwAssignError(node->name, varType, node->init->type);
+    }
+
+    node->type = varType;
+}
+
+void SemanticAnalysisVisitor::visit(InferredDecNode* node) {
+    node->init->accept(*this);
+
+    bool isConst = true;
+    if (node->qualifier == "var") {
+        isConst = false;
+    } else if (node->qualifier == "const") {
+    } else {
+        throw std::runtime_error("Semantic Analysis: Invalid qualifier provided for type inference '" + node->qualifier + "'.");
+    }
+
+    CompleteType& varType = node->init->type; // no need to check promotability
+
+    node->type = varType;
 }
 
 /* TODO pt2
@@ -338,6 +375,10 @@ void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std:
     }
 
     throw std::runtime_error(ss.str());
+}
+
+void throwAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType) {
+    throw std::runtime_error("Cannot assign type '" + toString(exprType) + "' to variable '" + varName + "' of type '" + toString(varType) + "'.");
 }
 
 void SemanticAnalysisVisitor::enterScopeFor(const ASTNode* ownerCtx) {
