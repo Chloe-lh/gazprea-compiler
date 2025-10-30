@@ -1,0 +1,19 @@
+Meeting Date/Time start/end:
+  October 29th
+  start: 8:30pm - 9pm
+Attendees: Jacob, Chloe, Abdulrehman, Max
+Progress: Basic structure for AST to be used in further implementation. Done large part of semantic checks and scoping
+Group:
+Abdulrehman:
+- wrote the grammar
+- will be working on mlir 
+Jacob:
+- expanded type system for composite types
+- completed semantic checks for operators, declarations, scoping
+- revised AST structure
+Max:
+- will work on mlir if statements, while statements, assignment statements
+Chloe:
+- created AST structure with neccessary Nodes based on grammar
+- ASTBuilder header file
+- planning to do builder pass and then help with MLIR
