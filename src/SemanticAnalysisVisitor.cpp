@@ -28,7 +28,6 @@ void SemanticAnalysisVisitor::visit(BlockNode* node) {
 
 void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
     node->init->accept(*this);
-    node->type_alias->accept(*this);
 
     bool isConst = true;
     if (node->qualifier == "var") {
@@ -38,6 +37,7 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
         throw std::runtime_error("Semantic Analysis: Invalid qualifier provided for typed declaration '" + node->qualifier + "'.");
     }
 
+    // Declared type is carried as a CompleteType on the alias node
     CompleteType& varType = node->type_alias->type;
 
     // Ensure not already declared in scope
@@ -66,7 +66,36 @@ void SemanticAnalysisVisitor::visit(InferredDecNode* node) {
 
     CompleteType& varType = node->init->type; // no need to check promotability
 
+
+    // Ensure not already declared in scope
+    if (!current_->declareVar(node->name, varType, isConst)) {
+        throw std::runtime_error("Semantic Analysis: redeclaration of var '" + node->name + "'.");
+    }
+
     node->type = varType;
+}
+
+void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
+    node->init->accept(*this);
+    // For tuple-typed declarations, the declared type is already present
+    // on the declaration node as a CompleteType
+    CompleteType& varType = node->type;
+
+    // Ensure not already declared in scope
+    if (!current_->declareVar(node->name, varType, false)) {
+        throw std::runtime_error("Semantic Analysis: redeclaration of var '" + node->name + "'.");
+    }
+
+    // Ensure init expr type matches with var type (if provided)
+    if (node->init != nullptr && promote(node->init->type, varType) != varType) {
+        throwAssignError(node->name, varType, node->init->type);
+    }
+
+    node->type = varType;
+}
+
+void SemanticAnalysisVisitor::visit(TupleTypeAliasNode* node) {
+    
 }
 
 /* TODO pt2
@@ -377,7 +406,7 @@ void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std:
     throw std::runtime_error(ss.str());
 }
 
-void throwAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType) {
+void SemanticAnalysisVisitor::throwAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType) {
     throw std::runtime_error("Cannot assign type '" + toString(exprType) + "' to variable '" + varName + "' of type '" + toString(varType) + "'.");
 }
 
