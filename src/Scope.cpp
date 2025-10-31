@@ -6,19 +6,18 @@
 
 Scope::Scope(Scope* parent) : parent_(parent) {}
 
-bool Scope::declareVar(const std::string& identifier, const CompleteType& type, bool isConst) {
+void Scope::declareVar(const std::string& identifier, const CompleteType& type, bool isConst) {
     if (symbols_.find(identifier) != symbols_.end()) {
-        return false;
+        SymbolError err = SymbolError(1, "Semantic Analysis: Variable '" + identifier + "' cannot be redeclared.");
     }
 
     symbols_.emplace(identifier, VarInfo{identifier, type, isConst});
-    return true;
 }
 
-bool Scope::declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType) {
+void Scope::declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType) {
     std::string key = Scope::makeFunctionKey(identifier, params);
     if (functionsBySig_.find(key) != functionsBySig_.end()) {
-        return false; // duplicate signature
+        SymbolError err = SymbolError(1, "Semantic Analysis: Function '" + identifier + "' cannot be redeclared.");
     }
 
     FuncInfo newFunc = {
@@ -28,7 +27,6 @@ bool Scope::declareFunc(const std::string& identifier, const std::vector<VarInfo
     };
 
     functionsBySig_.emplace(std::move(key), newFunc);
-    return true;
 }
 
 /*

@@ -1,4 +1,5 @@
 #include "SemanticAnalysisVisitor.h"
+#include "CompileTimeExceptions.h"
 
 void SemanticAnalysisVisitor::visit(FileNode* node) {
     // Init and enter global scope
@@ -42,12 +43,10 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
     CompleteType& varType = node->type_alias->type;
 
     // Ensure not already declared in scope
-    if (!current_->declareVar(node->name, varType, isConst)) {
-        throw std::runtime_error("Semantic Analysis: redeclaration of var '" + node->name + "'.");
-    }
+    current_->declareVar(node->name, varType, isConst);
 
     // Ensure init expr type matches with var type (if provided)
-    if (node->init != nullptr && promote(node->init->type, varType) != varType) {
+    if (node->init != nullptr) {
         throwAssignError(node->name, varType, node->init->type);
     }
 
@@ -69,9 +68,7 @@ void SemanticAnalysisVisitor::visit(InferredDecNode* node) {
 
 
     // Ensure not already declared in scope
-    if (!current_->declareVar(node->name, varType, isConst)) {
-        throw std::runtime_error("Semantic Analysis: redeclaration of var '" + node->name + "'.");
-    }
+    current_->declareVar(node->name, varType, isConst);
 
     node->type = varType;
 }
@@ -83,12 +80,10 @@ void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
     CompleteType& varType = node->type;
 
     // Ensure not already declared in scope
-    if (!current_->declareVar(node->name, varType, false)) {
-        throw std::runtime_error("Semantic Analysis: redeclaration of var '" + node->name + "'.");
-    }
+    current_->declareVar(node->name, varType, false);
 
     // Ensure init expr type matches with var type (if provided)
-    if (node->init != nullptr && promote(node->init->type, varType) != varType) {
+    if (node->init != nullptr) {
         throwAssignError(node->name, varType, node->init->type);
     }
 
@@ -407,8 +402,17 @@ void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std:
     throw std::runtime_error(ss.str());
 }
 
+// TODO: add source line/column once AST carries location info
 void SemanticAnalysisVisitor::throwAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType) {
-    throw std::runtime_error("Cannot assign type '" + toString(exprType) + "' to variable '" + varName + "' of type '" + toString(varType) + "'.");
+    // Encapsulate the type compatibility check here
+    if (promote(exprType, varType) != varType) {
+        TypeError err(
+            1,
+            std::string("Semantic Analysis: Cannot assign type '") + toString(exprType) +
+            "' to variable '" + varName + "' of type '" + toString(varType) + "'."
+        );
+        throw err;
+    }
 }
 
 void SemanticAnalysisVisitor::enterScopeFor(const ASTNode* ownerCtx) {

@@ -25,8 +25,8 @@ class Scope {
 public:
     explicit Scope(Scope* parent = nullptr);
 
-    bool declareVar(const std::string& identifier, const CompleteType& type, bool isConst);
-    bool declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType);
+    void declareVar(const std::string& identifier, const CompleteType& type, bool isConst);
+    void declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType);
     void declareAlias(const std::string& identifier, const CompleteType& type);
 
     FuncInfo* resolveFunc(const std::string& identifier, const std::vector<VarInfo>& params);
