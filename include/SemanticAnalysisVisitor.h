@@ -38,15 +38,27 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         virtual void visit(BlockNode* node)         override;
 
 
-        // Operators
+        // Expressions / Operators
+        void visit(ParenExpr* node) override;
         void visit(UnaryExpr* node) override;   // unary+, unary-, not
         void visit(ExpExpr* node) override;     // ^
         void visit(MultExpr* node) override;    // *,/,%
         void visit(AddExpr* node) override;     // +, -
         void visit(CompExpr* node) override;    // <, >, <=, >=
+        void visit(NotExpr* node) override;     // not
         void visit(EqExpr* node) override;      // ==, !=
         void visit(AndExpr* node) override;     // and
         void visit(OrExpr* node) override;      // or, xor
+        void visit(TrueNode* node) override;
+        void visit(FalseNode* node) override;
+        void visit(CharNode* node) override;
+        void visit(IntNode* node) override;
+        void visit(IdNode* node) override;
+        void visit(TupleLiteralNode* node) override;
+        void visit(TupleAccessNode* node) override;
+        void visit(TypeCastNode* node) override;
+        void visit(TupleTypeCastNode* node) override;
+        void visit(RealNode* node) override;
 
 
 

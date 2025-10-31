@@ -607,6 +607,45 @@ void SemanticAnalysisVisitor::visit(CompExpr* node) {
     }
 }
 
+
+/* TODO pt2 handle element wise checking of bools for composite types */
+void SemanticAnalysisVisitor::visit(NotExpr* node) {
+    // Evaluate operand and ensure it's a valid type for logical not
+    node->operand->accept(*this);
+    const BaseType illegalTypes[] = {
+        BaseType::CHARACTER, BaseType::INTEGER, BaseType::REAL,
+        BaseType::TUPLE, BaseType::STRUCT, BaseType::STRING
+    };
+    if (std::find(std::begin(illegalTypes), std::end(illegalTypes), node->operand->type.baseType) != std::end(illegalTypes)) {
+        throwOperandError("not", {node->operand->type}, "");
+    }
+
+    // Propagate type, i.e. bools remain bools, array/vec/matrix remain array/vec/matrix
+    node->type = node->operand->type; 
+}
+
+void SemanticAnalysisVisitor::visit(TrueNode* node) {
+    node->type = BaseType::BOOL;
+}
+
+void SemanticAnalysisVisitor::visit(FalseNode* node) {
+    node->type = BaseType::BOOL;
+}
+
+void SemanticAnalysisVisitor::visit(CharNode* node) {
+    node->type = BaseType::CHARACTER;
+}
+
+void SemanticAnalysisVisitor::visit(IntNode* node) {
+    node->type = BaseType::INTEGER;
+}
+
+void SemanticAnalysisVisitor::visit(IdNode* node) {
+    VarInfo varInfo = *current_->resolveVar(node->id); // handles no-declr
+    node->type = varInfo.type;
+}
+
+
 /* TODO pt2
     - handle array/vector/matrix + tuple + element-wise type + len checking. Note that this operator yields true iff all elements of array/vector/matrix type are equal.
     - handle int/real -> array/vector/matrix promotion.
