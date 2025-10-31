@@ -83,9 +83,29 @@ FuncInfo* Scope::resolveFunc(const std::string& identifier, const std::vector<Va
         return &it->second;
     }
     if (parent_ != nullptr) {
-        return parent_->resolveFunc(identifier, params);
+        return parent_->resolveFunc(identifier, callParams);
     }
     throw SymbolError(1, "Semantic Analysis: Function '" + identifier + "' not defined.");
+}
+
+ProcInfo* Scope::resolveProc(const std::string& identifier, const std::vector<VarInfo>& callParams) {
+    auto it = proceduresByName_.find(identifier);
+    if (it != proceduresByName_.end()) {
+        const auto& stored = it->second.params;
+        if (stored.size() != callParams.size()) {
+            throw SymbolError(1, "Semantic Analysis: Procedure '" + identifier + "' called with wrong number of arguments.");
+        }
+        for (size_t i = 0; i < stored.size(); ++i) {
+            if (stored[i].type != callParams[i].type) {
+                throw SymbolError(1, "Semantic Analysis: Procedure '" + identifier + "' called with incompatible argument types.");
+            }
+        }
+        return &it->second;
+    }
+    if (parent_ != nullptr) {
+        return parent_->resolveProc(identifier, callParams);
+    }
+    throw SymbolError(1, "Semantic Analysis: Procedure '" + identifier + "' not defined.");
 }
 
 // TODO add line number in error
@@ -145,8 +165,11 @@ std::string Scope::printScope() const {
     for (const auto& symbol : symbols_) {
         result += symbol.second.identifier + " : " + toString(symbol.second.type) + "\n";
     }
-    for (const auto& entry : functionsBySig_) {
+    for (const auto& entry : functionsByName_) {
         result += entry.first + " -> " + toString(entry.second.funcReturn) + "\n";
+    }
+    for (const auto& entry : proceduresByName_) {
+        result += entry.first + " => " + toString(entry.second.procReturn) + "\n";
     }
     result += ">>\n";
     return result;

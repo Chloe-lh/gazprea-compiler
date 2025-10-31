@@ -21,6 +21,12 @@ struct FuncInfo {
     CompleteType funcReturn;
 };
 
+struct ProcInfo {
+    std::string identifier;
+    std::vector<VarInfo> params;
+    CompleteType procReturn;
+};
+
 class Scope {
 public:
     explicit Scope(Scope* parent = nullptr);
@@ -28,10 +34,12 @@ public:
 
     void declareVar(const std::string& identifier, const CompleteType& type, bool isConst);
     void declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType);
+    void declareProc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType);
     void declareAlias(const std::string& identifier, const CompleteType& type);
 
     VarInfo* resolveVar(const std::string& identifier);
     FuncInfo* resolveFunc(const std::string& identifier, const std::vector<VarInfo>& params);
+    ProcInfo* resolveProc(const std::string& identifier, const std::vector<VarInfo>& params);
     CompleteType* resolveAlias(const std::string& identifier);
 
     void disableDeclarations(); // For ensuring declrs are at the top of each block
@@ -59,6 +67,7 @@ private:
     std::unordered_map<std::string, VarInfo> symbols_; // variables in scope
     // Functions, procedures and (pt2) structs will share same namespace
     std::unordered_map<std::string, FuncInfo> functionsByName_; // functions in scope keyed by identifier
+    std::unordered_map<std::string, ProcInfo> proceduresByName_; // procedures in scope keyed by identifier
 
 
     Scope* parent_;
