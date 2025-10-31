@@ -700,10 +700,35 @@ void SemanticAnalysisVisitor::visit(TupleAccessNode* node) {
 
     node->type = varInfo->type.subTypes[node->index - 1];
 }
+
+void SemanticAnalysisVisitor::visit(TypeCastNode* node) {
+    // Evaluate operand first
+    node->expr->accept(*this);
+
+    // Resolve target type: built-ins or alias
+    CompleteType target(BaseType::UNKNOWN);
+    const std::string& tname = node->targetType;
+    if (tname == "boolean") target = CompleteType(BaseType::BOOL);
+    else if (tname == "character") target = CompleteType(BaseType::CHARACTER);
+    else if (tname == "integer") target = CompleteType(BaseType::INTEGER);
+    else if (tname == "real") target = CompleteType(BaseType::REAL);
+    else {
+        // Treat as alias; throws if not found
+        target = *current_->resolveAlias(tname);
+    }
+    // Ensure cast is type-compatible using explicit cast rules
+    if (!canCastType(node->expr->type, target)) {
+        throw TypeError(1, std::string("Semantic Analysis: cannot cast from '") + toString(node->expr->type) + "' to '" + toString(target) + "'.");
+    }
+    node->type = target;
+}
+
 void SemanticAnalysisVisitor::visit(TupleTypeCastNode* node) {
     // Target tuple type is carried in node->type by the AST constructor
     node->expr->accept(*this);
-    handleAssignError("", node->type, node->expr->type);
+    if (!canCastType(node->expr->type, node->type)) {
+        throw TypeError(1, std::string("Semantic Analysis: cannot cast from '") + toString(node->expr->type) + "' to '" + toString(node->type) + "'.");
+    }
 }
 
 

@@ -115,7 +115,7 @@ BaseType promote(BaseType from, BaseType to)
     return BaseType::UNKNOWN;
 }
 
-CompleteType promote(CompleteType from, CompleteType to) {
+CompleteType promote(const CompleteType& from, const CompleteType& to) {
     validateSubtypes(from);
     validateSubtypes(to);
 
@@ -223,4 +223,70 @@ void validateSubtypes(CompleteType completeType) {
             throw std::runtime_error("Semantic Validation:" + toString(completeType.baseType) + " cannot have " + std::to_string(completeType.subTypes.size()) + " types.");
         }
     }
+}
+
+bool isScalarType(BaseType t) {
+    for (auto ft : flatTypes) {
+        if (ft == t) return true;
+    }
+    return false;
+}
+
+bool canScalarCast(BaseType from, BaseType to) {
+    if (from == to) return true; // id
+    switch (from) {
+        case BaseType::BOOL:
+            // '\0'/0/0.0 for false; 0x01/1/1.0 for true
+            return to == BaseType::CHARACTER || to == BaseType::INTEGER || to == BaseType::REAL;
+        case BaseType::CHARACTER:
+            // false if '\0', true otherwise; ascii numeric for int/real
+            return to == BaseType::BOOL || to == BaseType::INTEGER || to == BaseType::REAL;
+        case BaseType::INTEGER:
+            // false if 0, true otherwise; unsigned mod 256 for char; real version of integer
+            return to == BaseType::BOOL || to == BaseType::CHARACTER || to == BaseType::REAL;
+        case BaseType::REAL:
+            // truncate for integer; real->bool/char are N/A
+            return to == BaseType::INTEGER;
+        default:
+            return false;
+    }
+}
+
+static bool canCastTypeImpl(const CompleteType& from, const CompleteType& to) {
+    if (from.baseType == to.baseType) {
+        // Shapes match + ensure all subtypes are mutually castable
+        if (from.subTypes.size() != to.subTypes.size()) return false;
+        for (size_t i = 0; i < from.subTypes.size(); ++i) {
+            if (!canCastTypeImpl(from.subTypes[i], to.subTypes[i])) return false;
+        }
+        return true;
+    }
+
+    // Scalar to scalar per spec
+    if (isScalarType(from.baseType) && isScalarType(to.baseType)) {
+        return canScalarCast(from.baseType, to.baseType);
+    }
+
+    // Tuple to tuple: equal arity and pairwise scalar-castable
+    if (from.baseType == BaseType::TUPLE && to.baseType == BaseType::TUPLE) {
+        if (from.subTypes.size() != to.subTypes.size()) return false;
+        for (size_t i = 0; i < from.subTypes.size(); ++i) {
+            const auto& f = from.subTypes[i];
+            const auto& t = to.subTypes[i];
+            if (!(isScalarType(f.baseType) && isScalarType(t.baseType) && canScalarCast(f.baseType, t.baseType))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // TODO pt2: Support scalar -> array promotions and array<->array conversions (including
+    // multi-dimensional) once CompleteType carries dimension/size metadata.
+    // Until then, reject casts between composite non-tuple types unless shapes
+    // are strictly identical (handled by the baseType==case above).
+    return false;
+}
+
+bool canCastType(const CompleteType& from, const CompleteType& to) {
+    return canCastTypeImpl(from, to);
 }
