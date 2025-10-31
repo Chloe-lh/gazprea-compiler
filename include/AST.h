@@ -322,11 +322,13 @@ public:
 class ProcedureNode : public ASTNode {
 public:
     std::string name;
-    std::vector<std::pair<std::string, std::string>> params;
+    std::vector<std::pair<CompleteType, std::string>> params;
+    CompleteType returnType; // optional
     std::shared_ptr<BlockNode> body;
     ProcedureNode(
         const std::string& name,
-        const std::vector<std::pair<std::string, std::string>>& params,
+        const std::vector<std::pair<CompleteType, std::string>>& params,
+        CompleteType returnType,
         std::shared_ptr<BlockNode> body
     );
     void accept(ASTVisitor& visitor) override;
@@ -382,6 +384,5 @@ public:
     explicit RealNode(double value);
     void accept(ASTVisitor& visitor) override;
 };
-
 
 
