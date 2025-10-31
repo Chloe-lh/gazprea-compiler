@@ -7,9 +7,10 @@ void SemanticAnalysisVisitor::visit(FileNode* node) {
     scopeByCtx_.clear();
     current_ = nullptr;
     enterScopeFor(node);
+    current_->setGlobalTrue();
 
-    for (const auto& line: node->stats) {
-        line->accept(*this);
+    for (const auto& stat: node->stats) {
+        stat->accept(*this);
     }
 
     exitScope();
@@ -94,8 +95,8 @@ void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
     node->type = varType;
 }
 
-void SemanticAnalysisVisitor::visit(TupleTypeAliasNode* node) {
-    
+void SemanticAnalysisVisitor::visit(TypeAliasDecNode* node) {
+    current_->declareAlias(node->aliasName, node->type);
 }
 
 /* TODO pt2

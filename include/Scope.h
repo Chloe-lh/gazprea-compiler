@@ -1,4 +1,4 @@
-
+#include "CompileTimeExceptions.h"
 #include "Types.h"
 
 #include <optional>
@@ -27,6 +27,7 @@ public:
 
     bool declareVar(const std::string& identifier, const CompleteType& type, bool isConst);
     bool declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType);
+    void declareAlias(const std::string& identifier, const CompleteType& type);
 
     FuncInfo* resolveFunc(const std::string& identifier, const std::vector<VarInfo>& params);
 
@@ -34,6 +35,7 @@ public:
     const VarInfo* resolveVar(const std::string& identifier) const;
     void disableDeclarations(); // For ensuring declrs are at the top of each block
     bool isDeclarationAllowed();
+    void setGlobalTrue();
 
     Scope* parent() const { return parent_; }
     const std::unordered_map<std::string, VarInfo>& symbols() const { return symbols_; }
@@ -58,4 +60,5 @@ private:
     Scope* parent_;
     std::vector<std::unique_ptr<Scope>> children_;
     bool declarationAllowed = true;
+    bool isGlobal = false;
 };
