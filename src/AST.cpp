@@ -127,9 +127,10 @@ FuncBlockNode::FuncBlockNode(
 
 // Extended nodes
 ProcedureNode::ProcedureNode(const std::string& name,
-    const std::vector<std::pair<std::string, std::string>>& params,
+    const std::vector<std::pair<CompleteType, std::string>>& params,
+    CompleteType returnType,
     std::shared_ptr<BlockNode> body)
-    : name(name), params(params), body(std::move(body)) {}
+    : name(name), params(params), returnType(std::move(returnType)), body(std::move(body)) {}
 
 TypeAliasNode::TypeAliasNode(const std::string& aliasName, const CompleteType& type)
     : aliasName(aliasName) {this->type = type;}
