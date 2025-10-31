@@ -1,5 +1,6 @@
 #include "SemanticAnalysisVisitor.h"
 #include "CompileTimeExceptions.h"
+#include "run_time_errors.h"
 #include <unordered_set>
 
 void SemanticAnalysisVisitor::visit(FileNode* node) {
@@ -406,6 +407,11 @@ void SemanticAnalysisVisitor::visit(LoopNode* node) {
     exitScope();
 }
 
+void SemanticAnalysisVisitor::visit(ParenExpr* node) {
+    node->expr->accept(*this);
+    node->type = node->expr->type;
+}
+
 /* TODO pt2
     - check element-wise types for arrays, vectors, matrices
 */
@@ -651,9 +657,53 @@ void SemanticAnalysisVisitor::visit(IntNode* node) {
     node->type = BaseType::INTEGER;
 }
 
+void SemanticAnalysisVisitor::visit(RealNode* node) {
+    node->type = BaseType::REAL;
+}
+
 void SemanticAnalysisVisitor::visit(IdNode* node) {
     VarInfo varInfo = *current_->resolveVar(node->id); // handles no-declr
     node->type = varInfo.type;
+}
+
+void SemanticAnalysisVisitor::visit(TupleLiteralNode* node) {
+    CompleteType literalType = CompleteType(BaseType::TUPLE);
+    literalType.subTypes.reserve(node->elements.size());
+
+    if (node->elements.size() < 2) {
+        throw LiteralError(1, "All tuples must have at least 2 elements, not " + std::to_string(node->elements.size()) + ".");
+    }
+
+    // FIXME confirm and handle case where tuple<vector<tuple...>>.
+    for (auto& exprNode: node->elements) {
+        exprNode->accept(*this);
+        if (exprNode->type.baseType == BaseType::TUPLE) {throw LiteralError(1, "Cannot have nested tuples.");
+        } else if (exprNode->type.baseType == BaseType::UNKNOWN) {throw std::runtime_error("Semantic Analysis: FATAL: Cannot use UNKNOWN type inside tuples.");}
+
+        literalType.subTypes.push_back(exprNode->type);
+    }
+
+    node->type = literalType;
+}
+
+void SemanticAnalysisVisitor::visit(TupleAccessNode* node) {
+    VarInfo* varInfo = current_->resolveVar(node->tupleName);
+
+    if (varInfo->type.baseType != BaseType::TUPLE) {
+        throw std::runtime_error("Semantic Analysis: FATAL: Non-tuple type '" + toString(varInfo->type) + "' in TupleAccessNode");
+    }
+
+    if (node->index > varInfo->type.subTypes.size() || node->index == 0) {
+        IndexError(("Index " + std::to_string(node->index) + " out of range for tuple of len " + std::to_string(varInfo->type.subTypes.size())).c_str());
+        return; 
+    }
+
+    node->type = varInfo->type.subTypes[node->index - 1];
+}
+void SemanticAnalysisVisitor::visit(TupleTypeCastNode* node) {
+    // Target tuple type is carried in node->type by the AST constructor
+    node->expr->accept(*this);
+    handleAssignError("", node->type, node->expr->type);
 }
 
 
