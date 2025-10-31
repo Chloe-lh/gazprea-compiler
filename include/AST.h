@@ -66,14 +66,14 @@ public:
 class FuncNode : public ASTNode {
 public:
     std::string name;
-    std::vector<std::pair<std::string, std::string>> parameters; // (type, name)
+    std::vector<std::pair<CompleteType, std::string>> parameters; // (type, name)
     CompleteType returnType; // optional
     std::shared_ptr<BlockNode> body; // optional
     std::shared_ptr<StatNode> returnStat; // optional
 
     FuncNode(
         const std::string& name,
-        const std::vector<std::pair<std::string, std::string>>& parameters,
+        const std::vector<std::pair<CompleteType, std::string>>& parameters,
         CompleteType returnType,
         std::shared_ptr<BlockNode> body = nullptr,
         std::shared_ptr<StatNode> returnStat = nullptr
@@ -85,7 +85,7 @@ class FuncStatNode : public FuncNode {
 public:
     FuncStatNode(
         const std::string& name,
-        const std::vector<std::pair<std::string, std::string>>& parameters,
+        const std::vector<std::pair<CompleteType, std::string>>& parameters,
         CompleteType returnType,
         std::shared_ptr<StatNode> returnStat
     );
@@ -96,7 +96,7 @@ class FuncPrototypeNode : public FuncNode {
 public:
     FuncPrototypeNode(
         const std::string& name,
-        const std::vector<std::pair<std::string, std::string>>& parameters,
+        const std::vector<std::pair<CompleteType, std::string>>& parameters,
         CompleteType returnType
     );
     void accept(ASTVisitor& visitor) override;

@@ -106,14 +106,14 @@ IdNode::IdNode(const std::string& id) : id(id) {}
 // Function nodes
 FuncStatNode::FuncStatNode(
     const std::string& name,
-    const std::vector<std::pair<std::string, std::string>>& parameters,
+    const std::vector<std::pair<CompleteType, std::string>>& parameters,
     CompleteType returnType,
     std::shared_ptr<StatNode> returnStat
 )
 : FuncNode(name, parameters, std::move(returnType), nullptr, std::move(returnStat)) {}
 
 FuncPrototypeNode::FuncPrototypeNode(const std::string& name,
-    const std::vector<std::pair<std::string, std::string>>& parameters,
+    const std::vector<std::pair<CompleteType, std::string>>& parameters,
     CompleteType returnType)
     : FuncNode(name, parameters, std::move(returnType), nullptr, nullptr) {}
 
