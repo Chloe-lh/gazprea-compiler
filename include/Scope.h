@@ -57,10 +57,9 @@ private:
     static std::unordered_map<std::string, CompleteType> globalTypeAliases_; // type aliases can only be declared in global scope
     
     std::unordered_map<std::string, VarInfo> symbols_; // variables in scope
-    std::unordered_map<std::string, FuncInfo> functionsBySig_; // functions in scope keyed by identifier + params, e.g. name(t1,t2,...)
+    // Functions, procedures and (pt2) structs will share same namespace
+    std::unordered_map<std::string, FuncInfo> functionsByName_; // functions in scope keyed by identifier
 
-    // Build canonical function key preserving parameter order
-    static std::string makeFunctionKey(const std::string& identifier, const std::vector<VarInfo>& params);
 
     Scope* parent_;
     std::vector<std::unique_ptr<Scope>> children_;

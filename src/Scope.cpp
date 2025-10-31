@@ -22,19 +22,31 @@ void Scope::declareVar(const std::string& identifier, const CompleteType& type, 
 }
 
 void Scope::declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType) {
-    std::string key = Scope::makeFunctionKey(identifier, params);
-    if (functionsBySig_.find(key) != functionsBySig_.end()) {
+    // Shared namespace: disallow conflict with any procedure of same name
+    if (proceduresByName_.find(identifier) != proceduresByName_.end()) {
+        throw SymbolError(1, "Semantic Analysis: Name conflict: function and procedure share name '" + identifier + "'.");
+    }
+    if (functionsByName_.find(identifier) != functionsByName_.end()) {
         SymbolError err = SymbolError(1, "Semantic Analysis: Function '" + identifier + "' cannot be redeclared.");
         throw err;
     }
 
-    FuncInfo newFunc = {
-        identifier,
-        params,
-        returnType
-    };
+    FuncInfo newFunc = { identifier, params, returnType };
+    functionsByName_.emplace(identifier, newFunc);
+}
 
-    functionsBySig_.emplace(std::move(key), newFunc);
+void Scope::declareProc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType) {
+    // Shared namespace: disallow conflict with any function of same name
+    if (functionsByName_.find(identifier) != functionsByName_.end()) {
+        throw SymbolError(1, "Semantic Analysis: Name conflict: function and procedure share name '" + identifier + "'.");
+    }
+    if (proceduresByName_.find(identifier) != proceduresByName_.end()) {
+        SymbolError err = SymbolError(1, "Semantic Analysis: Procedure '" + identifier + "' cannot be redeclared.");
+        throw err;
+    }
+
+    ProcInfo newProc = { identifier, params, returnType };
+    proceduresByName_.emplace(identifier, newProc);
 }
 
 /*
@@ -55,11 +67,19 @@ void Scope::declareAlias(const std::string& identifier, const CompleteType& type
 
 
 // TODO add line number in error
-FuncInfo* Scope::resolveFunc(const std::string& identifier, const std::vector<VarInfo>& params) {
-    std::string key = Scope::makeFunctionKey(identifier, params);
-
-    auto it = functionsBySig_.find(key);
-    if (it != functionsBySig_.end()) {
+FuncInfo* Scope::resolveFunc(const std::string& identifier, const std::vector<VarInfo>& callParams) {
+    auto it = functionsByName_.find(identifier);
+    if (it != functionsByName_.end()) {
+        // Validate parameter types (names may differ/omitted in prototypes)
+        const auto& stored = it->second.params;
+        if (stored.size() != callParams.size()) {
+            throw SymbolError(1, "Semantic Analysis: Function '" + identifier + "' called with wrong number of arguments.");
+        }
+        for (size_t i = 0; i < stored.size(); ++i) {
+            if (stored[i].type != callParams[i].type) {
+                throw SymbolError(1, "Semantic Analysis: Function '" + identifier + "' called with incompatible argument types.");
+            }
+        }
         return &it->second;
     }
     if (parent_ != nullptr) {
@@ -132,15 +152,3 @@ std::string Scope::printScope() const {
     return result;
 } 
 
-std::string Scope::makeFunctionKey(const std::string& identifier, const std::vector<VarInfo>& params) {
-    std::string key;
-    key.reserve(identifier.size() + 2 + params.size() * 8);
-    key += identifier;
-    key += '(';
-    for (size_t i = 0; i < params.size(); ++i) {
-        key += toString(params[i].type);
-        if (i + 1 < params.size()) key += ", ";
-    }
-    key += ')';
-    return key;
-}
