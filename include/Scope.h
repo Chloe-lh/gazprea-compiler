@@ -29,10 +29,10 @@ public:
     void declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType);
     void declareAlias(const std::string& identifier, const CompleteType& type);
 
-    FuncInfo* resolveFunc(const std::string& identifier, const std::vector<VarInfo>& params);
-
     VarInfo* resolveVar(const std::string& identifier);
-    const VarInfo* resolveVar(const std::string& identifier) const;
+    FuncInfo* resolveFunc(const std::string& identifier, const std::vector<VarInfo>& params);
+    CompleteType* resolveAlias(const std::string& identifier);
+
     void disableDeclarations(); // For ensuring declrs are at the top of each block
     bool isDeclarationAllowed();
     void setGlobalTrue();

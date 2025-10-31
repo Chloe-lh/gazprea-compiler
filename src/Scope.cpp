@@ -9,6 +9,7 @@ Scope::Scope(Scope* parent) : parent_(parent) {}
 void Scope::declareVar(const std::string& identifier, const CompleteType& type, bool isConst) {
     if (symbols_.find(identifier) != symbols_.end()) {
         SymbolError err = SymbolError(1, "Semantic Analysis: Variable '" + identifier + "' cannot be redeclared.");
+        throw err;
     }
 
     symbols_.emplace(identifier, VarInfo{identifier, type, isConst});
@@ -18,6 +19,7 @@ void Scope::declareFunc(const std::string& identifier, const std::vector<VarInfo
     std::string key = Scope::makeFunctionKey(identifier, params);
     if (functionsBySig_.find(key) != functionsBySig_.end()) {
         SymbolError err = SymbolError(1, "Semantic Analysis: Function '" + identifier + "' cannot be redeclared.");
+        throw err;
     }
 
     FuncInfo newFunc = {
@@ -45,6 +47,8 @@ void Scope::declareAlias(const std::string& identifier, const CompleteType& type
     globalTypeAliases_.emplace(identifier, type);
 }
 
+
+// TODO add line number in error
 FuncInfo* Scope::resolveFunc(const std::string& identifier, const std::vector<VarInfo>& params) {
     std::string key = Scope::makeFunctionKey(identifier, params);
 
@@ -55,9 +59,10 @@ FuncInfo* Scope::resolveFunc(const std::string& identifier, const std::vector<Va
     if (parent_ != nullptr) {
         return parent_->resolveFunc(identifier, params);
     }
-    return nullptr;
+    throw SymbolError(1, "Semantic Analysis: Function '" + identifier + "' not defined.");
 }
 
+// TODO add line number in error
 VarInfo* Scope::resolveVar(const std::string& identifier) {
     auto it = symbols_.find(identifier);
     if (it != symbols_.end()) {
@@ -66,18 +71,17 @@ VarInfo* Scope::resolveVar(const std::string& identifier) {
     if (parent_ != nullptr) {
         return parent_->resolveVar(identifier);
     }
-    return nullptr;
+    throw SymbolError(1, "Semantic Analysis: Variable '" + identifier + "' not defined.");
 }
 
-const VarInfo* Scope::resolveVar(const std::string& identifier) const {
-    auto it = symbols_.find(identifier);
-    if (it != symbols_.end()) {
+CompleteType* Scope::resolveAlias(const std::string& identifier) {
+    auto it = globalTypeAliases_.find(identifier);
+
+    if (it != globalTypeAliases_.end()) {
         return &it->second;
     }
-    if (parent_ != nullptr) {
-        return parent_->resolveVar(identifier);
-    }
-    return nullptr;
+
+    throw SymbolError(1, "Semantic Analysis: Type alias '" + identifier + "' not defined.");
 }
 
 void Scope::disableDeclarations() {
