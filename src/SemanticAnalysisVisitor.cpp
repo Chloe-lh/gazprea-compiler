@@ -7,7 +7,7 @@ void SemanticAnalysisVisitor::visit(FileNode* node) {
     // note: can shadow other symbol names
     scopeByCtx_.clear();
     current_ = nullptr;
-    enterScopeFor(node);
+    enterScopeFor(node, false, nullptr);
     current_->setGlobalTrue();
 
     for (const auto& stat: node->stats) {
@@ -499,15 +499,15 @@ void SemanticAnalysisVisitor::handleAssignError(const std::string varName, const
     }
 }
 
-void SemanticAnalysisVisitor::enterScopeFor(const ASTNode* ownerCtx) {
+void SemanticAnalysisVisitor::enterScopeFor(const ASTNode* ownerCtx, const bool inLoop, const CompleteType* returnType) {
     // Init root
     if (current_ == nullptr) {
-    root_ = std::make_unique<Scope>(nullptr);
-    current_ = root_.get();
-  }
-  Scope* child = current_->createChild();
-  scopeByCtx_[ownerCtx] = child;
-  current_ = child;
+        root_ = std::make_unique<Scope>(nullptr, inLoop, returnType);
+        current_ = root_.get();
+    }
+    Scope* child = current_->createChild(inLoop, returnType);
+    scopeByCtx_[ownerCtx] = child;
+    current_ = child;
 }
 
 void SemanticAnalysisVisitor::exitScope() {

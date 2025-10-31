@@ -24,6 +24,7 @@ struct FuncInfo {
 class Scope {
 public:
     explicit Scope(Scope* parent = nullptr);
+    explicit Scope(Scope* parent = nullptr, bool inLoop, const CompleteType* returnType);
 
     void declareVar(const std::string& identifier, const CompleteType& type, bool isConst);
     void declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType);
@@ -39,13 +40,13 @@ public:
 
     bool isInLoop();
     bool isInFunction();
-    CompleteType* getReturnType();
+    const CompleteType* getReturnType();
 
     Scope* parent() const { return parent_; }
     const std::unordered_map<std::string, VarInfo>& symbols() const { return symbols_; }
 
     // Persistent tree support
-    Scope* createChild();
+    Scope* createChild(const bool inLoop, const CompleteType* returnType);
     const std::vector<std::unique_ptr<Scope>>& children() const { return children_; }
 
     // Diagnostics
@@ -65,6 +66,6 @@ private:
     std::vector<std::unique_ptr<Scope>> children_;
     bool declarationAllowed = true;
     bool isGlobal = false;
-    bool isInLoop = false;
-    CompleteType* returnType = nullptr; // nullptr if not inside a function
+    bool inLoop = false;
+    const CompleteType* returnType = nullptr; // nullptr if not inside a function
 };

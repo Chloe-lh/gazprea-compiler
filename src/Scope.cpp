@@ -4,7 +4,13 @@
 #include <stdexcept>
 #include <string>
 
+// Static storage for global type aliases
+std::unordered_map<std::string, CompleteType> Scope::globalTypeAliases_{};
+
+/* This constructor assumes not in function, not in loop. i.e. global/ global block*/
 Scope::Scope(Scope* parent) : parent_(parent) {}
+
+Scope::Scope(Scope* parent, bool inLoop, const CompleteType* returnType) : parent_(parent), inLoop(inLoop), returnType(returnType) {}
 
 void Scope::declareVar(const std::string& identifier, const CompleteType& type, bool isConst) {
     if (symbols_.find(identifier) != symbols_.end()) {
@@ -96,8 +102,12 @@ void Scope::setGlobalTrue() {
     this->isGlobal = true;
 }
 
-Scope* Scope::createChild() {
-    children_.push_back(std::make_unique<Scope>(this));
+bool Scope::isInLoop() { return this->inLoop; }
+bool Scope::isInFunction() { return this->returnType != nullptr; }
+const CompleteType* Scope::getReturnType() { return this->returnType; }
+
+Scope* Scope::createChild(const bool inLoop, const CompleteType* returnType) {
+    children_.push_back(std::make_unique<Scope>(this, inLoop, returnType));
     return children_.back().get();
 }
 
