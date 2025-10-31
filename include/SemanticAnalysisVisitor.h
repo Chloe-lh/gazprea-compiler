@@ -12,7 +12,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         void visit(FileNode* node) override;
 
         // Functions
-        virtual void visit(FuncStatNode* node); // TODO: ensure has return in all paths
+        virtual void visit(FuncStatNode* node); 
         virtual void visit(FuncPrototypeNode* node);
         virtual void visit(FuncBlockNode* node);
         virtual void visit(ProcedureNode* node);
@@ -32,7 +32,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         virtual void visit(BreakStatNode* node);
         virtual void visit(ContinueStatNode* node);
         virtual void visit(ReturnStatNode* node);
-        virtual void visit(CallStatNode* node);
+        virtual void visit(CallStatNode* node); // todo: not allowed within functions. Cannot call functions either.
         virtual void visit(IfNode* node) = 0;
         virtual void visit(LoopNode* node) = 0;
         virtual void visit(BlockNode* node);
@@ -55,6 +55,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         std::unique_ptr<Scope> root_;
         Scope* current_ = nullptr;
         std::unordered_map<const ASTNode*, Scope*> scopeByCtx_;
+        bool seenMain_ = false;
 
         void throwOperandError(const std::string op, const std::vector<CompleteType>& operands, std::string additionalInfo);
         void handleAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType);

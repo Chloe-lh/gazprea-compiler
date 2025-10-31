@@ -88,6 +88,8 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
     node->type = varType;
 }
 
+
+/* TODO add error line number */
 void SemanticAnalysisVisitor::visit(FuncPrototypeNode* node) {
     // Convert parameter list to VarInfo (names may be empty for prototypes)
     std::vector<VarInfo> params;
@@ -104,7 +106,7 @@ void SemanticAnalysisVisitor::visit(FuncPrototypeNode* node) {
     } catch (...) {
         FuncInfo* existing = current_->resolveFunc(node->name, params);
         if (existing->funcReturn != node->returnType) {
-            throw std::runtime_error("Semantic Analysis: conflicting return type for function prototype '" + node->name + "'.");
+            throw SymbolError(1, "Semantic Analysis: conflicting return type for function prototype '" + node->name + "'.");
         }
     }
 }
@@ -151,6 +153,70 @@ void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
     // Ensure all paths return
     if (!guaranteesReturn(node->body.get())) {
         throw ReturnError(1, "Semantic Analysis: not all control paths return in function '" + node->name + "'.");
+    }
+
+    exitScope();
+}
+
+/* TODO add error line numbers */
+void SemanticAnalysisVisitor::visit(ProcedureNode* node) {
+    // Special case: main() constraints
+    if (node->name == "main") {
+        if (seenMain_) {
+            throw SymbolError(1, "Semantic Analysis: Multiple definitions of procedure main().");
+        }
+        seenMain_ = true;
+        if (!node->params.empty()) {
+            throw MainError(1, "Semantic Analysis: procedure main() must not take parameters.");
+        }
+        if (node->returnType.baseType != BaseType::INTEGER) {
+            throw MainError(1, "Semantic Analysis: procedure main() must return integer.");
+        }
+    }
+
+    // Build parameter VarInfos, default const. 
+    // TODO: handle 'var' once AST carries it
+    std::vector<VarInfo> params;
+    params.reserve(node->params.size());
+    std::unordered_set<std::string> paramNames;
+    for (const auto& [ptype, pname] : node->params) {
+        if (pname.empty()) {
+            // should not happen
+            throw std::runtime_error("Semantic Analysis:FATAL: parameter name required in procedure '" + node->name + "'.");
+        }
+        if (!paramNames.insert(pname).second) {
+            throw SymbolError(1, "Semantic Analysis: duplicate parameter name '" + pname + "' in procedure '" + node->name + "'.");
+        }
+        params.push_back(VarInfo{pname, ptype, true});
+    }
+
+    // Declare or validate existing declaration
+    try {
+        current_->declareProc(node->name, params, node->returnType);
+    } catch (...) {
+        ProcInfo* existing = current_->resolveProc(node->name, params);
+        if (existing->procReturn != node->returnType) {
+            throw TypeError(1, "Semantic Analysis: conflicting return type for procedure '" + node->name + "'.");
+        }
+    }
+
+    // Enter procedure scope, bind params
+    enterScopeFor(node, false, &node->returnType);
+    for (const auto& v : params) {
+        current_->declareVar(v.identifier, v.type, v.isConst);
+    }
+
+    if (!node->body) {
+        // should not happen
+        throw std::runtime_error("Semantic Analysis: FATAL: procedure '" + node->name + "' missing body.");
+    }
+    node->body->accept(*this);
+
+    // If non-void return expected, ensure all paths return
+    if (node->returnType.baseType != BaseType::UNKNOWN) {
+        if (!guaranteesReturn(node->body.get())) {
+            throw ReturnError(1, "Semantic Analysis: not all control paths return in procedure '" + node->name + "'.");
+        }
     }
 
     exitScope();
@@ -260,10 +326,36 @@ void SemanticAnalysisVisitor::visit(ReturnStatNode* node) {
         throw StatementError(1, "Cannot use 'return' outside of function."); // TODO add line num
     }
 
-    node->expr->accept(*this);
+    // If expression provided, type-check against expected return type
+    if (node->expr) {
+        node->expr->accept(*this);
+        handleAssignError("", *current_->getReturnType(), node->expr->type);
+    } else {
+        // No value returned: only legal if the declared return type is 'void' equivalent
+        if (current_->getReturnType()->baseType != BaseType::UNKNOWN) {
+            throw TypeError(1, "Semantic Analysis: Non-void return required by declaration.");
+        }
+    }
+}
 
-    // Check if matches return type
-    handleAssignError("", *current_->getReturnType(), node->expr->type);
+void SemanticAnalysisVisitor::visit(CallStatNode* node) {
+    // Analyze argument expressions and collect types
+    std::vector<VarInfo> args;
+    args.reserve(node->args.size());
+    for (const auto& e : node->args) {
+        e->accept(*this);
+        args.push_back(VarInfo{"", e->type, true});
+    }
+
+    // Resolve as procedure only. prevent calling a function via 'call'
+    try {
+        (void) current_->resolveProc(node->funcName, args);
+    } catch (...) {
+        throw SymbolError(1, "Semantic Analysis: Unknown procedure '" + node->funcName + "' in call statement.");
+    }
+
+    // Statements have no resultant type
+    node->type = CompleteType(BaseType::UNKNOWN);
 }
 
 /* TODO pt2
