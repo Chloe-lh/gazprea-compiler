@@ -25,8 +25,10 @@ class Scope {
 public:
     explicit Scope(Scope* parent = nullptr);
 
-    bool declareVar(const std::string& identifier, CompleteType type, bool isConst);
+    bool declareVar(const std::string& identifier, const CompleteType& type, bool isConst);
     bool declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType);
+
+    FuncInfo* resolveFunc(const std::string& identifier, const std::vector<VarInfo>& params);
 
     VarInfo* resolveVar(const std::string& identifier);
     const VarInfo* resolveVar(const std::string& identifier) const;
@@ -45,6 +47,7 @@ public:
     std::string printScope() const;
 
 private:
+    static std::unordered_map<std::string, CompleteType> globalTypeAliases_; // type aliases can only be declared in global scope
     
     std::unordered_map<std::string, VarInfo> symbols_; // variables in scope
     std::unordered_map<std::string, FuncInfo> functionsBySig_; // functions in scope keyed by identifier + params, e.g. name(t1,t2,...)

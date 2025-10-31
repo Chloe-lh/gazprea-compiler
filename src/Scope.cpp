@@ -6,7 +6,7 @@
 
 Scope::Scope(Scope* parent) : parent_(parent) {}
 
-bool Scope::declareVar(const std::string& identifier, CompleteType type, bool isConst) {
+bool Scope::declareVar(const std::string& identifier, const CompleteType& type, bool isConst) {
     if (symbols_.find(identifier) != symbols_.end()) {
         return false;
     }
@@ -29,6 +29,19 @@ bool Scope::declareFunc(const std::string& identifier, const std::vector<VarInfo
 
     functionsBySig_.emplace(std::move(key), newFunc);
     return true;
+}
+
+FuncInfo* Scope::resolveFunc(const std::string& identifier, const std::vector<VarInfo>& params) {
+    std::string key = Scope::makeFunctionKey(identifier, params);
+
+    auto it = functionsBySig_.find(key);
+    if (it != functionsBySig_.end()) {
+        return &it->second;
+    }
+    if (parent_ != nullptr) {
+        return parent_->resolveFunc(identifier, params);
+    }
+    return nullptr;
 }
 
 VarInfo* Scope::resolveVar(const std::string& identifier) {
