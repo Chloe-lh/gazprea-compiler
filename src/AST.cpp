@@ -43,6 +43,7 @@ void InferredDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 // Functions
 void FuncStatNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void FuncPrototypeNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
+void FuncBlockNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 
 // Statements
 void CallStatNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
@@ -116,6 +117,13 @@ FuncPrototypeNode::FuncPrototypeNode(const std::string& name,
     const std::vector<std::pair<CompleteType, std::string>>& parameters,
     CompleteType returnType)
     : FuncNode(name, parameters, std::move(returnType), nullptr, nullptr) {}
+
+FuncBlockNode::FuncBlockNode(
+    const std::string& name,
+    const std::vector<std::pair<CompleteType, std::string>>& parameters,
+    CompleteType returnType,
+    std::shared_ptr<BlockNode> body)
+    : FuncNode(name, parameters, std::move(returnType), std::move(body), nullptr) {}
 
 // Extended nodes
 ProcedureNode::ProcedureNode(const std::string& name,

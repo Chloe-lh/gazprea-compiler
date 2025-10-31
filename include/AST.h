@@ -201,7 +201,7 @@ class TypeAliasDecNode: public DecNode {
     public: 
         std::string alias;
 
-    TypeAliasDecNode(const std::string& alias, const CompleteType type);
+    TypeAliasDecNode(const std::string& alias, const CompleteType& type);
     void accept(ASTVisitor& visitor) override;
 };
 
