@@ -35,8 +35,6 @@ void IntNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void RealNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 
 // Declarations
-void TypeAliasDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
-
 void TupleTypedDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 
 void TypedDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
@@ -129,7 +127,7 @@ TypeAliasNode::TypeAliasNode(const std::string& aliasName, const CompleteType& t
     : aliasName(aliasName) {this->type = type;}
 
 TypeAliasDecNode::TypeAliasDecNode(const std::string& aliasName, const CompleteType& aliasedType)
-    : aliasName(aliasName) { this->type = aliasedType; }
+    : alias(aliasName) { this->type = aliasedType; }
 
 TupleTypeAliasNode::TupleTypeAliasNode(const std::string& aliasName, CompleteType tupleType)
     : aliasName(aliasName) {this->type = tupleType;}
