@@ -29,7 +29,9 @@ void SemanticAnalysisVisitor::visit(BlockNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
-    node->init->accept(*this);
+    if (node->init) {
+        node->init->accept(*this);
+    }
 
     bool isConst = true;
     if (node->qualifier == "var") {
@@ -74,7 +76,9 @@ void SemanticAnalysisVisitor::visit(InferredDecNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
-    node->init->accept(*this);
+    if (node->init) {
+        node->init->accept(*this);
+    }
     // For tuple-typed declarations, the declared type is already present
     // on the declaration node as a CompleteType
     CompleteType& varType = node->type;
@@ -91,7 +95,25 @@ void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(TypeAliasDecNode* node) {
-    current_->declareAlias(node->aliasName, node->type);
+    current_->declareAlias(node->alias, node->type);
+
+    // assume node has been initialized with correct type
+}
+
+void SemanticAnalysisVisitor::visit(TypeAliasNode *node) {
+    if (node->aliasName != "") {
+        node->type = *current_->resolveAlias(node->aliasName);
+    }
+
+    // if no alias, assume node already initialized with correct type
+}
+
+void SemanticAnalysisVisitor::visit(TupleTypeAliasNode *node) {
+    if (node->aliasName != "") {
+        node->type = *current_->resolveAlias(node->aliasName);
+    }
+
+    // if no alias, assume node already initialized with correct type
 }
 
 /* TODO pt2

@@ -12,11 +12,13 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         void visit(FileNode* node) override;
         void visit(BlockNode* node) override;
         
+        // Declarations
         virtual void visit(TypedDecNode* node) override;
         virtual void visit(InferredDecNode* node) override;
         virtual void visit(TupleTypedDecNode* node) override;
         virtual void visit(TypeAliasDecNode* node) override;
-        virtual void visit(TupleTypeAliasNode* node) = 0;
+        virtual void visit(TypeAliasNode* node);
+        virtual void visit(TupleTypeAliasNode* node) override;
 
         // Operators
         void visit(UnaryExpr* node) override;   // unary+, unary-, not
