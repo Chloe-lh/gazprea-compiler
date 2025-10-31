@@ -12,30 +12,30 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         void visit(FileNode* node) override;
 
         // Functions
-        virtual void visit(FuncStatNode* node); 
-        virtual void visit(FuncPrototypeNode* node);
-        virtual void visit(FuncBlockNode* node);
-        virtual void visit(ProcedureNode* node);
+        virtual void visit(FuncStatNode* node) override; 
+        virtual void visit(FuncPrototypeNode* node) override;
+        virtual void visit(FuncBlockNode* node) override;
+        virtual void visit(ProcedureNode* node) override;
         
         // Declarations
         virtual void visit(TypedDecNode* node) override;
         virtual void visit(InferredDecNode* node) override;
         virtual void visit(TupleTypedDecNode* node) override;
         virtual void visit(TypeAliasDecNode* node) override;
-        virtual void visit(TypeAliasNode* node);
+        virtual void visit(TypeAliasNode* node) override;
         virtual void visit(TupleTypeAliasNode* node) override;
 
         // Statements
-        virtual void visit(AssignStatNode* node);
-        virtual void visit(OutputStatNode* node);
-        virtual void visit(InputStatNode* node);
-        virtual void visit(BreakStatNode* node);
-        virtual void visit(ContinueStatNode* node);
-        virtual void visit(ReturnStatNode* node);
-        virtual void visit(CallStatNode* node); // todo: not allowed within functions. Cannot call functions either.
-        virtual void visit(IfNode* node) = 0;
-        virtual void visit(LoopNode* node) = 0;
-        virtual void visit(BlockNode* node);
+        virtual void visit(AssignStatNode* node)    override;
+        virtual void visit(OutputStatNode* node)    override;
+        virtual void visit(InputStatNode* node)     override;
+        virtual void visit(BreakStatNode* node)     override;
+        virtual void visit(ContinueStatNode* node)  override;
+        virtual void visit(ReturnStatNode* node)    override;
+        virtual void visit(CallStatNode* node)      override; // TODO: not allowed within functions. 
+        virtual void visit(IfNode* node)            override;
+        virtual void visit(LoopNode* node)          override;
+        virtual void visit(BlockNode* node)         override;
 
 
         // Operators

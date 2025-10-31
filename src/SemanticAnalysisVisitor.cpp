@@ -339,7 +339,6 @@ void SemanticAnalysisVisitor::visit(ReturnStatNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(CallStatNode* node) {
-    // Analyze argument expressions and collect types
     std::vector<VarInfo> args;
     args.reserve(node->args.size());
     for (const auto& e : node->args) {
@@ -356,6 +355,44 @@ void SemanticAnalysisVisitor::visit(CallStatNode* node) {
 
     // Statements have no resultant type
     node->type = CompleteType(BaseType::UNKNOWN);
+}
+
+void SemanticAnalysisVisitor::visit(IfNode* node) {
+    // Evaluate and type-check condition first
+    node->cond->accept(*this);
+    if (node->cond->type.baseType != BaseType::BOOL) {
+        throw TypeError(1, "Semantic Analysis: if condition must be boolean; got '" + toString(node->cond->type) + "'.");
+    }
+    if (node->thenBlock) node->thenBlock->accept(*this);
+    if (node->elseBlock) node->elseBlock->accept(*this);
+}
+
+void SemanticAnalysisVisitor::visit(BlockNode* node) {
+    // New lexical scope; inherit loop/return context
+    enterScopeFor(node, current_->isInLoop(), current_->getReturnType());
+    for (const auto& d : node->decs) {
+        d->accept(*this);
+    }
+    for (const auto& s : node->stats) {
+        s->accept(*this);
+    }
+    exitScope();
+}
+
+void SemanticAnalysisVisitor::visit(LoopNode* node) {
+    // Optional condition must be boolean
+    if (node->cond) {
+        node->cond->accept(*this);
+        if (node->cond->type.baseType != BaseType::BOOL) {
+            throw TypeError(1, "Semantic Analysis: loop condition must be boolean; got '" + toString(node->cond->type) + "'.");
+        }
+    }
+    // Enter loop scope so 'break'/'continue' are legal
+    enterScopeFor(node, true, current_->getReturnType());
+    if (node->body) {
+        node->body->accept(*this);
+    }
+    exitScope();
 }
 
 /* TODO pt2
