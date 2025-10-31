@@ -13,11 +13,11 @@ using namespace antlr4;
 
 /*
       //  DONE std::any visitFile(GazpreaParser::FileContext *ctx) override; 
-        std::any visitFunctionBlock(GazpreaParser::FunctionBlockContext *ctx) override;
-        std::any visitFunctionBlockTupleReturn(GazpreaParser::FunctionBlockTupleReturnContext *ctx) override;
-        std::any visitFunctionStat(GazpreaParser::FunctionStatContext *ctx) override;
-        std::any visitFunctionPrototype(GazpreaParser::FunctionPrototypeContext *ctx) override;
-        std::any visitFunctionPrototypeTupleReturn(GazpreaParser::FunctionPrototypeTupleReturnContext *ctx) override;
+       // std::any visitFunctionBlock(GazpreaParser::FunctionBlockContext *ctx) override;
+     //   std::any visitFunctionBlockTupleReturn(GazpreaParser::FunctionBlockTupleReturnContext *ctx) override;
+    //    std::any visitFunctionStat(GazpreaParser::FunctionStatContext *ctx) override;
+        // std::any visitFunctionPrototype(GazpreaParser::FunctionPrototypeContext *ctx) override;
+    //    std::any visitFunctionPrototypeTupleReturn(GazpreaParser::FunctionPrototypeTupleReturnContext *ctx) override;
         std::any visitProcedure(GazpreaParser::ProcedureContext *ctx) override;
         std::any visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) override;
         std::any visitInferredTypeDec(GazpreaParser::InferredTypeDecContext *ctx) override;
@@ -53,8 +53,8 @@ using namespace antlr4;
      //   DONE std::any visitRealExpr(GazpreaParser::RealExprContext *ctx) override;
         std::any visitTypeCastExpr(GazpreaParser::TypeCastExprContext *ctx) override;
         std::any visitFuncCallExpr(GazpreaParser::FuncCallExprContext *ctx) override;
-        std::any visitTuple_dec(GazpreaParser::Tuple_decContext *ctx) override;
-        std::any visitTuple_literal(GazpreaParser::Tuple_literalContext *ctx) override;
+        // std::any visitTuple_dec(GazpreaParser::Tuple_decContext *ctx) override;
+        // std::any visitTuple_literal(GazpreaParser::Tuple_literalContext *ctx) override;
         std::any visitTuple_access(GazpreaParser::Tuple_accessContext *ctx) override;
       //  DONE std::any visitBlock(GazpreaParser::BlockContext *ctx) override;
         std::any visitIf(GazpreaParser::IfContext *ctx) override;
@@ -100,10 +100,10 @@ std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx){
 }
 
 // since there is no function block node, return a Function Prototype with a body
-// combines A function signature with a function body
+// combines a function signature with a function body
 std::any ASTBuilder::visitFunctionBlock(GazpreaParser::FunctionBlockContext *ctx){
     std::string funcName = ctx->ID(0)->getText();
-    std::vector<std::pair<CompleteType, std::string>> params;
+    std::vector<std::pair<CompleteType, std::string>> params = gazprea::builder_utils::ExtractParams(*this, ctx);
     std::shared_ptr<BlockNode> body = nullptr;
     CompleteType returnType = gazprea::builder_utils::ExtractReturnType(*this, ctx);
     
@@ -117,23 +117,65 @@ std::any ASTBuilder::visitFunctionBlock(GazpreaParser::FunctionBlockContext *ctx
     node->body = body;//assign superclass body
     return node;
 }
-
-// std::any ASTBuilder::visitFunctionBlockTupleReturn(GazpreaParser::FunctionBlockTupleReturnContext *ctx){
-//     std::string funcName = ctx->ID(0)->getText();
-//     std::vector<std::pair<CompleteType, std::string>> params;
-//     std::shared_ptr<BlockNode> body = nullptr;
-//     CompleteType returnType = gazprea::builder_utils::ExtractReturnType(*this, ctx);
+// combines a function signature with a function body
+std::any ASTBuilder::visitFunctionBlockTupleReturn(GazpreaParser::FunctionBlockTupleReturnContext *ctx){
+    std::string funcName = ctx->ID(0)->getText();
+    std::vector<std::pair<CompleteType, std::string>> params = gazprea::builder_utils::ExtractParams(*this, ctx);
+    std::shared_ptr<BlockNode> body = nullptr;
+    CompleteType returnType = gazprea::builder_utils::ExtractReturnType(*this, ctx);
     
-//     if(ctx->block()){ // function has a block
-//         auto anyBody = visit(ctx->block());
-//         if(anyBody.has_value() && anyBody.type() == typeid(std::shared_ptr<BlockNode>)){
-//              body = std::any_cast<std::shared_ptr<BlockNode>>(anyBody);
-//         }
-//     }
-//     auto node = std::make_shared<FuncPrototypeNode>(funcName, params, body, returnType);
-//     return node;
+    if(ctx->block()){ // function has a block
+        auto anyBody = visit(ctx->block());
+        if(anyBody.has_value() && anyBody.type() == typeid(std::shared_ptr<BlockNode>)){
+             body = std::any_cast<std::shared_ptr<BlockNode>>(anyBody);
+        }
+    }
+    auto node = std::make_shared<FuncPrototypeNode>(funcName, params, returnType);
+    node->body = body;
+    return node;
+}
+std::any ASTBuilder::visitFunctionPrototype(GazpreaParser::FunctionPrototypeContext *ctx){
+    std::string funcName = ctx->ID(0)->getText();
+    std::vector<std::pair<CompleteType, std::string>> params = gazprea::builder_utils::ExtractParams(*this, ctx);
+    CompleteType returnType = gazprea::builder_utils::ExtractReturnType(*this, ctx);
+    auto node = std::make_shared<FuncPrototypeNode>(funcName, params, returnType);
+    // no body for a prototype
+    return node;
+}
+std::any ASTBuilder::visitFunctionPrototypeTupleReturn(GazpreaParser::FunctionPrototypeTupleReturnContext *ctx){
+    std::string funcName = ctx->ID(0)->getText();
+    std::vector<std::pair<CompleteType, std::string>> params = gazprea::builder_utils::ExtractParams(*this, ctx);
+    CompleteType returnType = gazprea::builder_utils::ExtractReturnType(*this, ctx);
+    // no body for a prototype
+    auto node = std::make_shared<FuncPrototypeNode>(funcName, params, returnType);
+    return node;
+}
+std::any ASTBuilder::visitFunctionStat(GazpreaParser::FunctionStatContext *ctx){
+    std::string funcName = ctx->ID(0)->getText();
+    std::vector<std::pair<CompleteType, std::string>> params = gazprea::builder_utils::ExtractParams(*this, ctx);
+    CompleteType returnType = gazprea::builder_utils::ExtractReturnType(*this, ctx);
+    std::shared_ptr<StatNode> returnStat = nullptr;
+    if (ctx->stat()) {
+        auto anyStat = visit(ctx->stat());
+        if (anyStat.has_value()) {
+            // Preferred: safe-check the type then any_cast
+            if (anyStat.type() == typeid(std::shared_ptr<StatNode>)) {
+                returnStat = std::any_cast<std::shared_ptr<StatNode>>(anyStat);
+            } else {
+                // fallback attempt: try catching bad_any_cast to avoid crashes
+                try {
+                    returnStat = std::any_cast<std::shared_ptr<StatNode>>(anyStat);
+                } catch (const std::bad_any_cast&) {
+                    // not a StatNode — handle gracefully, e.g. leave nullptr or log
+                }
+            }
+        }
+    }
+    // no body for a prototype
+    auto node = std::make_shared<FuncStatNode>(funcName, params, returnType, returnStat);
+    return node;
+}
 
-// }
 std::any ASTBuilder::visitIntExpr(GazpreaParser::IntExprContext *ctx){
     try{
         std::string lit = ctx->INT()->getText();
@@ -227,6 +269,41 @@ std::any ASTBuilder::visitFalseExpr(GazpreaParser::FalseExprContext *ctx){
     auto node = std::make_shared<FalseNode>();
     node->type = CompleteType(BaseType::BOOL);
     return node;
+}
+
+std::any ASTBuilder::visitTuple_literal(GazpreaParser::Tuple_literalContext *ctx){
+    std::vector<std::shared_ptr<ExprNode>> elements;
+    for(auto exprCtx: ctx->expr()){
+        auto exprAny = visit(exprCtx);
+        auto expr = std::any_cast<std::shared_ptr<ExprNode>>(exprAny);
+        if(expr) elements.push_back(expr);
+    }
+    auto node = std::make_shared<TupleLiteralNode>(elements);
+
+    // Build the tuple CompleteType from the element expression types so
+    // downstream passes have subtype information available.
+    std::vector<CompleteType> elemTypes;
+    elemTypes.reserve(elements.size());
+    for (auto &el : elements) {
+        if (el) elemTypes.push_back(el->type);
+        else elemTypes.push_back(CompleteType(BaseType::UNKNOWN));
+    }
+    node->type = CompleteType(BaseType::TUPLE, std::move(elemTypes));
+    return node;
+}
+
+std::any ASTBuilder::visitTuple_dec(GazpreaParser::Tuple_decContext *ctx){
+    // Build a CompleteType representing the tuple declaration's element types.
+    std::vector<CompleteType> elemTypes;
+    for (auto typeCtx : ctx->type()){
+        auto anyType = visit(typeCtx);
+        if (anyType.has_value() && anyType.type() == typeid(CompleteType)){
+            elemTypes.push_back(std::any_cast<CompleteType>(anyType));
+        } else {
+            elemTypes.push_back(CompleteType(BaseType::UNKNOWN));
+        }
+    }
+    return CompleteType(BaseType::TUPLE, std::move(elemTypes));
 }
 
 

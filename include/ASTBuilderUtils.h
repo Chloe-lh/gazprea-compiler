@@ -11,6 +11,9 @@ public:
 	class FunctionBlockContext;
 	class ProcedureContext;
 	class FunctionStatContext;
+    class FunctionPrototypeContext;
+    class FunctionBlockTupleReturnContext;
+    class FunctionPrototypeTupleReturnContext;
 };
 
 namespace gazprea { class ASTBuilder; }
@@ -22,8 +25,24 @@ ExtractParams(gazprea::ASTBuilder &builder, GazpreaParser::FunctionBlockContext 
 std::vector<std::pair<CompleteType, std::string>>
 ExtractParams(gazprea::ASTBuilder &builder, GazpreaParser::ProcedureContext *ctx);
 
+std::vector<std::pair<CompleteType, std::string>>
+ExtractParams(gazprea::ASTBuilder &builder, GazpreaParser::FunctionPrototypeContext *ctx);
+
+std::vector<std::pair<CompleteType, std::string>>
+ExtractParams(gazprea::ASTBuilder &builder, GazpreaParser::FunctionBlockTupleReturnContext *ctx);
+
+std::vector<std::pair<CompleteType, std::string>>
+ExtractParams(gazprea::ASTBuilder &builder, GazpreaParser::FunctionPrototypeTupleReturnContext *ctx);
+
+std::vector<std::pair<CompleteType, std::string>>
+ExtractParams(gazprea::ASTBuilder &builder, GazpreaParser::FunctionStatContext *ctx);
+
+
 CompleteType ExtractReturnType(gazprea::ASTBuilder &builder, GazpreaParser::FunctionBlockContext *ctx);
+CompleteType ExtractReturnType(gazprea::ASTBuilder &builder, GazpreaParser::FunctionPrototypeContext *ctx);
 CompleteType ExtractReturnType(gazprea::ASTBuilder &builder, GazpreaParser::FunctionStatContext *ctx);
+CompleteType ExtractReturnType(gazprea::ASTBuilder &builder, GazpreaParser::FunctionBlockTupleReturnContext *ctx);
+CompleteType ExtractReturnType(gazprea::ASTBuilder &builder, GazpreaParser::FunctionPrototypeTupleReturnContext *ctx);
 
 
 }} // namespaces
