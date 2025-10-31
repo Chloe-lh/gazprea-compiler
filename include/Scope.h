@@ -31,7 +31,7 @@ struct ProcInfo {
 class Scope {
 public:
     explicit Scope(Scope* parent = nullptr);
-    explicit Scope(Scope* parent = nullptr, bool inLoop, const CompleteType* returnType);
+    explicit Scope(Scope* parent, bool inLoop, const CompleteType* returnType);
 
     void declareVar(const std::string& identifier, const CompleteType& type, bool isConst);
     void declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType);
