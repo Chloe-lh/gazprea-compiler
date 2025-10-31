@@ -19,7 +19,7 @@ void SemanticAnalysisVisitor::visit(FileNode* node) {
 
 void SemanticAnalysisVisitor::visit(BlockNode* node) {
     // Init and enter block scope
-    enterScopeFor(node);
+    enterScopeFor(node); // TODO fix scope management for loop/function/cond/etc.
 
     for (const auto& line: node->stats) {
         line->accept(*this);
@@ -152,6 +152,17 @@ void SemanticAnalysisVisitor::visit(ContinueStatNode* node) {
     if (!current_->isInLoop()) {
         throw StatementError(1, "Cannot use 'continue' outside of loop."); // TODO add line num
     }
+}
+
+void SemanticAnalysisVisitor::visit(ReturnStatNode* node) {
+    if (!current_->isInFunction()) {
+        throw StatementError(1, "Cannot use 'return' outside of function."); // TODO add line num
+    }
+
+    node->expr->accept(*this);
+
+    // Check if matches return type
+    handleAssignError("", *current_->getReturnType(), node->expr->type);
 }
 
 /* TODO pt2
@@ -463,15 +474,28 @@ void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std:
 }
 
 // TODO: add source line/column once AST carries location info
+/*
+If empty string provided, prints non-variable promotion error msg
+*/
 void SemanticAnalysisVisitor::handleAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType) {
     // Encapsulate the type compatibility check here
     if (promote(exprType, varType) != varType) {
-        TypeError err(
-            1,
-            std::string("Semantic Analysis: Cannot assign type '") + toString(exprType) +
-            "' to variable '" + varName + "' of type '" + toString(varType) + "'."
-        );
-        throw err;
+        if (varName != "") {
+            TypeError err(
+                1,
+                std::string("Semantic Analysis: Cannot assign type '") + toString(exprType) +
+                "' to variable '" + varName + "' of type '" + toString(varType) + "'."
+            );
+            throw err;
+        } else {
+            TypeError err(
+                1,
+                std::string("Semantic Analysis: Cannot assign type '") + toString(exprType) +
+                "' to expected type '" + toString(varType) + "'."
+            );
+            throw err;
+        }
+
     }
 }
 

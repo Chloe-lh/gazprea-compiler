@@ -39,6 +39,7 @@ public:
 
     bool isInLoop();
     bool isInFunction();
+    CompleteType* getReturnType();
 
     Scope* parent() const { return parent_; }
     const std::unordered_map<std::string, VarInfo>& symbols() const { return symbols_; }
@@ -65,5 +66,5 @@ private:
     bool declarationAllowed = true;
     bool isGlobal = false;
     bool isInLoop = false;
-    bool isInFunction = false;
+    CompleteType* returnType = nullptr; // nullptr if not inside a function
 };

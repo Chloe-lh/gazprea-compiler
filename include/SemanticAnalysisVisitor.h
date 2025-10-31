@@ -26,8 +26,8 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         virtual void visit(InputStatNode* node);
         virtual void visit(BreakStatNode* node);
         virtual void visit(ContinueStatNode* node);
-        virtual void visit(ReturnStatNode* node) = 0;
-        virtual void visit(CallStatNode* node) = 0;
+        virtual void visit(ReturnStatNode* node);
+        virtual void visit(CallStatNode* node);
         virtual void visit(IfNode* node) = 0;
         virtual void visit(LoopNode* node) = 0;
         virtual void visit(BlockNode* node) = 0;
