@@ -49,7 +49,7 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
 
     // Ensure init expr type matches with var type (if provided)
     if (node->init != nullptr) {
-        throwAssignError(node->name, varType, node->init->type);
+        handleAssignError(node->name, varType, node->init->type);
     }
 
     node->type = varType;
@@ -88,7 +88,7 @@ void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
 
     // Ensure init expr type matches with var type (if provided)
     if (node->init != nullptr) {
-        throwAssignError(node->name, varType, node->init->type);
+        handleAssignError(node->name, varType, node->init->type);
     }
 
     node->type = varType;
@@ -114,6 +114,44 @@ void SemanticAnalysisVisitor::visit(TupleTypeAliasNode *node) {
     }
 
     // if no alias, assume node already initialized with correct type
+}
+
+void SemanticAnalysisVisitor::visit(AssignStatNode* node) {
+    node->expr->accept(*this);
+
+    // handles if undeclared
+    const VarInfo* varInfo = current_->resolveVar(node->name);
+    
+    if (varInfo->isConst) {
+        throw AssignError(1, "Semantic Analysis: cannot assign to const variable '" + node->name + "'."); // TODO add line num
+    }
+
+    handleAssignError(node->name, varInfo->type, node->expr->type);
+
+    node->type = varInfo->type;
+}
+
+void SemanticAnalysisVisitor::visit(OutputStatNode* node) {
+    node->expr->accept(*this); // handle expr
+    node->type = CompleteType(BaseType::UNKNOWN); // streams do not have a type
+}
+
+void SemanticAnalysisVisitor::visit(InputStatNode* node) {
+    // checks must be performed at runtime due to input ambiguity 
+
+    node->type = CompleteType(BaseType::UNKNOWN); // streams do not have a type
+}
+
+void SemanticAnalysisVisitor::visit(BreakStatNode* node) {
+    if (!current_->isInLoop()) {
+        throw StatementError(1, "Cannot use 'break' outside of loop."); // TODO add line num
+    }
+}
+
+void SemanticAnalysisVisitor::visit(ContinueStatNode* node) {
+    if (!current_->isInLoop()) {
+        throw StatementError(1, "Cannot use 'continue' outside of loop."); // TODO add line num
+    }
 }
 
 /* TODO pt2
@@ -425,7 +463,7 @@ void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std:
 }
 
 // TODO: add source line/column once AST carries location info
-void SemanticAnalysisVisitor::throwAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType) {
+void SemanticAnalysisVisitor::handleAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType) {
     // Encapsulate the type compatibility check here
     if (promote(exprType, varType) != varType) {
         TypeError err(

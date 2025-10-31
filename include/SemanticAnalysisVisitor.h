@@ -20,6 +20,18 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         virtual void visit(TypeAliasNode* node);
         virtual void visit(TupleTypeAliasNode* node) override;
 
+        // Statements
+        virtual void visit(AssignStatNode* node);
+        virtual void visit(OutputStatNode* node);
+        virtual void visit(InputStatNode* node);
+        virtual void visit(BreakStatNode* node);
+        virtual void visit(ContinueStatNode* node);
+        virtual void visit(ReturnStatNode* node) = 0;
+        virtual void visit(CallStatNode* node) = 0;
+        virtual void visit(IfNode* node) = 0;
+        virtual void visit(LoopNode* node) = 0;
+        virtual void visit(BlockNode* node) = 0;
+
         // Operators
         void visit(UnaryExpr* node) override;   // unary+, unary-, not
         void visit(ExpExpr* node) override;     // ^
@@ -39,7 +51,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         std::unordered_map<const ASTNode*, Scope*> scopeByCtx_;
 
         void throwOperandError(const std::string op, const std::vector<CompleteType>& operands, std::string additionalInfo);
-        void throwAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType);
+        void handleAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType);
 
         void enterScopeFor(const ASTNode* ownerCtx);
         void exitScope();

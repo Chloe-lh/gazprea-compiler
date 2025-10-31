@@ -37,6 +37,9 @@ public:
     bool isDeclarationAllowed();
     void setGlobalTrue();
 
+    bool isInLoop();
+    bool isInFunction();
+
     Scope* parent() const { return parent_; }
     const std::unordered_map<std::string, VarInfo>& symbols() const { return symbols_; }
 
@@ -61,4 +64,6 @@ private:
     std::vector<std::unique_ptr<Scope>> children_;
     bool declarationAllowed = true;
     bool isGlobal = false;
+    bool isInLoop = false;
+    bool isInFunction = false;
 };
