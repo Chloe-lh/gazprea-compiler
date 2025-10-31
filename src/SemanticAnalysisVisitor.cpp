@@ -62,6 +62,9 @@ void SemanticAnalysisVisitor::visit(FuncStatNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
+    if (!current_->isDeclarationAllowed()) {
+        throw DefinitionError(1, "Semantic Analysis: Declarations must appear at the top of a block."); // FIXME: placeholder error
+    }
     if (node->init) {
         node->init->accept(*this);
     }
@@ -223,6 +226,9 @@ void SemanticAnalysisVisitor::visit(ProcedureNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(InferredDecNode* node) {
+    if (!current_->isDeclarationAllowed()) {
+        throw DefinitionError(1, "Semantic Analysis: Declarations must appear at the top of a block."); // FIXME: placeholder error
+    }
     node->init->accept(*this);
 
     bool isConst = true;
@@ -243,6 +249,9 @@ void SemanticAnalysisVisitor::visit(InferredDecNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
+    if (!current_->isDeclarationAllowed()) {
+        throw DefinitionError(1, "Semantic Analysis: Declarations must appear at the top of a block."); // FIXME: placeholder error
+    }
     if (node->init) {
         node->init->accept(*this);
     }
@@ -373,6 +382,8 @@ void SemanticAnalysisVisitor::visit(BlockNode* node) {
     for (const auto& d : node->decs) {
         d->accept(*this);
     }
+    // After processing declarations, prevent further declarations in this block
+    current_->disableDeclarations();
     for (const auto& s : node->stats) {
         s->accept(*this);
     }
