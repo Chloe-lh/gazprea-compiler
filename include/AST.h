@@ -102,6 +102,18 @@ public:
     void accept(ASTVisitor& visitor) override;
 };
 
+// Functions with a block body
+class FuncBlockNode : public FuncNode {
+public:
+    FuncBlockNode(
+        const std::string& name,
+        const std::vector<std::pair<CompleteType, std::string>>& parameters,
+        CompleteType returnType,
+        std::shared_ptr<BlockNode> body
+    );
+    void accept(ASTVisitor& visitor) override;
+};
+
 // expression classes
 class ParenExpr: public ExprNode {
     public: 
@@ -189,7 +201,7 @@ class TypeAliasDecNode: public DecNode {
     public: 
         std::string alias;
 
-    TypeAliasDecNode(const std::string& alias, const CompleteType& type);
+    TypeAliasDecNode(const std::string& alias, const CompleteType type);
     void accept(ASTVisitor& visitor) override;
 };
 
@@ -370,8 +382,6 @@ public:
     explicit RealNode(double value);
     void accept(ASTVisitor& visitor) override;
 };
-
-
 
 
 
