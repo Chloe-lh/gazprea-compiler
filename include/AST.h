@@ -43,6 +43,11 @@ public:
 // literal expressions
 class LiteralExprNode : public ExprNode {
 public:
+    // Allow default construction; concrete literal visitors or the semantic pass
+    // can set `ASTNode::type` later. Also provide a convenience constructor to
+    // initialize the inherited `ASTNode::type` when needed.
+    LiteralExprNode() = default;
+    explicit LiteralExprNode(const CompleteType& t) { this->type = t; }
     virtual ~LiteralExprNode() = default;
 };
 // expressions
@@ -66,14 +71,14 @@ public:
 class FuncNode : public ASTNode {
 public:
     std::string name;
-    std::vector<std::pair<std::string, std::string>> parameters; // (type, name)
+    std::vector<std::pair<CompleteType, std::string>> parameters; // (type, name)
     CompleteType returnType; // optional
     std::shared_ptr<BlockNode> body; // optional
     std::shared_ptr<StatNode> returnStat; // optional
 
     FuncNode(
         const std::string& name,
-        const std::vector<std::pair<std::string, std::string>>& parameters,
+        const std::vector<std::pair<CompleteType, std::string>>& parameters,
         CompleteType returnType,
         std::shared_ptr<BlockNode> body = nullptr,
         std::shared_ptr<StatNode> returnStat = nullptr
@@ -85,7 +90,7 @@ class FuncStatNode : public FuncNode {
 public:
     FuncStatNode(
         const std::string& name,
-        const std::vector<std::pair<std::string, std::string>>& parameters,
+        const std::vector<std::pair<CompleteType, std::string>>& parameters,
         CompleteType returnType,
         std::shared_ptr<StatNode> returnStat
     );
@@ -96,7 +101,7 @@ class FuncPrototypeNode : public FuncNode {
 public:
     FuncPrototypeNode(
         const std::string& name,
-        const std::vector<std::pair<std::string, std::string>>& parameters,
+        const std::vector<std::pair<CompleteType, std::string>>& parameters,
         CompleteType returnType
     );
     void accept(ASTVisitor& visitor) override;
@@ -157,13 +162,13 @@ class OrExpr: public BinaryExprNode {
 class TrueNode: public LiteralExprNode {
     public:
         bool value;
-        explicit TrueNode() : value(true) {}
+        TrueNode() : LiteralExprNode(CompleteType(BaseType::BOOL)), value(true) {}
         void accept(ASTVisitor& visitor)override;
 };
 class FalseNode: public LiteralExprNode {
     public:
         bool value;
-        explicit FalseNode() : value(false) {}
+        FalseNode() : LiteralExprNode(CompleteType(BaseType::BOOL)), value(false) {}
         void accept(ASTVisitor& visitor)override;
 };
 class CharNode: public LiteralExprNode {
@@ -183,14 +188,6 @@ class IdNode: public ExprNode {
         const std::string id;
         explicit IdNode(const std::string& id);
         void accept(ASTVisitor& visitor) override;
-};
-
-class TypeAliasDecNode: public DecNode {
-    public: 
-        std::string alias;
-
-    TypeAliasDecNode(const std::string& alias, CompleteType type);
-    void accept(ASTVisitor& visitor) override;
 };
 
 class TupleTypedDecNode : public DecNode {

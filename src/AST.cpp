@@ -1,5 +1,6 @@
 #include "AST.h"
 #include "ASTVisitor.h"
+#include "Types.h"
 
 #include <memory>
 #include <string>
@@ -60,7 +61,6 @@ void LoopNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 // Extended nodes
 void ProcedureNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void TypeAliasNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
-void TypeAliasDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void TupleTypeAliasNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void TupleLiteralNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void TupleAccessNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
@@ -108,14 +108,14 @@ IdNode::IdNode(const std::string& id) : id(id) {}
 // Function nodes
 FuncStatNode::FuncStatNode(
     const std::string& name,
-    const std::vector<std::pair<std::string, std::string>>& parameters,
+    const std::vector<std::pair<CompleteType, std::string>>& parameters,
     CompleteType returnType,
     std::shared_ptr<StatNode> returnStat
 )
 : FuncNode(name, parameters, std::move(returnType), nullptr, std::move(returnStat)) {}
 
 FuncPrototypeNode::FuncPrototypeNode(const std::string& name,
-    const std::vector<std::pair<std::string, std::string>>& parameters,
+    const std::vector<std::pair<CompleteType, std::string>>& parameters,
     CompleteType returnType)
     : FuncNode(name, parameters, std::move(returnType), nullptr, nullptr) {}
 
