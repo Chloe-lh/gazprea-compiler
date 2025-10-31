@@ -1,5 +1,6 @@
 #include "SemanticAnalysisVisitor.h"
 #include "CompileTimeExceptions.h"
+#include <unordered_set>
 
 void SemanticAnalysisVisitor::visit(FileNode* node) {
     // Init and enter global scope
@@ -17,13 +18,45 @@ void SemanticAnalysisVisitor::visit(FileNode* node) {
     exitScope();
 }
 
-void SemanticAnalysisVisitor::visit(BlockNode* node) {
-    // Init and enter block scope
-    enterScopeFor(node); // TODO fix scope management for loop/function/cond/etc.
-
-    for (const auto& line: node->stats) {
-        line->accept(*this);
+/* TODO insert line number for error
+*/
+void SemanticAnalysisVisitor::visit(FuncStatNode* node) {
+    std::vector<VarInfo> params;
+    params.reserve(node->parameters.size());
+    std::unordered_set<std::string> paramNames;
+    for (const auto& [paramType, paramName] : node->parameters) {
+        if (paramName.empty()) {
+            // Should not happen
+            throw std::runtime_error("Semantic Analysis: FATAL: parameter name required in function definition '" + node->name + "'.");
+        }
+        if (!paramNames.insert(paramName).second) {
+            throw SymbolError(1, "Semantic Analysis: duplicate parameter name '" + paramName + "' in function '" + node->name + "'.");
+        }
+        params.push_back(VarInfo{paramName, paramType, true});
     }
+
+    try {
+        current_->declareFunc(node->name, params, node->returnType);
+    } catch (...) {
+        // If already declared, ensure it resolves to the same signature
+        FuncInfo* existing = current_->resolveFunc(node->name, params);
+        if (existing->funcReturn != node->returnType) {
+            throw std::runtime_error("Semantic Analysis: conflicting return type for function '" + node->name + "'.");
+        }
+    }
+
+    // Enter function scope, bind parameters
+    enterScopeFor(node, false, &node->returnType);
+    for (const auto& v : params) {
+        current_->declareVar(v.identifier, v.type, true);
+    }
+
+    // One-liner must be a return statement, should not throw error bc handled by grammar
+    auto ret = std::dynamic_pointer_cast<ReturnStatNode>(node->returnStat);
+    if (!ret) {
+        throw std::runtime_error("Semantic Analysis: FATAL: single-statement function '" + node->name + "' must be a return statement.");
+    }
+    ret->accept(*this);
 
     exitScope();
 }
@@ -53,6 +86,74 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
     }
 
     node->type = varType;
+}
+
+void SemanticAnalysisVisitor::visit(FuncPrototypeNode* node) {
+    // Convert parameter list to VarInfo (names may be empty for prototypes)
+    std::vector<VarInfo> params;
+    params.reserve(node->parameters.size());
+    for (const auto& [paramType, paramName] : node->parameters) {
+        // Use paramName as-is (may be empty)
+        params.push_back(VarInfo{paramName, paramType, true});
+    }
+
+    // Declare the function signature in the current (global) scope
+    // Function prototypes may omit param names so we check that
+    try {
+        current_->declareFunc(node->name, params, node->returnType);
+    } catch (...) {
+        FuncInfo* existing = current_->resolveFunc(node->name, params);
+        if (existing->funcReturn != node->returnType) {
+            throw std::runtime_error("Semantic Analysis: conflicting return type for function prototype '" + node->name + "'.");
+        }
+    }
+}
+
+/* TODO add line numbers */
+void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
+    // Build parameter VarInfos (const by default)
+    std::vector<VarInfo> params;
+    params.reserve(node->parameters.size());
+    std::unordered_set<std::string> paramNames;
+    for (const auto& [paramType, paramName] : node->parameters) {
+        if (paramName.empty()) { 
+            // should not happen
+            throw std::runtime_error("Semantic Analysis: FATAL: parameter name required in function definition '" + node->name + "'.");
+        }
+        if (!paramNames.insert(paramName).second) {
+            throw SymbolError(1, "Semantic Analysis: duplicate parameter name '" + paramName + "' in function '" + node->name + "'.");
+        }
+        params.push_back(VarInfo{paramName, paramType, true});
+    }
+
+    // Declare or validate existing prototype declr
+    try {
+        current_->declareFunc(node->name, params, node->returnType);
+    } catch (...) {
+        FuncInfo* existing = current_->resolveFunc(node->name, params);
+        if (existing->funcReturn != node->returnType) {
+            throw std::runtime_error("Semantic Analysis: conflicting return type for function '" + node->name + "'.");
+        }
+    }
+
+    // Enter function scope, bind parameters
+    enterScopeFor(node, false, &node->returnType);
+    for (const auto& v : params) {
+        current_->declareVar(v.identifier, v.type, true);
+    }
+
+    // Analyze body
+    if (!node->body) {
+        throw std::runtime_error("Semantic Analysis: FATAL: function '" + node->name + "' missing body.");
+    }
+    node->body->accept(*this);
+
+    // Ensure all paths return
+    if (!guaranteesReturn(node->body.get())) {
+        throw ReturnError(1, "Semantic Analysis: not all control paths return in function '" + node->name + "'.");
+    }
+
+    exitScope();
 }
 
 void SemanticAnalysisVisitor::visit(InferredDecNode* node) {
@@ -514,4 +615,22 @@ void SemanticAnalysisVisitor::exitScope() {
   if (current_ && current_->parent()) {
     current_ = current_->parent();
   }
+}
+
+/* Return check: a return anywhere ends the path OR if/else must both return */
+bool SemanticAnalysisVisitor::guaranteesReturn(const BlockNode* block) const {
+    for (const auto& stat : block->stats) {
+        if (std::dynamic_pointer_cast<ReturnStatNode>(stat)) {
+            return true;
+        }
+        if (auto ifNode = std::dynamic_pointer_cast<IfNode>(stat)) {
+            bool thenRet = ifNode->thenBlock ? guaranteesReturn(ifNode->thenBlock.get()) : false;
+            bool elseRet = ifNode->elseBlock ? guaranteesReturn(ifNode->elseBlock.get()) : false;
+            if (thenRet && elseRet) {
+                return true;
+            }
+        }
+        // LoopNode does not guarantee return
+    }
+    return false;
 }

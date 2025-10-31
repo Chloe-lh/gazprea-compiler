@@ -10,7 +10,12 @@
 class SemanticAnalysisVisitor: public ASTVisitor {
     public:
         void visit(FileNode* node) override;
-        void visit(BlockNode* node) override;
+
+        // Functions
+        virtual void visit(FuncStatNode* node); // TODO: ensure has return in all paths
+        virtual void visit(FuncPrototypeNode* node);
+        virtual void visit(FuncBlockNode* node);
+        virtual void visit(ProcedureNode* node);
         
         // Declarations
         virtual void visit(TypedDecNode* node) override;
@@ -30,7 +35,8 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         virtual void visit(CallStatNode* node);
         virtual void visit(IfNode* node) = 0;
         virtual void visit(LoopNode* node) = 0;
-        virtual void visit(BlockNode* node) = 0;
+        virtual void visit(BlockNode* node);
+
 
         // Operators
         void visit(UnaryExpr* node) override;   // unary+, unary-, not
@@ -53,6 +59,8 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         void throwOperandError(const std::string op, const std::vector<CompleteType>& operands, std::string additionalInfo);
         void handleAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType);
 
-        void enterScopeFor(const ASTNode* ownerCtx);
+        // Helpers
+        void enterScopeFor(const ASTNode* ownerCtx, const bool inLoop, const CompleteType* returnType);
         void exitScope();
+        bool guaranteesReturn(const BlockNode* block) const;
 };
