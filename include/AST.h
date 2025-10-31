@@ -5,6 +5,7 @@
 #include <memory>
 #include <utility>
 #include "Types.h"
+#include "Scope.h" 
 
 //abstract class that is extended by the different passes in the pipeline
 class ASTVisitor;
@@ -66,14 +67,14 @@ public:
 class FuncNode : public ASTNode {
 public:
     std::string name;
-    std::vector<std::pair<CompleteType, std::string>> parameters; // (type, name)
+    std::vector<VarInfo> parameters; //  prototypes may omit identifier
     CompleteType returnType; // optional
     std::shared_ptr<BlockNode> body; // optional
     std::shared_ptr<StatNode> returnStat; // optional
 
     FuncNode(
         const std::string& name,
-        const std::vector<std::pair<CompleteType, std::string>>& parameters,
+        const std::vector<VarInfo>& parameters,
         CompleteType returnType,
         std::shared_ptr<BlockNode> body = nullptr,
         std::shared_ptr<StatNode> returnStat = nullptr
@@ -85,7 +86,7 @@ class FuncStatNode : public FuncNode {
 public:
     FuncStatNode(
         const std::string& name,
-        const std::vector<std::pair<CompleteType, std::string>>& parameters,
+        const std::vector<VarInfo>& parameters,
         CompleteType returnType,
         std::shared_ptr<StatNode> returnStat
     );
@@ -96,7 +97,7 @@ class FuncPrototypeNode : public FuncNode {
 public:
     FuncPrototypeNode(
         const std::string& name,
-        const std::vector<std::pair<CompleteType, std::string>>& parameters,
+        const std::vector<VarInfo>& parameters,
         CompleteType returnType
     );
     void accept(ASTVisitor& visitor) override;
@@ -107,7 +108,7 @@ class FuncBlockNode : public FuncNode {
 public:
     FuncBlockNode(
         const std::string& name,
-        const std::vector<std::pair<CompleteType, std::string>>& parameters,
+        const std::vector<VarInfo>& parameters,
         CompleteType returnType,
         std::shared_ptr<BlockNode> body
     );
@@ -322,12 +323,12 @@ public:
 class ProcedureNode : public ASTNode {
 public:
     std::string name;
-    std::vector<std::pair<CompleteType, std::string>> params;
+    std::vector<VarInfo> params;
     CompleteType returnType; // optional
     std::shared_ptr<BlockNode> body;
     ProcedureNode(
         const std::string& name,
-        const std::vector<std::pair<CompleteType, std::string>>& params,
+        const std::vector<VarInfo>& params,
         CompleteType returnType,
         std::shared_ptr<BlockNode> body
     );
@@ -384,5 +385,4 @@ public:
     explicit RealNode(double value);
     void accept(ASTVisitor& visitor) override;
 };
-
 

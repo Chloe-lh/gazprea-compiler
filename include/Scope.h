@@ -1,3 +1,4 @@
+#pragma once
 #include "CompileTimeExceptions.h"
 #include "Types.h"
 

@@ -24,15 +24,15 @@ void SemanticAnalysisVisitor::visit(FuncStatNode* node) {
     std::vector<VarInfo> params;
     params.reserve(node->parameters.size());
     std::unordered_set<std::string> paramNames;
-    for (const auto& [paramType, paramName] : node->parameters) {
-        if (paramName.empty()) {
+    for (const auto& v : node->parameters) {
+        if (v.identifier.empty()) {
             // Should not happen
             throw std::runtime_error("Semantic Analysis: FATAL: parameter name required in function definition '" + node->name + "'.");
         }
-        if (!paramNames.insert(paramName).second) {
-            throw SymbolError(1, "Semantic Analysis: duplicate parameter name '" + paramName + "' in function '" + node->name + "'.");
+        if (!paramNames.insert(v.identifier).second) {
+            throw SymbolError(1, "Semantic Analysis: duplicate parameter name '" + v.identifier + "' in function '" + node->name + "'.");
         }
-        params.push_back(VarInfo{paramName, paramType, true});
+        params.push_back(v);
     }
 
     try {
@@ -94,9 +94,9 @@ void SemanticAnalysisVisitor::visit(FuncPrototypeNode* node) {
     // Convert parameter list to VarInfo (names may be empty for prototypes)
     std::vector<VarInfo> params;
     params.reserve(node->parameters.size());
-    for (const auto& [paramType, paramName] : node->parameters) {
-        // Use paramName as-is (may be empty)
-        params.push_back(VarInfo{paramName, paramType, true});
+    for (const auto& v : node->parameters) {
+        // name may be empty or different for prototypes
+        params.push_back(v);
     }
 
     // Declare the function signature in the current (global) scope
@@ -117,15 +117,15 @@ void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
     std::vector<VarInfo> params;
     params.reserve(node->parameters.size());
     std::unordered_set<std::string> paramNames;
-    for (const auto& [paramType, paramName] : node->parameters) {
-        if (paramName.empty()) { 
+    for (const auto& v : node->parameters) {
+        if (v.identifier.empty()) { 
             // should not happen
             throw std::runtime_error("Semantic Analysis: FATAL: parameter name required in function definition '" + node->name + "'.");
         }
-        if (!paramNames.insert(paramName).second) {
-            throw SymbolError(1, "Semantic Analysis: duplicate parameter name '" + paramName + "' in function '" + node->name + "'.");
+        if (!paramNames.insert(v.identifier).second) {
+            throw SymbolError(1, "Semantic Analysis: duplicate parameter name '" + v.identifier + "' in function '" + node->name + "'.");
         }
-        params.push_back(VarInfo{paramName, paramType, true});
+        params.push_back(v);
     }
 
     // Declare or validate existing prototype declr
@@ -179,15 +179,15 @@ void SemanticAnalysisVisitor::visit(ProcedureNode* node) {
     std::vector<VarInfo> params;
     params.reserve(node->params.size());
     std::unordered_set<std::string> paramNames;
-    for (const auto& [ptype, pname] : node->params) {
-        if (pname.empty()) {
+    for (const auto& v : node->params) {
+        if (v.identifier.empty()) {
             // should not happen
             throw std::runtime_error("Semantic Analysis:FATAL: parameter name required in procedure '" + node->name + "'.");
         }
-        if (!paramNames.insert(pname).second) {
-            throw SymbolError(1, "Semantic Analysis: duplicate parameter name '" + pname + "' in procedure '" + node->name + "'.");
+        if (!paramNames.insert(v.identifier).second) {
+            throw SymbolError(1, std::string("Semantic Analysis: duplicate parameter name '") + v.identifier + "' in procedure '" + node->name + "'.");
         }
-        params.push_back(VarInfo{pname, ptype, true});
+        params.push_back(v);
     }
 
     // Declare or validate existing declaration
