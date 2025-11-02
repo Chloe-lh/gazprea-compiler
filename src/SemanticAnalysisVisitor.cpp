@@ -1,4 +1,7 @@
 #include "SemanticAnalysisVisitor.h"
+#include "CompileTimeExceptions.h"
+#include "run_time_errors.h"
+#include <unordered_set>
 
 void SemanticAnalysisVisitor::visit(FileNode* node) {
     // Init and enter global scope
@@ -6,28 +9,66 @@ void SemanticAnalysisVisitor::visit(FileNode* node) {
     // note: can shadow other symbol names
     scopeByCtx_.clear();
     current_ = nullptr;
-    enterScopeFor(node);
+    enterScopeFor(node, false, nullptr);
+    current_->setGlobalTrue();
 
-    for (const auto& line: node->stats) {
-        line->accept(*this);
+    for (const auto& stat: node->stats) {
+        stat->accept(*this);
     }
 
     exitScope();
 }
 
-void SemanticAnalysisVisitor::visit(BlockNode* node) {
-    // Init and enter block scope
-    enterScopeFor(node);
-
-    for (const auto& line: node->stats) {
-        line->accept(*this);
+/* TODO insert line number for error
+*/
+void SemanticAnalysisVisitor::visit(FuncStatNode* node) {
+    std::vector<VarInfo> params;
+    params.reserve(node->parameters.size());
+    std::unordered_set<std::string> paramNames;
+    for (const auto& v : node->parameters) {
+        if (v.identifier.empty()) {
+            // Should not happen
+            throw std::runtime_error("Semantic Analysis: FATAL: parameter name required in function definition '" + node->name + "'.");
+        }
+        if (!paramNames.insert(v.identifier).second) {
+            throw SymbolError(1, "Semantic Analysis: duplicate parameter name '" + v.identifier + "' in function '" + node->name + "'.");
+        }
+        params.push_back(v);
     }
+
+    try {
+        current_->declareFunc(node->name, params, node->returnType);
+    } catch (...) {
+        // If already declared, ensure it resolves to the same signature
+        FuncInfo* existing = current_->resolveFunc(node->name, params);
+        if (existing->funcReturn != node->returnType) {
+            throw std::runtime_error("Semantic Analysis: conflicting return type for function '" + node->name + "'.");
+        }
+    }
+
+    // Enter function scope, bind parameters
+    enterScopeFor(node, false, &node->returnType);
+    for (const auto& v : params) {
+        current_->declareVar(v.identifier, v.type, true);
+    }
+
+    // One-liner must be a return statement, should not throw error bc handled by grammar
+    auto ret = std::dynamic_pointer_cast<ReturnStatNode>(node->returnStat);
+    if (!ret) {
+        throw std::runtime_error("Semantic Analysis: FATAL: single-statement function '" + node->name + "' must be a return statement.");
+    }
+    ret->accept(*this);
 
     exitScope();
 }
 
 void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
-    node->init->accept(*this);
+    if (!current_->isDeclarationAllowed()) {
+        throw DefinitionError(1, "Semantic Analysis: Declarations must appear at the top of a block."); // FIXME: placeholder error
+    }
+    if (node->init) {
+        node->init->accept(*this);
+    }
 
     bool isConst = true;
     if (node->qualifier == "var") {
@@ -41,19 +82,154 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
     CompleteType& varType = node->type_alias->type;
 
     // Ensure not already declared in scope
-    if (!current_->declareVar(node->name, varType, isConst)) {
-        throw std::runtime_error("Semantic Analysis: redeclaration of var '" + node->name + "'.");
-    }
+    current_->declareVar(node->name, varType, isConst);
 
     // Ensure init expr type matches with var type (if provided)
-    if (node->init != nullptr && promote(node->init->type, varType) != varType) {
-        throwAssignError(node->name, varType, node->init->type);
+    if (node->init != nullptr) {
+        handleAssignError(node->name, varType, node->init->type);
     }
 
     node->type = varType;
 }
 
+
+/* TODO add error line number */
+void SemanticAnalysisVisitor::visit(FuncPrototypeNode* node) {
+    // Convert parameter list to VarInfo (names may be empty for prototypes)
+    std::vector<VarInfo> params;
+    params.reserve(node->parameters.size());
+    for (const auto& v : node->parameters) {
+        // name may be empty or different for prototypes
+        params.push_back(v);
+    }
+
+    // Declare the function signature in the current (global) scope
+    // Function prototypes may omit param names so we check that
+    try {
+        current_->declareFunc(node->name, params, node->returnType);
+    } catch (...) {
+        FuncInfo* existing = current_->resolveFunc(node->name, params);
+        if (existing->funcReturn != node->returnType) {
+            throw SymbolError(1, "Semantic Analysis: conflicting return type for function prototype '" + node->name + "'.");
+        }
+    }
+}
+
+/* TODO add line numbers */
+void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
+    // Build parameter VarInfos (const by default)
+    std::vector<VarInfo> params;
+    params.reserve(node->parameters.size());
+    std::unordered_set<std::string> paramNames;
+    for (const auto& v : node->parameters) {
+        if (v.identifier.empty()) { 
+            // should not happen
+            throw std::runtime_error("Semantic Analysis: FATAL: parameter name required in function definition '" + node->name + "'.");
+        }
+        if (!paramNames.insert(v.identifier).second) {
+            throw SymbolError(1, "Semantic Analysis: duplicate parameter name '" + v.identifier + "' in function '" + node->name + "'.");
+        }
+        params.push_back(v);
+    }
+
+    // Declare or validate existing prototype declr
+    try {
+        current_->declareFunc(node->name, params, node->returnType);
+    } catch (...) {
+        FuncInfo* existing = current_->resolveFunc(node->name, params);
+        if (existing->funcReturn != node->returnType) {
+            throw std::runtime_error("Semantic Analysis: conflicting return type for function '" + node->name + "'.");
+        }
+    }
+
+    // Enter function scope, bind parameters
+    enterScopeFor(node, false, &node->returnType);
+    for (const auto& v : params) {
+        current_->declareVar(v.identifier, v.type, true);
+    }
+
+    // Analyze body
+    if (!node->body) {
+        throw std::runtime_error("Semantic Analysis: FATAL: function '" + node->name + "' missing body.");
+    }
+    node->body->accept(*this);
+
+    // Ensure all paths return
+    if (!guaranteesReturn(node->body.get())) {
+        throw ReturnError(1, "Semantic Analysis: not all control paths return in function '" + node->name + "'.");
+    }
+
+    exitScope();
+}
+
+/* TODO add error line numbers */
+void SemanticAnalysisVisitor::visit(ProcedureNode* node) {
+    // Special case: main() constraints
+    if (node->name == "main") {
+        if (seenMain_) {
+            throw SymbolError(1, "Semantic Analysis: Multiple definitions of procedure main().");
+        }
+        seenMain_ = true;
+        if (!node->params.empty()) {
+            throw MainError(1, "Semantic Analysis: procedure main() must not take parameters.");
+        }
+        if (node->returnType.baseType != BaseType::INTEGER) {
+            throw MainError(1, "Semantic Analysis: procedure main() must return integer.");
+        }
+    }
+
+    // Build parameter VarInfos, default const. 
+    // TODO: handle 'var' once AST carries it
+    std::vector<VarInfo> params;
+    params.reserve(node->params.size());
+    std::unordered_set<std::string> paramNames;
+    for (const auto& v : node->params) {
+        if (v.identifier.empty()) {
+            // should not happen
+            throw std::runtime_error("Semantic Analysis:FATAL: parameter name required in procedure '" + node->name + "'.");
+        }
+        if (!paramNames.insert(v.identifier).second) {
+            throw SymbolError(1, std::string("Semantic Analysis: duplicate parameter name '") + v.identifier + "' in procedure '" + node->name + "'.");
+        }
+        params.push_back(v);
+    }
+
+    // Declare or validate existing declaration
+    try {
+        current_->declareProc(node->name, params, node->returnType);
+    } catch (...) {
+        ProcInfo* existing = current_->resolveProc(node->name, params);
+        if (existing->procReturn != node->returnType) {
+            throw TypeError(1, "Semantic Analysis: conflicting return type for procedure '" + node->name + "'.");
+        }
+    }
+
+    // Enter procedure scope, bind params
+    enterScopeFor(node, false, &node->returnType);
+    for (const auto& v : params) {
+        current_->declareVar(v.identifier, v.type, v.isConst);
+    }
+
+    if (!node->body) {
+        // should not happen
+        throw std::runtime_error("Semantic Analysis: FATAL: procedure '" + node->name + "' missing body.");
+    }
+    node->body->accept(*this);
+
+    // If non-void return expected, ensure all paths return
+    if (node->returnType.baseType != BaseType::UNKNOWN) {
+        if (!guaranteesReturn(node->body.get())) {
+            throw ReturnError(1, "Semantic Analysis: not all control paths return in procedure '" + node->name + "'.");
+        }
+    }
+
+    exitScope();
+}
+
 void SemanticAnalysisVisitor::visit(InferredDecNode* node) {
+    if (!current_->isDeclarationAllowed()) {
+        throw DefinitionError(1, "Semantic Analysis: Declarations must appear at the top of a block."); // FIXME: placeholder error
+    }
     node->init->accept(*this);
 
     bool isConst = true;
@@ -68,34 +244,172 @@ void SemanticAnalysisVisitor::visit(InferredDecNode* node) {
 
 
     // Ensure not already declared in scope
-    if (!current_->declareVar(node->name, varType, isConst)) {
-        throw std::runtime_error("Semantic Analysis: redeclaration of var '" + node->name + "'.");
-    }
+    current_->declareVar(node->name, varType, isConst);
 
     node->type = varType;
 }
 
 void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
-    node->init->accept(*this);
+    if (!current_->isDeclarationAllowed()) {
+        throw DefinitionError(1, "Semantic Analysis: Declarations must appear at the top of a block."); // FIXME: placeholder error
+    }
+    if (node->init) {
+        node->init->accept(*this);
+    }
     // For tuple-typed declarations, the declared type is already present
     // on the declaration node as a CompleteType
     CompleteType& varType = node->type;
 
     // Ensure not already declared in scope
-    if (!current_->declareVar(node->name, varType, false)) {
-        throw std::runtime_error("Semantic Analysis: redeclaration of var '" + node->name + "'.");
-    }
+    current_->declareVar(node->name, varType, false);
 
     // Ensure init expr type matches with var type (if provided)
-    if (node->init != nullptr && promote(node->init->type, varType) != varType) {
-        throwAssignError(node->name, varType, node->init->type);
+    if (node->init != nullptr) {
+        handleAssignError(node->name, varType, node->init->type);
     }
 
     node->type = varType;
 }
 
-void SemanticAnalysisVisitor::visit(TupleTypeAliasNode* node) {
+void SemanticAnalysisVisitor::visit(TypeAliasDecNode* node) {
+    current_->declareAlias(node->alias, node->type);
+
+    // assume node has been initialized with correct type
+}
+
+void SemanticAnalysisVisitor::visit(TypeAliasNode *node) {
+    if (node->aliasName != "") {
+        node->type = *current_->resolveAlias(node->aliasName);
+    }
+
+    // if no alias, assume node already initialized with correct type
+}
+
+void SemanticAnalysisVisitor::visit(TupleTypeAliasNode *node) {
+    if (node->aliasName != "") {
+        node->type = *current_->resolveAlias(node->aliasName);
+    }
+
+    // if no alias, assume node already initialized with correct type
+}
+
+void SemanticAnalysisVisitor::visit(AssignStatNode* node) {
+    node->expr->accept(*this);
+
+    // handles if undeclared
+    const VarInfo* varInfo = current_->resolveVar(node->name);
     
+    if (varInfo->isConst) {
+        throw AssignError(1, "Semantic Analysis: cannot assign to const variable '" + node->name + "'."); // TODO add line num
+    }
+
+    handleAssignError(node->name, varInfo->type, node->expr->type);
+
+    node->type = varInfo->type;
+}
+
+void SemanticAnalysisVisitor::visit(OutputStatNode* node) {
+    node->expr->accept(*this); // handle expr
+    node->type = CompleteType(BaseType::UNKNOWN); // streams do not have a type
+}
+
+void SemanticAnalysisVisitor::visit(InputStatNode* node) {
+    // checks must be performed at runtime due to input ambiguity 
+
+    node->type = CompleteType(BaseType::UNKNOWN); // streams do not have a type
+}
+
+void SemanticAnalysisVisitor::visit(BreakStatNode* node) {
+    if (!current_->isInLoop()) {
+        throw StatementError(1, "Cannot use 'break' outside of loop."); // TODO add line num
+    }
+}
+
+void SemanticAnalysisVisitor::visit(ContinueStatNode* node) {
+    if (!current_->isInLoop()) {
+        throw StatementError(1, "Cannot use 'continue' outside of loop."); // TODO add line num
+    }
+}
+
+void SemanticAnalysisVisitor::visit(ReturnStatNode* node) {
+    if (!current_->isInFunction()) {
+        throw StatementError(1, "Cannot use 'return' outside of function."); // TODO add line num
+    }
+
+    // If expression provided, type-check against expected return type
+    if (node->expr) {
+        node->expr->accept(*this);
+        handleAssignError("", *current_->getReturnType(), node->expr->type);
+    } else {
+        // No value returned: only legal if the declared return type is 'void' equivalent
+        if (current_->getReturnType()->baseType != BaseType::UNKNOWN) {
+            throw TypeError(1, "Semantic Analysis: Non-void return required by declaration.");
+        }
+    }
+}
+
+void SemanticAnalysisVisitor::visit(CallStatNode* node) {
+    std::vector<VarInfo> args;
+    args.reserve(node->args.size());
+    for (const auto& e : node->args) {
+        e->accept(*this);
+        args.push_back(VarInfo{"", e->type, true});
+    }
+
+    // Resolve as procedure only. prevent calling a function via 'call'
+    try {
+        (void) current_->resolveProc(node->funcName, args);
+    } catch (...) {
+        throw SymbolError(1, "Semantic Analysis: Unknown procedure '" + node->funcName + "' in call statement.");
+    }
+
+    // Statements have no resultant type
+    node->type = CompleteType(BaseType::UNKNOWN);
+}
+
+void SemanticAnalysisVisitor::visit(IfNode* node) {
+    // Evaluate and type-check condition first
+    node->cond->accept(*this);
+    if (node->cond->type.baseType != BaseType::BOOL) {
+        throw TypeError(1, "Semantic Analysis: if condition must be boolean; got '" + toString(node->cond->type) + "'.");
+    }
+    if (node->thenBlock) node->thenBlock->accept(*this);
+    if (node->elseBlock) node->elseBlock->accept(*this);
+}
+
+void SemanticAnalysisVisitor::visit(BlockNode* node) {
+    // New lexical scope; inherit loop/return context
+    enterScopeFor(node, current_->isInLoop(), current_->getReturnType());
+    for (const auto& d : node->decs) {
+        d->accept(*this);
+    }
+    // After processing declarations, prevent further declarations in this block
+    current_->disableDeclarations();
+    for (const auto& s : node->stats) {
+        s->accept(*this);
+    }
+    exitScope();
+}
+
+void SemanticAnalysisVisitor::visit(LoopNode* node) {
+    // Optional condition must be boolean
+    if (node->cond) {
+        node->cond->accept(*this);
+        if (node->cond->type.baseType != BaseType::BOOL) {
+            throw TypeError(1, "Semantic Analysis: loop condition must be boolean; got '" + toString(node->cond->type) + "'.");
+        }
+    }
+    // Enter loop scope so 'break'/'continue' are legal
+    enterScopeFor(node, true, current_->getReturnType());
+    if (node->body) {
+        node->body->accept(*this);
+    }
+    exitScope();
+}
+
+void SemanticAnalysisVisitor::visit(ParenExpr* node) {
+    node->expr->accept(*this);
+    node->type = node->expr->type;
 }
 
 /* TODO pt2
@@ -310,6 +624,114 @@ void SemanticAnalysisVisitor::visit(CompExpr* node) {
     }
 }
 
+
+/* TODO pt2 handle element wise checking of bools for composite types */
+void SemanticAnalysisVisitor::visit(NotExpr* node) {
+    // Evaluate operand and ensure it's a valid type for logical not
+    node->operand->accept(*this);
+    const BaseType illegalTypes[] = {
+        BaseType::CHARACTER, BaseType::INTEGER, BaseType::REAL,
+        BaseType::TUPLE, BaseType::STRUCT, BaseType::STRING
+    };
+    if (std::find(std::begin(illegalTypes), std::end(illegalTypes), node->operand->type.baseType) != std::end(illegalTypes)) {
+        throwOperandError("not", {node->operand->type}, "");
+    }
+
+    // Propagate type, i.e. bools remain bools, array/vec/matrix remain array/vec/matrix
+    node->type = node->operand->type; 
+}
+
+void SemanticAnalysisVisitor::visit(TrueNode* node) {
+    node->type = BaseType::BOOL;
+}
+
+void SemanticAnalysisVisitor::visit(FalseNode* node) {
+    node->type = BaseType::BOOL;
+}
+
+void SemanticAnalysisVisitor::visit(CharNode* node) {
+    node->type = BaseType::CHARACTER;
+}
+
+void SemanticAnalysisVisitor::visit(IntNode* node) {
+    node->type = BaseType::INTEGER;
+}
+
+void SemanticAnalysisVisitor::visit(RealNode* node) {
+    node->type = BaseType::REAL;
+}
+
+void SemanticAnalysisVisitor::visit(IdNode* node) {
+    VarInfo varInfo = *current_->resolveVar(node->id); // handles no-declr
+    node->type = varInfo.type;
+}
+
+void SemanticAnalysisVisitor::visit(TupleLiteralNode* node) {
+    CompleteType literalType = CompleteType(BaseType::TUPLE);
+    literalType.subTypes.reserve(node->elements.size());
+
+    if (node->elements.size() < 2) {
+        throw LiteralError(1, "All tuples must have at least 2 elements, not " + std::to_string(node->elements.size()) + ".");
+    }
+
+    // FIXME confirm and handle case where tuple<vector<tuple...>>.
+    for (auto& exprNode: node->elements) {
+        exprNode->accept(*this);
+        if (exprNode->type.baseType == BaseType::TUPLE) {throw LiteralError(1, "Cannot have nested tuples.");
+        } else if (exprNode->type.baseType == BaseType::UNKNOWN) {throw std::runtime_error("Semantic Analysis: FATAL: Cannot use UNKNOWN type inside tuples.");}
+
+        literalType.subTypes.push_back(exprNode->type);
+    }
+
+    node->type = literalType;
+}
+
+void SemanticAnalysisVisitor::visit(TupleAccessNode* node) {
+    VarInfo* varInfo = current_->resolveVar(node->tupleName);
+
+    if (varInfo->type.baseType != BaseType::TUPLE) {
+        throw std::runtime_error("Semantic Analysis: FATAL: Non-tuple type '" + toString(varInfo->type) + "' in TupleAccessNode");
+    }
+
+    if (node->index > varInfo->type.subTypes.size() || node->index == 0) {
+        IndexError(("Index " + std::to_string(node->index) + " out of range for tuple of len " + std::to_string(varInfo->type.subTypes.size())).c_str());
+        return; 
+    }
+
+    node->type = varInfo->type.subTypes[node->index - 1];
+}
+
+void SemanticAnalysisVisitor::visit(TypeCastNode* node) {
+    // Evaluate operand first
+    node->expr->accept(*this);
+
+    // Resolve target type: built-ins or alias
+    CompleteType target(BaseType::UNKNOWN);
+    const std::string& tname = node->targetType;
+    if (tname == "boolean") target = CompleteType(BaseType::BOOL);
+    else if (tname == "character") target = CompleteType(BaseType::CHARACTER);
+    else if (tname == "integer") target = CompleteType(BaseType::INTEGER);
+    else if (tname == "real") target = CompleteType(BaseType::REAL);
+    else {
+        // Treat as alias; throws if not found
+        target = *current_->resolveAlias(tname);
+    }
+    // Ensure cast is type-compatible using explicit cast rules
+    if (!canCastType(node->expr->type, target)) {
+        throw TypeError(1, std::string("Semantic Analysis: cannot cast from '") + toString(node->expr->type) + "' to '" + toString(target) + "'.");
+    }
+    node->type = target;
+}
+
+void SemanticAnalysisVisitor::visit(TupleTypeCastNode* node) {
+    // Target tuple type is carried in node->type by the AST constructor
+    node->expr->accept(*this);
+    if (!canCastType(node->expr->type, node->type)) {
+        throw TypeError(1, std::string("Semantic Analysis: cannot cast from '") + toString(node->expr->type) + "' to '" + toString(node->type) + "'.");
+    }
+}
+
+
 /* TODO pt2
     - handle array/vector/matrix + tuple + element-wise type + len checking. Note that this operator yields true iff all elements of array/vector/matrix type are equal.
     - handle int/real -> array/vector/matrix promotion.
@@ -406,23 +828,63 @@ void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std:
     throw std::runtime_error(ss.str());
 }
 
-void SemanticAnalysisVisitor::throwAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType) {
-    throw std::runtime_error("Cannot assign type '" + toString(exprType) + "' to variable '" + varName + "' of type '" + toString(varType) + "'.");
+// TODO: add source line/column once AST carries location info
+/*
+If empty string provided, prints non-variable promotion error msg
+*/
+void SemanticAnalysisVisitor::handleAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType) {
+    // Encapsulate the type compatibility check here
+    if (promote(exprType, varType) != varType) {
+        if (varName != "") {
+            TypeError err(
+                1,
+                std::string("Semantic Analysis: Cannot assign type '") + toString(exprType) +
+                "' to variable '" + varName + "' of type '" + toString(varType) + "'."
+            );
+            throw err;
+        } else {
+            TypeError err(
+                1,
+                std::string("Semantic Analysis: Cannot assign type '") + toString(exprType) +
+                "' to expected type '" + toString(varType) + "'."
+            );
+            throw err;
+        }
+
+    }
 }
 
-void SemanticAnalysisVisitor::enterScopeFor(const ASTNode* ownerCtx) {
+void SemanticAnalysisVisitor::enterScopeFor(const ASTNode* ownerCtx, const bool inLoop, const CompleteType* returnType) {
     // Init root
     if (current_ == nullptr) {
-    root_ = std::make_unique<Scope>(nullptr);
-    current_ = root_.get();
-  }
-  Scope* child = current_->createChild();
-  scopeByCtx_[ownerCtx] = child;
-  current_ = child;
+        root_ = std::make_unique<Scope>(nullptr, inLoop, returnType);
+        current_ = root_.get();
+    }
+    Scope* child = current_->createChild(inLoop, returnType);
+    scopeByCtx_[ownerCtx] = child;
+    current_ = child;
 }
 
 void SemanticAnalysisVisitor::exitScope() {
   if (current_ && current_->parent()) {
     current_ = current_->parent();
   }
+}
+
+/* Return check: a return anywhere ends the path OR if/else must both return */
+bool SemanticAnalysisVisitor::guaranteesReturn(const BlockNode* block) const {
+    for (const auto& stat : block->stats) {
+        if (std::dynamic_pointer_cast<ReturnStatNode>(stat)) {
+            return true;
+        }
+        if (auto ifNode = std::dynamic_pointer_cast<IfNode>(stat)) {
+            bool thenRet = ifNode->thenBlock ? guaranteesReturn(ifNode->thenBlock.get()) : false;
+            bool elseRet = ifNode->elseBlock ? guaranteesReturn(ifNode->elseBlock.get()) : false;
+            if (thenRet && elseRet) {
+                return true;
+            }
+        }
+        // LoopNode does not guarantee return
+    }
+    return false;
 }

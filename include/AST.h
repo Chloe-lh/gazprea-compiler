@@ -5,6 +5,7 @@
 #include <memory>
 #include <utility>
 #include "Types.h"
+#include "Scope.h" 
 
 //abstract class that is extended by the different passes in the pipeline
 class ASTVisitor;
@@ -71,14 +72,14 @@ public:
 class FuncNode : public ASTNode {
 public:
     std::string name;
-    std::vector<std::pair<CompleteType, std::string>> parameters; // (type, name)
+    std::vector<VarInfo> parameters; //  prototypes may omit identifier
     CompleteType returnType; // optional
     std::shared_ptr<BlockNode> body; // optional
     std::shared_ptr<StatNode> returnStat; // optional
 
     FuncNode(
         const std::string& name,
-        const std::vector<std::pair<CompleteType, std::string>>& parameters,
+        const std::vector<VarInfo>& parameters,
         CompleteType returnType,
         std::shared_ptr<BlockNode> body = nullptr,
         std::shared_ptr<StatNode> returnStat = nullptr
@@ -90,7 +91,7 @@ class FuncStatNode : public FuncNode {
 public:
     FuncStatNode(
         const std::string& name,
-        const std::vector<std::pair<CompleteType, std::string>>& parameters,
+        const std::vector<VarInfo>& parameters,
         CompleteType returnType,
         std::shared_ptr<StatNode> returnStat
     );
@@ -101,8 +102,20 @@ class FuncPrototypeNode : public FuncNode {
 public:
     FuncPrototypeNode(
         const std::string& name,
-        const std::vector<std::pair<CompleteType, std::string>>& parameters,
+        const std::vector<VarInfo>& parameters,
         CompleteType returnType
+    );
+    void accept(ASTVisitor& visitor) override;
+};
+
+// Functions with a block body
+class FuncBlockNode : public FuncNode {
+public:
+    FuncBlockNode(
+        const std::string& name,
+        const std::vector<VarInfo>& parameters,
+        CompleteType returnType,
+        std::shared_ptr<BlockNode> body
     );
     void accept(ASTVisitor& visitor) override;
 };
@@ -188,6 +201,14 @@ class IdNode: public ExprNode {
         const std::string id;
         explicit IdNode(const std::string& id);
         void accept(ASTVisitor& visitor) override;
+};
+
+class TypeAliasDecNode: public DecNode {
+    public: 
+        std::string alias;
+
+    TypeAliasDecNode(const std::string& alias, const CompleteType& type);
+    void accept(ASTVisitor& visitor) override;
 };
 
 class TupleTypedDecNode : public DecNode {
@@ -307,11 +328,13 @@ public:
 class ProcedureNode : public ASTNode {
 public:
     std::string name;
-    std::vector<std::pair<std::string, std::string>> params;
+    std::vector<VarInfo> params;
+    CompleteType returnType; // optional
     std::shared_ptr<BlockNode> body;
     ProcedureNode(
         const std::string& name,
-        const std::vector<std::pair<std::string, std::string>>& params,
+        const std::vector<VarInfo>& params,
+        CompleteType returnType,
         std::shared_ptr<BlockNode> body
     );
     void accept(ASTVisitor& visitor) override;
@@ -321,15 +344,6 @@ class TypeAliasNode : public ASTNode {
 public:
     std::string aliasName;
     TypeAliasNode(const std::string& aliasName, const CompleteType& type);
-    void accept(ASTVisitor& visitor) override;
-};
-
-// Declaration node for type aliases, e.g., `typealias integer int`
-class TypeAliasDecNode : public ASTNode {
-public:
-    std::string aliasName;
-    // Underlying aliased type is stored in inherited `ASTNode::type`
-    TypeAliasDecNode(const std::string& aliasName, const CompleteType& aliasedType);
     void accept(ASTVisitor& visitor) override;
 };
 
@@ -376,8 +390,4 @@ public:
     explicit RealNode(double value);
     void accept(ASTVisitor& visitor) override;
 };
-
-
-
-
 

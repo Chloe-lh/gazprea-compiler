@@ -66,3 +66,22 @@ BaseType promote(BaseType from, BaseType to);
 CompleteType promote(const CompleteType& from, const CompleteType& to);
 
 void validateSubtypes(CompleteType completeType);
+
+// Type casting helpers (semantic layer consumes these)
+// Returns true iff the BaseType is a scalar (boolean, character, integer, real)
+bool isScalarType(BaseType t);
+
+// Returns true iff a scalar of 'from' type can be explicitly cast to 'to' type
+// according to the Scalar to Scalar casting rules in the language spec.
+bool canScalarCast(BaseType from, BaseType to);
+
+// Returns true iff a value of CompleteType 'from' can be explicitly cast to
+// CompleteType 'to' according to the casting rules in the language spec.
+// Implemented for:
+//  - scalar -> scalar (full per spec)
+//  - tuple  -> tuple  (pairwise scalar-castable, equal arity)
+//  - identity for identical shapes (recursively equal base + compatible subtypes)
+//
+// TODO pt2: Extend to support scalar<->array promotions and array<->array/matrix/vector
+//           conversions once size/dimension information is modeled in CompleteType.
+bool canCastType(const CompleteType& from, const CompleteType& to);

@@ -36,8 +36,6 @@ void IntNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void RealNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 
 // Declarations
-void TypeAliasDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
-
 void TupleTypedDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 
 void TypedDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
@@ -46,6 +44,7 @@ void InferredDecNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 // Functions
 void FuncStatNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 void FuncPrototypeNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
+void FuncBlockNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
 
 // Statements
 void CallStatNode::accept(ASTVisitor& visitor) { visitor.visit(this); }
@@ -108,28 +107,36 @@ IdNode::IdNode(const std::string& id) : id(id) {}
 // Function nodes
 FuncStatNode::FuncStatNode(
     const std::string& name,
-    const std::vector<std::pair<CompleteType, std::string>>& parameters,
+    const std::vector<VarInfo>& parameters,
     CompleteType returnType,
     std::shared_ptr<StatNode> returnStat
 )
 : FuncNode(name, parameters, std::move(returnType), nullptr, std::move(returnStat)) {}
 
 FuncPrototypeNode::FuncPrototypeNode(const std::string& name,
-    const std::vector<std::pair<CompleteType, std::string>>& parameters,
+    const std::vector<VarInfo>& parameters,
     CompleteType returnType)
     : FuncNode(name, parameters, std::move(returnType), nullptr, nullptr) {}
 
+FuncBlockNode::FuncBlockNode(
+    const std::string& name,
+    const std::vector<VarInfo>& parameters,
+    CompleteType returnType,
+    std::shared_ptr<BlockNode> body)
+    : FuncNode(name, parameters, std::move(returnType), std::move(body), nullptr) {}
+
 // Extended nodes
 ProcedureNode::ProcedureNode(const std::string& name,
-    const std::vector<std::pair<std::string, std::string>>& params,
+    const std::vector<VarInfo>& params,
+    CompleteType returnType,
     std::shared_ptr<BlockNode> body)
-    : name(name), params(params), body(std::move(body)) {}
+    : name(name), params(params), returnType(std::move(returnType)), body(std::move(body)) {}
 
 TypeAliasNode::TypeAliasNode(const std::string& aliasName, const CompleteType& type)
     : aliasName(aliasName) {this->type = type;}
 
 TypeAliasDecNode::TypeAliasDecNode(const std::string& aliasName, const CompleteType& aliasedType)
-    : aliasName(aliasName) { this->type = aliasedType; }
+    : alias(aliasName) { this->type = aliasedType; }
 
 TupleTypeAliasNode::TupleTypeAliasNode(const std::string& aliasName, CompleteType tupleType)
     : aliasName(aliasName) {this->type = tupleType;}
