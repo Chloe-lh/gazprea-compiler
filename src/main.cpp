@@ -7,6 +7,9 @@
 #include "tree/ParseTreeWalker.h"
 
 #include "BackEnd.h"
+#include "ASTBuilder.h"
+#include "AST.h"
+#include "ErrorListener.h"
 
 #include <iostream>
 #include <fstream>
@@ -25,8 +28,15 @@ int main(int argc, char **argv) {
   antlr4::CommonTokenStream tokens(&lexer);
   gazprea::GazpreaParser parser(&tokens);
 
+  // Add our custom error listener for syntax errors
+  parser.removeErrorListeners();
+  parser.addErrorListener(new ErrorListener()); 
+
   // Get the root of the parse tree. Use your base rule name.
-  antlr4::tree::ParseTree *tree = parser.file();
+  auto *tree = parser.file();
+  gazprea::ASTBuilder builder;
+  std::any astAny = builder.visitFile(tree);
+  auto ast = std::any_cast<std::shared_ptr<FileNode>>(astAny);
 
   // HOW TO USE A VISITOR
   // Make the visitor
