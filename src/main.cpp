@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
 
   // Get the root of the parse tree. Use your base rule name.
   auto *tree = parser.file();
-  ASTBuilder builder;
+  gazprea::ASTBuilder builder;
   std::any astAny = builder.visitFile(tree);
   auto ast = std::any_cast<std::shared_ptr<FileNode>>(astAny);
 
