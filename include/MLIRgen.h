@@ -15,6 +15,8 @@ class MLIRGen : public ASTVisitor {
 public:
     explicit MLIRGen(BackEnd& backend);
 
+        void visit(FileNode* node) override;
+
         // Functions
         void visit(FuncStatNode* node) override; 
         void visit(FuncPrototypeNode* node) override;
@@ -53,15 +55,17 @@ public:
         void visit(EqExpr* node) override;      // ==, !=
         void visit(AndExpr* node) override;     // and
         void visit(OrExpr* node) override;      // or, xor
+        void visit(TupleAccessNode* node) override;
+        void visit(TypeCastNode* node) override;
+        void visit(TupleTypeCastNode* node) override;
+
+        // Primitives
         void visit(TrueNode* node) override;
         void visit(FalseNode* node) override;
         void visit(CharNode* node) override;
         void visit(IntNode* node) override;
         void visit(IdNode* node) override;
         void visit(TupleLiteralNode* node) override;
-        void visit(TupleAccessNode* node) override;
-        void visit(TypeCastNode* node) override;
-        void visit(TupleTypeCastNode* node) override;
         void visit(RealNode* node) override;
 
 private:

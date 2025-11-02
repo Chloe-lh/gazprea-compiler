@@ -36,3 +36,39 @@ void MLIRGen::pushValue(mlir::Value value) {
     }
     v_stack_.push_back(value);
 }
+
+void MLIRGen::visit(FileNode* node) {
+    for (auto& line: node->stats) {
+        line->accept(*this);
+    }
+}
+
+void MLIRGen::visit(TrueNode* node) {
+    auto boolType = builder_.getI1Type();
+
+    auto trueLiteral = builder_.create<mlir::arith::ConstantOp>(
+        loc_, boolType, builder_.getIntegerAttr(boolType, 1)
+    );
+    pushValue(trueLiteral);
+}
+
+
+void MLIRGen::visit(FalseNode* node) {
+    auto boolType = builder_.getI1Type();
+
+    auto trueLiteral = builder_.create<mlir::arith::ConstantOp>(
+        loc_, boolType, builder_.getIntegerAttr(boolType, 0)
+    );
+    pushValue(trueLiteral);
+}
+
+void MLIRGen::visit(CharNode* node) {
+    auto charType = builder_.getI8Type();
+
+    auto charLiteral = builder_.create<mlir::arith::ConstantOp>(
+        loc_, charType, builder_.getIntegerAttr(charType, static_cast<int>(node->value))
+    );
+    pushValue(charLiteral);
+}
+
+
