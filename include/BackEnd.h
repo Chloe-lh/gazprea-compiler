@@ -40,6 +40,19 @@ class BackEnd {
     int emitModule();
     int lowerDialects();
     void dumpLLVM(std::ostream &os);
+
+   mlir::Location getLoc() const {
+      return loc;
+   }
+   std::shared_ptr<mlir::OpBuilder> getBuilder() const {
+      return builder;
+   }
+   mlir::ModuleOp getModule() const {
+      return module;
+   }
+   mlir::MLIRContext &getContext() {
+      return context;
+   }
  
  protected:
     void setupPrintf();
