@@ -8,12 +8,14 @@
 #include <unordered_set>
 #include <vector>
 #include <memory>
+#include <mlir/IR/Value.h>
 
 
 struct VarInfo {
     std::string identifier;
     CompleteType type;
     bool isConst;
+    mlir::Value value = nullptr;
 };
 
 struct FuncInfo {

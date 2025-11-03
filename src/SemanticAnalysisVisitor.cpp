@@ -3,6 +3,10 @@
 #include "run_time_errors.h"
 #include <unordered_set>
 
+Scope* SemanticAnalysisVisitor::getRootScope() {
+    return this->root_.get();
+}
+
 void SemanticAnalysisVisitor::visit(FileNode* node) {
     // Init and enter global scope
     // TODO: handle type aliases here

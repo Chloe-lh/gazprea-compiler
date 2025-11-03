@@ -10,6 +10,8 @@
 #include "ASTBuilder.h"
 #include "AST.h"
 #include "ErrorListener.h"
+#include "SemanticAnalysisVisitor.h"
+#include "MLIRGen.h"
 
 #include <iostream>
 #include <fstream>
@@ -44,9 +46,15 @@ int main(int argc, char **argv) {
   // Visit the tree
   // visitor.visit(tree);
 
+  SemanticAnalysisVisitor semVisitor;
+  ast->accept(semVisitor);
+  Scope* rootScope = semVisitor.getRootScope();
+
   std::ofstream os(argv[2]);
   BackEnd backend;
-  backend.emitModule();
+  // backend.emitModule(); demo module
+  MLIRGen mlirGen(backend, rootScope);
+  ast->accept(mlirGen);
   backend.lowerDialects();
   backend.dumpLLVM(os);
 

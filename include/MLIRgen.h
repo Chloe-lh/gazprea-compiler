@@ -2,6 +2,7 @@
 
 #include "AST.h"
 #include "ASTVisitor.h"
+#include "Scope.h"
 
 
 #include <string>
@@ -14,6 +15,7 @@
 class MLIRGen : public ASTVisitor {
 public:
     explicit MLIRGen(BackEnd& backend);
+    explicit MLIRGen(BackEnd& backend, Scope* rootScope);
 
     void visit(FileNode* node) override;
 
@@ -83,9 +85,7 @@ private:
     // Stack for intermediate MLIR values
     std::vector<mlir::Value> v_stack_;
 
-    // Symbol table for variable values
-    std::unordered_map<std::string, mlir::Value> symbolTable_;
-
-    // Memory-backed variables (for cross-region visibility)
-    std::unordered_map<std::string, mlir::Value> varMem_; // memref<1xi32> for ints
+    // Storing named values + types
+    Scope* root_;
+    Scope* currScope_;
 };
