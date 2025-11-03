@@ -94,7 +94,7 @@ void MLIRGen::visit(RealNode* node) {
     auto realType = builder_.getF32Type();
 
     auto realLiteral = builder_.create<mlir::arith::ConstantOp>(
-        loc_, realType, builder_.getIntegerAttr(realType, node->value)
+        loc_, realType, builder_.getFloatAttr(realType, node->value)
     );
     pushValue(realLiteral);
 }
