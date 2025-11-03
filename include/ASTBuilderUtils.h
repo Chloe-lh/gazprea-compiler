@@ -1,5 +1,6 @@
 #pragma once
 #include "Types.h"
+#include "Scope.h"
 #include <vector>
 #include <string>
 #include <utility>
@@ -18,6 +19,9 @@ public:
 
 namespace gazprea { class ASTBuilder; }
 namespace gazprea { namespace builder_utils {
+
+std::vector<VarInfo> ParamsToVarInfo(const std::vector<std::pair<CompleteType, std::string>>& params,
+                                     bool isConstDefault);
 
 std::vector<std::pair<CompleteType, std::string>>
 ExtractParams(gazprea::ASTBuilder &builder, GazpreaParser::FunctionBlockContext *ctx);
@@ -43,6 +47,10 @@ CompleteType ExtractReturnType(gazprea::ASTBuilder &builder, GazpreaParser::Func
 CompleteType ExtractReturnType(gazprea::ASTBuilder &builder, GazpreaParser::FunctionStatContext *ctx);
 CompleteType ExtractReturnType(gazprea::ASTBuilder &builder, GazpreaParser::FunctionBlockTupleReturnContext *ctx);
 CompleteType ExtractReturnType(gazprea::ASTBuilder &builder, GazpreaParser::FunctionPrototypeTupleReturnContext *ctx);
+
+// Convenience helper: convert ExtractParams output to VarInfo vector
+std::vector<VarInfo> ParamsToVarInfo(const std::vector<std::pair<CompleteType, std::string>>& params,
+                                      bool isConstDefault = true);
 
 
 }} // namespaces

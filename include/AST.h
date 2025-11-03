@@ -307,14 +307,18 @@ public:
 
     void accept(ASTVisitor& visitor) override;
 };
-
+enum class LoopKind { Plain, While , WhilePost };
+// plain : no Condition
+// while : condition body
+// whilePost : body condition
 class LoopNode : public StatNode {
 public:
     std::shared_ptr<BlockNode> body;
     std::shared_ptr<ExprNode> cond; // optional (for while)
+    LoopKind kind;
     LoopNode(std::shared_ptr<BlockNode> body,
              std::shared_ptr<ExprNode> cond= nullptr)
-        : body(std::move(body)), cond(std::move(cond)) {}
+        : body(std::move(body)), cond(std::move(cond)), kind(LoopKind::Plain) {}
     void accept(ASTVisitor& visitor) override;
 };
 

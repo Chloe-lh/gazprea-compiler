@@ -29,10 +29,10 @@ static inline std::any node_any(std::shared_ptr<T> n) {
         // std::any visitFunctionPrototype(GazpreaParser::FunctionPrototypeContext *ctx) override;
     //    std::any visitFunctionPrototypeTupleReturn(GazpreaParser::FunctionPrototypeTupleReturnContext *ctx) override;
         std::any visitProcedure(GazpreaParser::ProcedureContext *ctx) override;
-        std::any visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) override;
-        std::any visitInferredTypeDec(GazpreaParser::InferredTypeDecContext *ctx) override;
-        std::any visitTupleTypedDec(GazpreaParser::TupleTypedDecContext *ctx) override;
-        std::any visitAssignStat(GazpreaParser::AssignStatContext *ctx) override;
+        // std::any visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) override;
+        // std::any visitInferredTypeDec(GazpreaParser::InferredTypeDecContext *ctx) override;
+        // std::any visitTupleTypedDec(GazpreaParser::TupleTypedDecContext *ctx) override;
+        // std::any visitAssignStat(GazpreaParser::AssignStatContext *ctx) override;
         // std::any visitOutputStat(GazpreaParser::OutputStatContext *ctx) override;
         // std::any visitInputStat(GazpreaParser::InputStatContext *ctx) override;
         // std::any visitBreakStat(GazpreaParser::BreakStatContext *ctx) override;
@@ -40,23 +40,22 @@ static inline std::any node_any(std::shared_ptr<T> n) {
         // std::any visitReturnStat(GazpreaParser::ReturnStatContext *ctx) override;
         // std::any visitCallStat(GazpreaParser::CallStatContext *ctx) override;
        // std::any visitType(GazpreaParser::TypeContext *ctx) override;
-        std::any visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) override;
-        std::any visitTupleTypeAlias(GazpreaParser::TupleTypeAliasContext *ctx) override;
-        std::any visitAndExpr(GazpreaParser::AndExprContext *ctx) override;
+        // std::any visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) override;
+        // std::any visitTupleTypeAlias(GazpreaParser::TupleTypeAliasContext *ctx) override;
+        // std::any visitAndExpr(GazpreaParser::AndExprContext *ctx) override;
       //  std::any visitTrueExpr(GazpreaParser::TrueExprContext *ctx) override;
        // DONE std::any visitIdExpr(GazpreaParser::IdExprContext *ctx) override;
         // std::any visitMultExpr(GazpreaParser::MultExprContext *ctx) override;
         // std::any visitAddExpr(GazpreaParser::AddExprContext *ctx) override;
-        std::any visitCompExpr(GazpreaParser::CompExprContext *ctx) override;
-        std::any visitExpExpr(GazpreaParser::ExpExprContext *ctx) override;
-        std::any visitUnaryExpr(GazpreaParser::UnaryExprContext *ctx) override;
+        // std::any visitCompExpr(GazpreaParser::CompExprContext *ctx) override;
+        // std::any visitExpExpr(GazpreaParser::ExpExprContext *ctx) override;
         std::any visitTupleTypeCastExpr(GazpreaParser::TupleTypeCastExprContext *ctx) override;
-        std::any visitOrExpr(GazpreaParser::OrExprContext *ctx) override;
+        // std::any visitOrExpr(GazpreaParser::OrExprContext *ctx) override;
      //   std::any visitFalseExpr(GazpreaParser::FalseExprContext *ctx) override;
      //   DONE std::any visitCharExpr(GazpreaParser::CharExprContext *ctx) override;
         std::any visitTupleAccessExpr(GazpreaParser::TupleAccessExprContext *ctx) override;
-        std::any visitTupleLitExpr(GazpreaParser::TupleLitExprContext *ctx) override;
-        std::any visitEqExpr(GazpreaParser::EqExprContext *ctx) override;
+        // std::any visitTupleLitExpr(GazpreaParser::TupleLitExprContext *ctx) override;
+        // std::any visitEqExpr(GazpreaParser::EqExprContext *ctx) override;
         // std::any visitNotExpr(GazpreaParser::NotExprContext *ctx) override;
      //   DONE ::any visitIntExpr(GazpreaParser::IntExprContext *ctx) override;
      //   std::any visitParenExpr(GazpreaParser::ParenExprContext *ctx) override;
@@ -69,7 +68,7 @@ static inline std::any node_any(std::shared_ptr<T> n) {
       //  DONE std::any visitBlock(GazpreaParser::BlockContext *ctx) override;
         std::any visitIf(GazpreaParser::IfContext *ctx) override;
         // std::any visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx) override;
-        std::any visitWhileLoopBlock(GazpreaParser::WhileLoopBlockContext *ctx) override;
+        // std::any visitWhileLoopBlock(GazpreaParser::WhileLoopBlockContext *ctx) override;
         // std::any visitQualifier(GazpreaParser::QualifierContext *ctx) override;
      //   DONE std::any visitReal(GazpreaParser::RealContext *ctx) override;
 */
@@ -85,7 +84,6 @@ std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
     auto node = std::make_shared<FileNode>(std::move(nodes));
     return node_any(std::move(node));
 }
-
 std::any ASTBuilder::visitBlock(GazpreaParser::BlockContext *ctx){
     std::vector<std::shared_ptr<DecNode>> decs;
     std::vector<std::shared_ptr<StatNode>> stats;
@@ -100,6 +98,160 @@ std::any ASTBuilder::visitBlock(GazpreaParser::BlockContext *ctx){
         if(stat) stats.push_back(stat);
     }
     auto node = std::make_shared<BlockNode>(std::move(decs), std::move(stats));
+    return node_any(std::move(node));
+}
+/*
+dec
+    : qualifier? type ID (EQ expr)? END          #ExplicitTypedDec
+    | qualifier ID EQ expr END                   #InferredTypeDec
+    | qualifier? tuple_dec ID (EQ expr)? END     #TupleTypedDec
+*/
+std::any ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx){
+    // qualifier (optional)
+    std::string qualifier;
+    if (ctx->qualifier()) {
+        auto qualAny = visit(ctx->qualifier());
+        if (qualAny.has_value()) {
+            try {
+                qualifier = std::any_cast<std::string>(qualAny);
+            } catch (const std::bad_any_cast&) {
+                qualifier = "";
+            }
+        }
+    }
+    // declared type: build a TypeAliasNode from the parser context
+    std::shared_ptr<TypeAliasNode> typeAlias = nullptr;
+    if (ctx->type()) {
+        auto tctx = ctx->type();
+        if (tctx->INTEGER()) {
+            typeAlias = std::make_shared<TypeAliasNode>(std::string(""), CompleteType(BaseType::INTEGER));
+        } else if (tctx->REAL()) {
+            typeAlias = std::make_shared<TypeAliasNode>(std::string(""), CompleteType(BaseType::REAL));
+        } else if (tctx->BOOLEAN()) {
+            typeAlias = std::make_shared<TypeAliasNode>(std::string(""), CompleteType(BaseType::BOOL));
+        } else if (tctx->CHARACTER()) {
+            typeAlias = std::make_shared<TypeAliasNode>(std::string(""), CompleteType(BaseType::CHARACTER));
+        } else if (tctx->ID()) {
+            // named alias; store the alias name and leave concrete type unknown
+            typeAlias = std::make_shared<TypeAliasNode>(tctx->ID()->getText(), CompleteType(BaseType::UNKNOWN));
+        } else {
+            typeAlias = std::make_shared<TypeAliasNode>(std::string(""), CompleteType(BaseType::UNKNOWN));
+        }
+    } else {
+        typeAlias = std::make_shared<TypeAliasNode>(std::string(""), CompleteType(BaseType::UNKNOWN));
+    }
+    // declared identifier
+    std::string id = ctx->ID()->getText();
+    // optional initializer
+    std::shared_ptr<ExprNode> init = nullptr;
+    if (ctx->expr()) {
+        auto exprAny = visit(ctx->expr());
+        if (exprAny.has_value()) {
+            try {
+                init = std::any_cast<std::shared_ptr<ExprNode>>(exprAny);
+            } catch (const std::bad_any_cast&) {
+                init = nullptr;
+            }
+        }
+    }
+    auto node = std::make_shared<TypedDecNode>(id, typeAlias, qualifier, init);
+    return node_any(std::move(node));
+}
+std::any ASTBuilder::visitInferredTypeDec(GazpreaParser::InferredTypeDecContext *ctx){
+    // qualifier is returned as a std::any holding a std::string
+    std::string qualifier;
+    if (ctx->qualifier()) {
+        auto qualAny = visit(ctx->qualifier());
+        if (qualAny.has_value()) {
+            try {
+                qualifier = std::any_cast<std::string>(qualAny);
+            } catch (const std::bad_any_cast&) {
+                qualifier = "";
+            }
+        }
+    }
+    std::string id = ctx->ID()->getText();
+    // The initializer expression (if present) is under ctx->expr()
+    std::shared_ptr<ExprNode> expr = nullptr;
+    if (ctx->expr()) {
+        auto exprAny = visit(ctx->expr());
+        if (exprAny.has_value()) {
+            try {
+                expr = std::any_cast<std::shared_ptr<ExprNode>>(exprAny);
+            } catch (const std::bad_any_cast&) {
+                expr = nullptr;
+            }
+        }
+    }
+    auto node = std::make_shared<InferredDecNode>(qualifier, id, expr);
+    return node_any(std::move(node));
+}
+std::any ASTBuilder::visitTupleTypedDec(GazpreaParser::TupleTypedDecContext *ctx){
+    std::string id = ctx->ID()->getText();
+    CompleteType tupleType = CompleteType(BaseType::UNKNOWN);
+    if (ctx->tuple_dec()) {
+        auto anyType = visit(ctx->tuple_dec());
+        if (anyType.has_value()) {
+            try {
+                tupleType = std::any_cast<CompleteType>(anyType);
+            } catch (const std::bad_any_cast&) {
+                tupleType = CompleteType(BaseType::UNKNOWN);
+            }
+        }
+    }
+
+    // optional initializer expression
+    std::shared_ptr<ExprNode> init = nullptr;
+    if (ctx->expr()) {
+        auto anyInit = visit(ctx->expr());
+        if (anyInit.has_value()) {
+            try {
+                init = std::any_cast<std::shared_ptr<ExprNode>>(anyInit);
+            } catch (const std::bad_any_cast&) {
+                init = nullptr;
+            }
+        }
+    }
+
+    auto node = std::make_shared<TupleTypedDecNode>(id, tupleType);
+    node->init = init;
+    return node_any(std::move(node));
+}
+std::any ASTBuilder::visitTupleAccessExpr(GazpreaParser::TupleAccessExprContext *ctx){
+    // tuple_access: ID DECIM TUPLE_INT
+    auto ta = ctx->tuple_access();
+    std::string tupleName = "";
+    int index = 0;
+    if (ta) {
+        if (ta->ID()) tupleName = ta->ID()->getText();
+        if (ta->TUPLE_INT()) {
+            try {
+                index = std::stoi(ta->TUPLE_INT()->getText());
+            } catch (const std::exception&) {
+                index = 0;
+            }
+        }
+    }
+
+    auto node = std::make_shared<TupleAccessNode>(tupleName, index);
+    return node_any(std::move(node));
+}
+//  TupleTypeAliasNode(const std::string& aliasName, CompleteType tupleType);\
+// TYPEALIAS tuple_dec ID 
+std::any ASTBuilder::visitTupleTypeAlias(GazpreaParser::TupleTypeAliasContext *ctx){
+    std::string alias = ctx->ID()->getText();
+    CompleteType tupleType(BaseType::UNKNOWN);
+    if (ctx->tuple_dec()) {
+        auto anyType = visit(ctx->tuple_dec());
+        if (anyType.has_value() && anyType.type() == typeid(CompleteType)) {
+            tupleType = std::any_cast<CompleteType>(anyType);
+        } else {
+            // Fallback to an unknown tuple type
+            tupleType = CompleteType(BaseType::TUPLE);
+        }
+    }
+
+    auto node = std::make_shared<TupleTypeAliasNode>(alias, tupleType);
     return node_any(std::move(node));
 }
 std::any ASTBuilder::visitQualifier(GazpreaParser::QualifierContext *ctx){
@@ -120,7 +272,30 @@ std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx){
     if(ctx->CHARACTER()) return CompleteType(BaseType::CHARACTER);
     return CompleteType(BaseType::UNKNOWN);
 }
+std::any ASTBuilder::visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx){
+    // Grammar: TYPEALIAS ID ID  -> alias the type named by ID(0) as ID(1)
+    std::string referenced = ctx->ID(0)->getText();
+    std::string aliasName = ctx->ID(1)->getText();
 
+    CompleteType aliasedType(BaseType::UNKNOWN);
+    if (referenced == "integer") aliasedType = CompleteType(BaseType::INTEGER);
+    else if (referenced == "real") aliasedType = CompleteType(BaseType::REAL);
+    else if (referenced == "boolean") aliasedType = CompleteType(BaseType::BOOL);
+    else if (referenced == "character") aliasedType = CompleteType(BaseType::CHARACTER);
+
+    auto node = std::make_shared<TypeAliasDecNode>(aliasName, aliasedType);
+    // Records the original referenced name so later passes can resolve it
+    // if aliasedType was left as UNKNOWN.
+    node->declTypeName = referenced;
+    return node_any(std::move(node));
+}
+std::any ASTBuilder::visitAssignStat(GazpreaParser::AssignStatContext *ctx) {
+    std::string name = ctx->ID()->getText();
+    auto exprAny = visit(ctx->expr());
+    auto expr = std::any_cast<std::shared_ptr<ExprNode>>(exprAny);
+    auto node = std::make_shared<AssignStatNode>(name, expr);
+    return node_any(std::move(node));
+}
 std::any ASTBuilder::visitBreakStat(GazpreaParser::BreakStatContext *ctx){
     auto node = BreakStatNode();
     return node;
@@ -197,31 +372,37 @@ std::any ASTBuilder::visitOutputStat(GazpreaParser::OutputStatContext *ctx){
         }
     }
     auto node = std::make_shared<OutputStatNode>(expr);
-    return node;
+    return node_any(node);
 }
 // since there is no function block node, return a Function Prototype with a body
 // combines a function signature with a function body
 //Current status: visitFunctionBlock earlier left params empty; needs fix to call ExtractParams(*this, ctx) and set return type via helper.
-// std::any ASTBuilder::visitFunctionBlock(GazpreaParser::FunctionBlockContext *ctx){
-//     std::string funcName = ctx->ID(0)->getText();
-//     std::vector<std::pair<CompleteType, std::string>> params = gazprea::builder_utils::ExtractParams(*this, ctx);
-//     std::shared_ptr<BlockNode> body = nullptr;
-//     CompleteType returnType = gazprea::builder_utils::ExtractReturnType(*this, ctx);
-    
-//     if(ctx->block()){ // function has a block
-//         auto anyBody = visit(ctx->block());
-//         if(anyBody.has_value() && anyBody.type() == typeid(std::shared_ptr<BlockNode>)){
-//              body = std::any_cast<std::shared_ptr<BlockNode>>(anyBody);
-//         }
-//     }
-//     auto node = std::make_shared<FuncPrototypeNode>(funcName, params, returnType);
-//     node->body = body;//assign superclass body
-//     return node;
-// }
+std::any ASTBuilder::visitFunctionBlock(GazpreaParser::FunctionBlockContext *ctx){
+    std::string funcName = ctx->ID(0)->getText();
+    // Extract params and convert to VarInfo vector (parameters are const by default)
+    std::vector<std::pair<CompleteType, std::string>> params = gazprea::builder_utils::ExtractParams(*this, ctx);
+    // Convert parser-style param list to VarInfo vector expected by the AST FuncNode
+    std::vector<VarInfo> varParams = gazprea::builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
+    std::shared_ptr<BlockNode> body = nullptr;
+    CompleteType returnType = gazprea::builder_utils::ExtractReturnType(*this, ctx);
+
+    if (ctx->block()) { // function has a block body
+        auto anyBody = visit(ctx->block());
+        if (anyBody.has_value() && anyBody.type() == typeid(std::shared_ptr<BlockNode>)){
+            body = std::any_cast<std::shared_ptr<BlockNode>>(anyBody);
+        }
+    }
+
+    // Create a FuncBlockNode (function with a block body)
+    auto node = std::make_shared<FuncBlockNode>(funcName, varParams, returnType, body);
+    return node_any(std::move(node));
+}
 // combines a function signature with a function body
 std::any ASTBuilder::visitFunctionBlockTupleReturn(GazpreaParser::FunctionBlockTupleReturnContext *ctx){
     std::string funcName = ctx->ID(0)->getText();
     std::vector<std::pair<CompleteType, std::string>> params = gazprea::builder_utils::ExtractParams(*this, ctx);
+    // Convert to VarInfo expected by AST FuncNode constructors
+    std::vector<VarInfo> varParams = gazprea::builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
     std::shared_ptr<BlockNode> body = nullptr;
     CompleteType returnType = gazprea::builder_utils::ExtractReturnType(*this, ctx);
     
@@ -231,29 +412,32 @@ std::any ASTBuilder::visitFunctionBlockTupleReturn(GazpreaParser::FunctionBlockT
              body = std::any_cast<std::shared_ptr<BlockNode>>(anyBody);
         }
     }
-    auto node = std::make_shared<FuncPrototypeNode>(funcName, params, returnType);
+    auto node = std::make_shared<FuncPrototypeNode>(funcName, varParams, returnType);
     node->body = body;
     return node_any(std::move(node));
 }
 std::any ASTBuilder::visitFunctionPrototype(GazpreaParser::FunctionPrototypeContext *ctx){
     std::string funcName = ctx->ID(0)->getText();
     std::vector<std::pair<CompleteType, std::string>> params = gazprea::builder_utils::ExtractParams(*this, ctx);
+    std::vector<VarInfo> varParams = gazprea::builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
     CompleteType returnType = gazprea::builder_utils::ExtractReturnType(*this, ctx);
-    auto node = std::make_shared<FuncPrototypeNode>(funcName, params, returnType);
+    auto node = std::make_shared<FuncPrototypeNode>(funcName, varParams, returnType);
     // no body for a prototype
     return node_any(std::move(node));
 }
 std::any ASTBuilder::visitFunctionPrototypeTupleReturn(GazpreaParser::FunctionPrototypeTupleReturnContext *ctx){
     std::string funcName = ctx->ID(0)->getText();
     std::vector<std::pair<CompleteType, std::string>> params = gazprea::builder_utils::ExtractParams(*this, ctx);
+    std::vector<VarInfo> varParams = gazprea::builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
     CompleteType returnType = gazprea::builder_utils::ExtractReturnType(*this, ctx);
     // no body for a prototype
-    auto node = std::make_shared<FuncPrototypeNode>(funcName, params, returnType);
+    auto node = std::make_shared<FuncPrototypeNode>(funcName, varParams, returnType);
     return node_any(std::move(node));
 }
 std::any ASTBuilder::visitFunctionStat(GazpreaParser::FunctionStatContext *ctx){
     std::string funcName = ctx->ID(0)->getText();
     std::vector<std::pair<CompleteType, std::string>> params = gazprea::builder_utils::ExtractParams(*this, ctx);
+    std::vector<VarInfo> varParams = gazprea::builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
     CompleteType returnType = gazprea::builder_utils::ExtractReturnType(*this, ctx);
     std::shared_ptr<StatNode> returnStat = nullptr;
     if (ctx->stat()) {
@@ -267,16 +451,36 @@ std::any ASTBuilder::visitFunctionStat(GazpreaParser::FunctionStatContext *ctx){
                 try {
                     returnStat = std::any_cast<std::shared_ptr<StatNode>>(anyStat);
                 } catch (const std::bad_any_cast&) {
-                    // not a StatNode — handle gracefully, e.g. leave nullptr or log
+                    // not a StatNode — leave null ptr
                 }
             }
         }
     }
-    // no body for a prototype
-    auto node = std::make_shared<FuncStatNode>(funcName, params, returnType, returnStat);
+    // construct FuncStatNode using VarInfo vector
+    auto node = std::make_shared<FuncStatNode>(funcName, varParams, returnType, returnStat);
     return node_any(std::move(node));
 }
-
+std::any ASTBuilder::visitUnaryExpr(GazpreaParser::UnaryExprContext *ctx){
+    std::shared_ptr<ExprNode> expr = nullptr;
+    std::string op;
+    if (ctx->ADD()) {
+        op = ctx->ADD()->getText();
+    } else if (ctx->MINUS()) {
+        op = ctx->MINUS()->getText();
+    }
+    if (ctx->expr()) {
+        auto anyExpr = visit(ctx->expr());
+        if (anyExpr.has_value()) {
+            try {
+                expr = std::any_cast<std::shared_ptr<ExprNode>>(anyExpr);
+            } catch (const std::bad_any_cast&) {
+                expr = nullptr;
+            }
+        }
+    }
+    auto node = std::make_shared<UnaryExpr>(op, expr);
+    return node;
+}
 std::any ASTBuilder::visitNotExpr(GazpreaParser::NotExprContext *ctx){
     std::shared_ptr<ExprNode> expr = nullptr;
     std::string op;
@@ -616,6 +820,11 @@ std::any ASTBuilder::visitTuple_literal(GazpreaParser::Tuple_literalContext *ctx
     return node;
 }
 
+// Delegate grammar variant that wraps a tuple literal as an expression
+std::any ASTBuilder::visitTupleLitExpr(GazpreaParser::TupleLitExprContext *ctx){
+    return visit(ctx->tuple_literal());
+}
+
 std::any ASTBuilder::visitTuple_dec(GazpreaParser::Tuple_decContext *ctx){
     // Build a CompleteType representing the tuple declaration's element types.
     std::vector<CompleteType> elemTypes;
@@ -629,34 +838,62 @@ std::any ASTBuilder::visitTuple_dec(GazpreaParser::Tuple_decContext *ctx){
     }
     return CompleteType(BaseType::TUPLE, std::move(elemTypes));
 }
+// LOOP (WHILE PARENLEFT expr PARENRIGHT) (block|stat) #WhileLoopBlock
+std::any ASTBuilder::visitWhileLoopBlock(GazpreaParser::WhileLoopBlockContext *ctx){
+    std::shared_ptr<ExprNode> init = nullptr;
+    if (ctx->expr()) {
+        auto exprAny = visit(ctx->expr());
+        if (exprAny.has_value()) {
+            try {
+                init = std::any_cast<std::shared_ptr<ExprNode>>(exprAny);
+            } catch (const std::bad_any_cast&) {
+                init = nullptr;
+            }
+        }
+    }
+    std::shared_ptr<BlockNode> block = nullptr;
+    std::shared_ptr<StatNode> stat = nullptr;
+    // If the grammar produced a block use it, otherwise if it's a single
+    // statement wrap that statement into a temporary BlockNode so LoopNode
+    // always carries a BlockNode body.
+    if (ctx->block()) {
+        auto blockAny = visit(ctx->block());
+        if (blockAny.has_value()) {
+            try {
+                block = std::any_cast<std::shared_ptr<BlockNode>>(blockAny);
+            } catch (const std::bad_any_cast&) {
+                block = nullptr;
+            }
+        }
+    } else if (ctx->stat()) {
+        auto statAny = visit(ctx->stat());
+        if (statAny.has_value()) {
+            try {
+                stat = std::any_cast<std::shared_ptr<StatNode>>(statAny);
+            } catch (const std::bad_any_cast&) {
+                stat = nullptr;
+            }
+        }
+        if (stat) { //turn stats to body (blockNode)
+            std::vector<std::shared_ptr<DecNode>> emptyDecs;
+            std::vector<std::shared_ptr<StatNode>> stats;
+            stats.push_back(stat);
+            block = std::make_shared<BlockNode>(std::move(emptyDecs), std::move(stats));
+        }
+    }
 
-// class IfNode : public StatNode {
-// public:
-//     std::shared_ptr<ExprNode> cond;
-//     std::shared_ptr<BlockNode> thenBlock;
-//     std::shared_ptr<BlockNode> elseBlock; // optional
-//     IfNode(std::shared_ptr<ExprNode> condition,
-//            std::shared_ptr<BlockNode> thenBlock,
-//            std::shared_ptr<BlockNode> elseBlock = nullptr)
-//         : cond(std::move(condition)),
-//           thenBlock(std::move(thenBlock)),
-//           elseBlock(std::move(elseBlock)) {}
-//     void accept(ASTVisitor& visitor) override;
+    // Construct LoopNode: body (BlockNode) and condition (expr). Mark as pre-check while.
+    auto node = std::make_shared<LoopNode>(std::move(block), std::move(init));
+    node->kind = LoopKind::While;
 
-// if: IF PARENLEFT expr PARENRIGHT (block|stat) (ELSE (block|stat))?;
-// std::any ASTBuilder::visitIf(GazpreaParser::IfContext *ctx) {
-//     std::shared_ptr<BlockNode> block = nullptr;
-//     std::shared_ptr<StatNode> stat = nullptr;
-    
-//     // if(ctx->Block()){
+    return node_any(std::move(node));
 
-//     // }
-
-// }
-
+}
+//LOOP (block|stat) (WHILE PARENLEFT expr PARENRIGHT END)? #LoopDefault
 std::any ASTBuilder::visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx){
     std::shared_ptr<BlockNode> body = nullptr;
     std::shared_ptr<ExprNode> cond = nullptr;
+    bool hasCond = false;
 
     // extract body if present
     if (ctx->block()) {
@@ -674,6 +911,7 @@ std::any ASTBuilder::visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx){
 
     // extract optional condition expression (for while-like loops)
     if (ctx->expr()) {
+        hasCond = true;
         auto anyCond = visit(ctx->expr());
         if (anyCond.has_value() && anyCond.type() == typeid(std::shared_ptr<ExprNode>)) {
             cond = std::any_cast<std::shared_ptr<ExprNode>>(anyCond);
@@ -685,23 +923,18 @@ std::any ASTBuilder::visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx){
             }
         }
     }
-
+    // Construct LoopNode with body and optional condition, then set the kind
     auto node = std::make_shared<LoopNode>(std::move(body), std::move(cond));
-    return node;
+    if (hasCond) {
+        node->kind = LoopKind::WhilePost; // body then condition (do-while style)
+    } else {
+        node->kind = LoopKind::Plain; // infinite loop / no condition
+    }
+
+    return node_any(std::move(node));
 }
 
 
-
-// std::any ASTBuilder::visitStat(GazpreaParser::StatContext *ctx) {
-//     // Route to the actual statement inside 'stat: <rule> END'
-//     if (ctx->intDec())       return visitIntDec(ctx->intDec());
-//     if (ctx->vectorDec())    return visitVectorDec(ctx->vectorDec());
-//     if (ctx->assign())       return visitAssign(ctx->assign());
-//     if (ctx->cond())         return visitCond(ctx->cond());
-//     if (ctx->loop())         return visitLoop(ctx->loop());
-//     if (ctx->print())        return visitPrint(ctx->print());
-//     return std::shared_ptr<ASTNode>{};
-// }
 
 // std::any ASTBuilder::visitExpr(GazpreaParser::ExprContext *ctx) {
 //     return visit(ctx->equalityExpr());
@@ -796,51 +1029,6 @@ std::any ASTBuilder::visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx){
 //     return node;
 // }
 
-// std::any ASTBuilder::visitAddSubExpr(GazpreaParser::AddSubExprContext *ctx) {
-//     size_t n = ctx->mulDivExpr().size();
-//     std::shared_ptr<ExprNode> node = std::any_cast<std::shared_ptr<ExprNode>>(visitMulDivExpr(ctx->mulDivExpr(0)));
-//     for (size_t i = 1; i < n; ++i) {
-//         std::string op;
-//         if (ctx->ADD(i-1)) {
-//             op = ctx->ADD(i-1)->getText();
-//         } else if (ctx->MINUS(i-1)) {
-//             op = ctx->MINUS(i-1)->getText();
-//         }
-//         auto right = std::any_cast<std::shared_ptr<ExprNode>>(visitMulDivExpr(ctx->mulDivExpr(i)));
-//         node = std::make_shared<BinaryOpNode>(node, right, op);
-//     }
-//     return node;
-// }
-
-// std::any ASTBuilder::visitMulDivExpr(GazpreaParser::MulDivExprContext *ctx) {
-//     size_t n = ctx->rangeExpr().size();
-//     std::shared_ptr<ExprNode> node = std::any_cast<std::shared_ptr<ExprNode>>(visitRangeExpr(ctx->rangeExpr(0)));
-//     for (size_t i = 1; i < n; ++i) {
-//         std::string op;
-//         if (ctx->MULT(i-1)) {
-//             op = ctx->MULT(i-1)->getText();
-//         } else if (ctx->DIV(i-1)) {
-//             op = ctx->DIV(i-1)->getText();
-//         }
-//         auto right = std::any_cast<std::shared_ptr<ExprNode>>(visitRangeExpr(ctx->rangeExpr(i)));
-//         node = std::make_shared<BinaryOpNode>(node, right, op);
-//     }
-//     return node;
-// }
-
-// std::any ASTBuilder::visitRangeExpr(GazpreaParser::RangeExprContext *ctx) {
-//     if (ctx->indexExpr().size() == 1) {
-//         // If there's only one indexExpr and no '..', return it directly (do not wrap in RangeNode)
-//         return visitIndexExpr(ctx->indexExpr(0));
-//     }
-//     auto startAny = visitIndexExpr(ctx->indexExpr(0));
-//     auto endAny = visitIndexExpr(ctx->indexExpr(1));
-//     auto node = std::make_shared<RangeNode>(
-//         std::any_cast<std::shared_ptr<ExprNode>>(startAny),
-//         std::any_cast<std::shared_ptr<ExprNode>>(endAny)
-//     );
-//     return std::static_pointer_cast<ExprNode>(node);
-// }
 
 // std::any ASTBuilder::visitIndexExpr(GazpreaParser::IndexExprContext *ctx) {
 //     // no expr, go to atom
@@ -877,32 +1065,3 @@ std::any ASTBuilder::visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx){
 //     return std::static_pointer_cast<ExprNode>(node);
 // }
 
-// std::any ASTBuilder::visitAtom(GazpreaParser::AtomContext *ctx) {
-//     if (ctx->INT()) {
-//         const std::string literal = ctx->INT()->getText();
-//         try {
-//             size_t parsedChars = 0;
-//             int value = std::stoi(literal, &parsedChars, 10);
-//             if (parsedChars != literal.size()) {
-//                 throw std::runtime_error("TypeError: Integer literal '" + literal + "' is not a valid signed int.");
-//             }
-//             auto node = std::make_shared<IntNode>(value);
-//             return std::static_pointer_cast<ExprNode>(node);
-//         } catch (const std::invalid_argument&) {
-//             throw std::runtime_error("TypeError: Integer literal '" + literal + "' is not a valid signed int.");
-//         } catch (const std::out_of_range&) {
-//             throw std::runtime_error("RangeError: Integer literal '" + literal + "' is out of range for signed int.");
-//         }
-//     } else if (ctx->ID()) {
-//         std::string name = ctx->ID()->getText();
-//         auto node = std::make_shared<IdNode>(name);
-//         return std::static_pointer_cast<ExprNode>(node);
-//     } else if (ctx->generator()) {
-//         return visitGenerator(ctx->generator());
-//     } else if (ctx->filter()) {
-//         return visitFilter(ctx->filter());
-//     } else if (ctx->expr()) {
-//         return visit(ctx->expr());
-//     }
-//     return std::shared_ptr<ExprNode>{};
-// }
