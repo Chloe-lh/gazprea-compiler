@@ -59,14 +59,16 @@ public:
         void visit(TypeCastNode* node) override;
         void visit(TupleTypeCastNode* node) override;
 
+        // variables
+        void visit(IdNode* node) override;
+
         // Primitives
         void visit(TrueNode* node) override;
         void visit(FalseNode* node) override;
         void visit(CharNode* node) override;
         void visit(IntNode* node) override;
-        void visit(IdNode* node) override;
-        void visit(TupleLiteralNode* node) override;
         void visit(RealNode* node) override;
+        void visit(TupleLiteralNode* node) override;
 
 private:
     mlir::Value popValue();

@@ -71,4 +71,21 @@ void MLIRGen::visit(CharNode* node) {
     pushValue(charLiteral);
 }
 
+void MLIRGen::visit(IntNode* node) {
+    auto intType = builder_.getI32Type();
+
+    auto intLiteral = builder_.create<mlir::arith::ConstantOp>(
+        loc_, intType, builder_.getIntegerAttr(intType, node->value)
+    );
+    pushValue(intLiteral);
+}
+
+void MLIRGen::visit(RealNode* node) {
+    auto realType = builder_.getF32Type();
+
+    auto realLiteral = builder_.create<mlir::arith::ConstantOp>(
+        loc_, realType, builder_.getIntegerAttr(realType, node->value)
+    );
+    pushValue(realLiteral);
+}
 
