@@ -102,3 +102,8 @@ void MLIRGen::visit(RealNode* node) {
 void MLIRGen::visit(IdNode* node) {
     
 }
+
+
+void MLIRGen::visit(ParentExpr* node) {
+    node->expr->accept(*this);
+}
