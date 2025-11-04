@@ -134,11 +134,30 @@ void MLIRGen::visit(RealNode* node) {
 }
 
 void MLIRGen::visit(TupleLiteralNode* node) {
-    for (const auto& elem: node->elements) {
-        elem->accept(*this);
-    }
-}
+    VarInfo tupleVarInfo(node->type);
+    allocaLiteral(&tupleVarInfo);
 
+    if (tupleVarInfo.mlirSubtypes.size() != node->elements.size()) {
+        throw std::runtime_error("FATAL: mismatched mlirSubtypes and node->elements sizes.");
+    }
+
+    for (size_t i = 0; i < node->elements.size(); ++i) {
+        node->elements[i]->accept(*this);
+        VarInfo elemVarInfo = popValue();
+
+        VarInfo &target = tupleVarInfo.mlirSubtypes[i];
+
+        mlir::Value loadedVal = builder_.create<mlir::memref::LoadOp>(
+            loc_, elemVarInfo.value, mlir::ValueRange{}
+        );
+
+        builder_.create<mlir::memref::StoreOp>(
+            loc_, loadedVal, target.value, mlir::ValueRange{}
+        );
+    }
+
+    pushValue(tupleVarInfo);
+}
 
 void MLIRGen::allocaLiteral(VarInfo* varInfo) {
     varInfo->isConst = true;
