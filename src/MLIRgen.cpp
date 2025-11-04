@@ -193,3 +193,28 @@ void MLIRGen::visit(NotExpr* node) {
     pushValue(notOp);
 }
 
+
+void MLIRGen::visit(AndExpr* node){
+    node->left->accept(*this);
+    mlir::Value left = popValue();
+    node->right->accept(*this);
+    mlir::Value right = popValue();
+
+    auto andOp = builder_.create<mlir::arith::AndIOp>(loc_, left, right);
+    pushValue(andOp);
+}
+
+void MLIRGen::visit(OrExpr* node){
+    node->left->accept(*this);
+    mlir::Value left = popValue();
+    node->right->accept(*this);
+    mlir::Value right = popValue();
+
+    if(node->op == "or") {
+        auto orOp = builder_.create<mlir::arith::OrIOp>(loc_, left, right);
+        pushValue(orOp);
+    } else if (node->op == "xor") {
+        auto xorOp = builder_.create<mlir::arith::XOrIOp>(loc_, left, right);
+        pushValue(xorOp);
+    }
+}
