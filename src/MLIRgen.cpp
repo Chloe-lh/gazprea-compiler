@@ -183,3 +183,13 @@ void MLIRGen::visit(AddExpr* node){
     }
 }
 
+void MLIRGen::visit(NotExpr* node) {
+    node->expr->accept(*this);
+    mlir::Value operand = popValue();
+
+    auto one = builder_.create<mlir::arith::ConstantOp>(
+        loc_, operand.getType(), builder_.getIntegerAttr(operand.getType(), 1));
+    auto notOp = builder_.create<mlir::arith::XOrIOp>(loc_, operand, one);
+    pushValue(notOp);
+}
+
