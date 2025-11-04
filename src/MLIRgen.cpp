@@ -100,5 +100,12 @@ void MLIRGen::visit(RealNode* node) {
 }
 
 void MLIRGen::visit(IdNode* node) {
-    
+    VarInfo* varInfo = currScope_->resolveVar(node->id);
+
+    if (varInfo->value == nullptr) {
+        throw SymbolError(1, "Semantic Analysis: Variable '" + node->id + "' not initialized.");
+    }
+
+    pushValue(varInfo->value); // will push either a value (constants, intermediates) or a memref address (vars). Parent node must handle checking.
+
 }
