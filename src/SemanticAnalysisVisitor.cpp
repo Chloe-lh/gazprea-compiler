@@ -349,22 +349,52 @@ void SemanticAnalysisVisitor::visit(ReturnStatNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(CallStatNode* node) {
+    // The CallStatNode wraps an expression-style FuncCallExpr in `call`.
+    if (!node->call) {
+        throw std::runtime_error("Semantic Analysis: FATAL: empty call statement");
+    }
     std::vector<VarInfo> args;
-    args.reserve(node->args.size());
-    for (const auto& e : node->args) {
-        e->accept(*this);
-        args.push_back(VarInfo{"", e->type, true});
+    args.reserve(node->call->args.size());
+    for (const auto& e : node->call->args) {
+        if (e) e->accept(*this);
+        args.push_back(VarInfo{"", e ? e->type : CompleteType(BaseType::UNKNOWN), true});
     }
 
     // Resolve as procedure only. prevent calling a function via 'call'
     try {
-        (void) current_->resolveProc(node->funcName, args);
+        (void) current_->resolveProc(node->call->funcName, args);
     } catch (...) {
-        throw SymbolError(1, "Semantic Analysis: Unknown procedure '" + node->funcName + "' in call statement.");
+        throw SymbolError(1, "Semantic Analysis: Unknown procedure '" + node->call->funcName + "' in call statement.");
     }
 
     // Statements have no resultant type
     node->type = CompleteType(BaseType::UNKNOWN);
+}
+
+void SemanticAnalysisVisitor::visit(FuncCallExpr* node) {
+    // Evaluate argument expressions and build a signature to resolve the function
+    std::vector<VarInfo> args;
+    args.reserve(node->args.size());
+    for (const auto& e : node->args) {
+        if (e) e->accept(*this);
+        args.push_back(VarInfo{"", e ? e->type : CompleteType(BaseType::UNKNOWN), true});
+    }
+
+    // Resolve function by name + signature
+    FuncInfo* finfo = nullptr;
+    try {
+        finfo = current_->resolveFunc(node->funcName, args);
+    } catch (...) {
+        throw SymbolError(1, "Semantic Analysis: Unknown function '" + node->funcName + "' in expression.");
+    }
+
+    // Assign the resolved return type to the expression node and cache resolved info
+    if (finfo) {
+        node->type = finfo->funcReturn;
+        node->resolvedFunc = *finfo; // copy resolved info for later passes
+    } else {
+        node->type = CompleteType(BaseType::UNKNOWN);
+    }
 }
 
 void SemanticAnalysisVisitor::visit(IfNode* node) {
