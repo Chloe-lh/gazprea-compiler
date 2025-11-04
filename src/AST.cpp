@@ -192,15 +192,13 @@ TupleLiteralNode::TupleLiteralNode(
 TupleAccessNode::TupleAccessNode(const std::string &tupleName, int index)
     : tupleName(tupleName), index(index) {}
 
-TypeCastNode::TypeCastNode(const std::string &targetType,
-                           std::shared_ptr<ExprNode> expr)
-    : targetType(targetType), expr(std::move(expr)) {}
+TypeCastNode::TypeCastNode(const CompleteType &targetType,
+               std::shared_ptr<ExprNode> expr)
+  : targetType(targetType), expr(std::move(expr)) {}
 
-TupleTypeCastNode::TupleTypeCastNode(CompleteType targetTupleType,
-                                     std::shared_ptr<ExprNode> expr)
-    : expr(std::move(expr)) {
-  this->type = targetTupleType;
-}
+TupleTypeCastNode::TupleTypeCastNode(const CompleteType &targetTupleType,
+                   std::shared_ptr<ExprNode> expr)
+  : targetTupleType(targetTupleType), expr(std::move(expr)) {}
 
 // Statements
 ReturnStatNode::ReturnStatNode(std::shared_ptr<ExprNode> expr)

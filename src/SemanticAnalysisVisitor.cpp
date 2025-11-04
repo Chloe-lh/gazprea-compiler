@@ -1,5 +1,6 @@
 #include "SemanticAnalysisVisitor.h"
 #include "CompileTimeExceptions.h"
+#include "Types.h"
 #include "run_time_errors.h"
 #include <stdexcept>
 #include <sstream>
@@ -739,17 +740,20 @@ void SemanticAnalysisVisitor::visit(TupleAccessNode* node) {
 void SemanticAnalysisVisitor::visit(TypeCastNode* node) {
     // Evaluate operand first
     node->expr->accept(*this);
-
-    // Resolve target type: built-ins or alias
+    // Resolve target type: built-ins or alias. The AST stores the target as
+    // a CompleteType; if it's a concrete base type use it directly, otherwise
+    // attempt to resolve it as a named alias via the scope.
     CompleteType target(BaseType::UNKNOWN);
-    const std::string& tname = node->targetType;
-    if (tname == "boolean") target = CompleteType(BaseType::BOOL);
-    else if (tname == "character") target = CompleteType(BaseType::CHARACTER);
-    else if (tname == "integer") target = CompleteType(BaseType::INTEGER);
-    else if (tname == "real") target = CompleteType(BaseType::REAL);
-    else {
-        // Treat as alias; throws if not found
-        target = *current_->resolveAlias(tname);
+    CompleteType tname = node->targetType;
+    if (tname.baseType == BaseType::BOOL ||
+        tname.baseType == BaseType::CHARACTER ||
+        tname.baseType == BaseType::INTEGER ||
+        tname.baseType == BaseType::REAL) {
+        target = tname;
+    } else {
+        // Treat as alias name; use toString(tname) as the alias identifier.
+        std::string aliasName = toString(tname);
+        target = *current_->resolveAlias(aliasName);
     }
     // Ensure cast is type-compatible using explicit cast rules
     if (!canCastType(node->expr->type, target)) {

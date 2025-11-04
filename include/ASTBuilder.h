@@ -56,6 +56,7 @@ public:
   std::any visitFunctionPrototypeTupleReturn(
       gazprea::GazpreaParser::FunctionPrototypeTupleReturnContext *ctx)
       override;
+  std::any visitProcedure(gazprea::GazpreaParser::ProcedureContext *ctx) override;
   std::any
   visitFunctionStat(gazprea::GazpreaParser::FunctionStatContext *ctx) override;
 
@@ -71,6 +72,7 @@ public:
   std::any visitEqExpr(gazprea::GazpreaParser::EqExprContext *ctx) override;
   std::any visitAndExpr(gazprea::GazpreaParser::AndExprContext *ctx) override;
   std::any visitOrExpr(gazprea::GazpreaParser::OrExprContext *ctx) override;
+  std::any visitTypeCastExpr(gazprea::GazpreaParser::TypeCastExprContext *ctx) override;
 
   // Literals / atoms
   std::any visitIntExpr(gazprea::GazpreaParser::IntExprContext *ctx) override;
@@ -90,7 +92,7 @@ public:
   visitTuple_dec(gazprea::GazpreaParser::Tuple_decContext *ctx) override;
   std::any visitTupleAccessExpr(
       gazprea::GazpreaParser::TupleAccessExprContext *ctx) override;
-
+  std::any visitTupleTypeCastExpr(GazpreaParser::TupleTypeCastExprContext *ctx) override;
   // Control flow
   std::any visitWhileLoopBlock(
       gazprea::GazpreaParser::WhileLoopBlockContext *ctx) override;

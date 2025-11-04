@@ -393,16 +393,17 @@ public:
 
 class TypeCastNode : public ExprNode {
 public:
-  std::string targetType;
+  CompleteType targetType;
   std::shared_ptr<ExprNode> expr;
-  TypeCastNode(const std::string &targetType, std::shared_ptr<ExprNode> expr);
+  TypeCastNode(const CompleteType &targetType, std::shared_ptr<ExprNode> expr);
   void accept(ASTVisitor &visitor) override;
 };
 
 class TupleTypeCastNode : public ExprNode {
 public:
+  CompleteType targetTupleType;
   std::shared_ptr<ExprNode> expr;
-  TupleTypeCastNode(CompleteType targetTupleType,
+  TupleTypeCastNode(const CompleteType &targetTupleType,
                     std::shared_ptr<ExprNode> expr);
   void accept(ASTVisitor &visitor) override;
 };
