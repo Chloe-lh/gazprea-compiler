@@ -156,3 +156,30 @@ void MLIRGen::visit(MultExpr* node){
     }
 }
 
+void MLIRGen::visit(AddExpr* node){
+    node->left->accept(*this);
+    mlir::Value left = popValue();
+    node->right->accept(*this);
+    mlir::Value right = popValue();
+
+    if(left.getType().isa<mlir::IntegerType>()) {
+        if (node->op == "+") {
+            auto add = builder_.create<mlir::arith::AddIOp>(loc_, left, right);
+            pushValue(add);
+        } else if (node->op == "-") {
+            auto sub = builder_.create<mlir::arith::SubIOp>(loc_, left, right);
+            pushValue(sub);
+        }
+    } else if(left.getType().isa<mlir::FloatType>()) {
+        if (node->op == "+") {
+            auto add = builder_.create<mlir::arith::AddFOp>(loc_, left, right);
+            pushValue(add);
+        } else if (node->op == "-") {
+            auto sub = builder_.create<mlir::arith::SubFOp>(loc_, left, right);
+            pushValue(sub);
+        }
+    } else {
+        throw std::runtime_error("MLIRGen Error: Unsupported type for addition.");
+    }
+}
+
