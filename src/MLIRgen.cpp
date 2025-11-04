@@ -3,7 +3,7 @@ Traverse AST tree and for each node emit MLIR operations
 Backend sets up MLIR context, builder, and helper functions
 After generating the MLIR, Backend will lower the dialects and output LLVM IR
 */
-#include "MLIRGen.h"
+#include "MLIRgen.h"
 #include "BackEnd.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -53,6 +53,17 @@ void MLIRGen::visit(FileNode* node) {
     }
 }
 
+void MLIRGen::visit(IdNode* node) {
+    VarInfo* varInfo = currScope_->resolveVar(node->id);
+
+    if (varInfo->value == nullptr) {
+        throw SymbolError(1, "Semantic Analysis: Variable '" + node->id + "' not initialized.");
+    }
+
+    pushValue(varInfo->value); // will push either a value (constants, intermediates) or a memref address (vars). Parent node must handle checking.
+
+}
+
 void MLIRGen::visit(TrueNode* node) {
     auto boolType = builder_.getI1Type();
 
@@ -99,13 +110,58 @@ void MLIRGen::visit(RealNode* node) {
     pushValue(realLiteral);
 }
 
-void MLIRGen::visit(IdNode* node) {
-    VarInfo* varInfo = currScope_->resolveVar(node->id);
-
-    if (varInfo->value == nullptr) {
-        throw SymbolError(1, "Semantic Analysis: Variable '" + node->id + "' not initialized.");
+void MLIRGen::visit(TupleLiteralNode* node) {
+    for (const auto& elem: node->elements) {
+        elem->accept(*this);
     }
+}
 
-    pushValue(varInfo->value); // will push either a value (constants, intermediates) or a memref address (vars). Parent node must handle checking.
 
+void MLIRGen::createLiteral(VarInfo* varInfo) {
+    varInfo->isConst = true;
+    switch (varInfo->type.baseType) {
+        case BaseType::BOOL:
+            varInfo->value = builder_.create<mlir::memref::AllocaOp>(
+                loc_, mlir::MemRefType::get({}, builder_.getI1Type()));
+            break;
+
+        case (BaseType::CHARACTER):
+            varInfo->value = builder_.create<mlir::memref::AllocaOp>(
+                loc_, mlir::MemRefType::get({}, builder_.getI8Type())
+            );
+            break;
+
+        case (BaseType::INTEGER):
+            varInfo->value = builder_.create<mlir::memref::AllocaOp>(
+                loc_, mlir::MemRefType::get({}, builder_.getI32Type())
+            );
+            break;
+
+        case (BaseType::REAL):
+            varInfo->value = builder_.create<mlir::memref::AllocaOp>(
+                loc_, mlir::MemRefType::get({}, builder_.getF32Type())
+            );
+            break;
+
+        case (BaseType::TUPLE):
+            if (varInfo->type.subTypes.size() < 2) {
+                throw SizeError(1, "Error: Tuple must have at least 2 elements.");
+            }
+
+            for (CompleteType& subtype: varInfo->type.subTypes) {
+                VarInfo mlirSubtype = VarInfo(subtype);
+                mlirSubtype.isConst = true; // Literals are always const
+
+                // Copy over type info into VarInfo's subtypes
+                varInfo->mlirSubtypes.emplace_back(
+                    mlirSubtype
+                );
+                createLiteral(&varInfo->mlirSubtypes.back());
+            }
+            break;
+
+        default:
+            throw std::runtime_error("createLiteral FATAL: unsupported type " +
+                                    std::to_string(static_cast<int>(varInfo->type.baseType)));
+    }
 }

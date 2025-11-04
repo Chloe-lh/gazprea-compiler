@@ -3,6 +3,7 @@
 #include "AST.h"
 #include "ASTVisitor.h"
 #include "Scope.h"
+#include "BackEnd.h"
 
 
 #include <string>
@@ -71,6 +72,9 @@ public:
     void visit(IntNode* node) override;
     void visit(RealNode* node) override;
     void visit(TupleLiteralNode* node) override;
+
+    // helpers
+    void createLiteral(VarInfo* varInfo);
 
 private:
     mlir::Value popValue();
