@@ -107,3 +107,21 @@ void MLIRGen::visit(IdNode* node) {
 void MLIRGen::visit(ParentExpr* node) {
     node->expr->accept(*this);
 }
+
+void MLIRGen::visit(UnaryExpr* node) {
+    node->expr->accept(*this);
+    mlir::Value operand = popValue();
+
+    switch (node->op) {
+        case "+":
+            pushValue(operand);
+            break;
+        case "-":
+            //subtract from zero works for both int and real
+            auto zero = builder_.create<mlir::arith::ConstantOp>(
+                loc_, operand.getType(), builder_.getZeroAttr(operand.getType()));
+            auto neg = builder_.create<mlir::arith::SubIOp>(loc_, zero, operand);
+            pushValue(neg);
+            break;
+    }
+}
