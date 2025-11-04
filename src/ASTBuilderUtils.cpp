@@ -5,11 +5,7 @@
 #include <any>
 #include <cstddef>
 
-using namespace gazprea;
-using namespace gazprea::builder_utils;
-
-
-namespace gazprea { namespace builder_utils { 
+namespace gazprea::builder_utils{
 
     std::vector<VarInfo> ParamsToVarInfo(const std::vector<std::pair<CompleteType, std::string>>& params,
                                      bool isConstDefault) {
@@ -21,16 +17,16 @@ namespace gazprea { namespace builder_utils {
     return out;
     }
 
-    std::vector<std::shared_ptr<ExprNode>> collectArgs(ASTBuilder &builder,
-        const std::vector<GazpreaParser::ExprContext*> &exprCtxs) {
-        std::vector<std::shared_ptr<ExprNode>> args;
+    std::vector<std::shared_ptr<::ExprNode>> collectArgs(ASTBuilder &builder,
+        const std::vector<gazprea::GazpreaParser::ExprContext*> &exprCtxs) {
+        std::vector<std::shared_ptr<::ExprNode>> args;
         args.reserve(exprCtxs.size());
         for (auto ctx : exprCtxs) {
             if (!ctx) { args.push_back(nullptr); continue; }
             auto anyArg = builder.visit(ctx);
             if (anyArg.has_value()) {
                 try {
-                    args.push_back(std::any_cast<std::shared_ptr<ExprNode>>(anyArg));
+                    args.push_back(std::any_cast<std::shared_ptr<::ExprNode>>(anyArg));
                 } catch (const std::bad_any_cast&) {
                     args.push_back(nullptr);
                 }
@@ -43,7 +39,7 @@ namespace gazprea { namespace builder_utils {
 
 
     static std::vector<std::pair<CompleteType,std::string>> extractParamsFromParts(ASTBuilder &builder,
-                        const std::vector<GazpreaParser::TypeContext*>& types,
+                        const std::vector<gazprea::GazpreaParser::TypeContext*>& types,
                         const std::vector<antlr4::tree::TerminalNode*>& ids) {
         std::vector<std::pair<CompleteType,std::string>> out;
         size_t nTypes = types.size();
@@ -66,7 +62,7 @@ namespace gazprea { namespace builder_utils {
     }
 
     std::vector<std::pair<CompleteType,std::string>>
-    ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionBlockContext *ctx) {
+    ExtractParams(ASTBuilder &builder, gazprea::GazpreaParser::FunctionBlockContext *ctx) {
         // For FunctionBlock, ctx->type() has params followed by return type.
         // Pass only param types (exclude last type) and IDs (ID(0) is function name).
         size_t typeCount = ctx->type().size();
@@ -84,7 +80,7 @@ namespace gazprea { namespace builder_utils {
     }
 
     std::vector<std::pair<CompleteType,std::string>>
-    ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionPrototypeContext *ctx) {
+    ExtractParams(ASTBuilder &builder, gazprea::GazpreaParser::FunctionPrototypeContext *ctx) {
         // Prototype: ctx->type() contains param types (maybe) then return type last.
         // IDs: ID(0) is function name; parameter names (if present) start at ID(1).
         size_t typeCount = ctx->type().size();
@@ -102,7 +98,7 @@ namespace gazprea { namespace builder_utils {
     }
 
     std::vector<std::pair<CompleteType, std::string>>
-    ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionBlockTupleReturnContext *ctx) {
+    ExtractParams(ASTBuilder &builder, gazprea::GazpreaParser::FunctionBlockTupleReturnContext *ctx) {
         // tuple-return: all types in ctx->type() are parameter types (return is in tuple_dec)
         size_t paramCount = ctx->type().size();
         std::vector<GazpreaParser::TypeContext *> types;
@@ -121,7 +117,7 @@ namespace gazprea { namespace builder_utils {
     }
 
     std::vector<std::pair<CompleteType, std::string>>
-    ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionPrototypeTupleReturnContext *ctx) {
+    ExtractParams(ASTBuilder &builder, gazprea::GazpreaParser::FunctionPrototypeTupleReturnContext *ctx) {
         // prototype tuple-return: parameter types are in ctx->type(), tuple return is in ctx->tuple_dec()
         size_t paramCount = ctx->type().size();
         std::vector<GazpreaParser::TypeContext *> types;
@@ -140,7 +136,7 @@ namespace gazprea { namespace builder_utils {
     }
 
     std::vector<std::pair<CompleteType, std::string>>
-    ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionStatContext *ctx) {
+    ExtractParams(ASTBuilder &builder, gazprea::GazpreaParser::FunctionStatContext *ctx) {
         // function stat alternative: last type in ctx->type() is the return type
         size_t typeCount = ctx->type().size();
         size_t paramCount = (typeCount > 0) ? typeCount - 1 : 0;
@@ -160,7 +156,7 @@ namespace gazprea { namespace builder_utils {
     }
 
     std::vector<std::pair<CompleteType, std::string>>
-    ExtractParams(ASTBuilder &builder, GazpreaParser::ProcedureContext *ctx) {
+    ExtractParams(ASTBuilder &builder, gazprea::GazpreaParser::ProcedureContext *ctx) {
         // procedure: no return type; all ctx->type() are parameters
         size_t paramCount = ctx->type().size();
         std::vector<GazpreaParser::TypeContext *> types;
@@ -180,7 +176,7 @@ namespace gazprea { namespace builder_utils {
     
     //helper to extract return type from type list
     static CompleteType ExtractReturnTypeFromTypes(ASTBuilder &builder,
-                                               const std::vector<GazpreaParser::TypeContext*>& types) {
+                                               const std::vector<gazprea::GazpreaParser::TypeContext*>& types) {
         if(types.empty()) return CompleteType(BaseType::UNKNOWN);
         auto lastType = types.back();
         if(!lastType) return CompleteType(BaseType::UNKNOWN);
@@ -192,7 +188,7 @@ namespace gazprea { namespace builder_utils {
         return CompleteType(BaseType::UNKNOWN);
     }
 
-    CompleteType ExtractReturnType(ASTBuilder &builder, GazpreaParser::FunctionBlockContext *ctx) {
+    CompleteType ExtractReturnType(ASTBuilder &builder, gazprea::GazpreaParser::FunctionBlockContext *ctx) {
         if(!ctx) return CompleteType(BaseType::UNKNOWN);
         // FunctionBlockContext: ctx->type() contains param types (maybe) then return type last.
         // IDs: ID(0) is function name; parameter names (if present) start at ID(1).
@@ -204,7 +200,7 @@ namespace gazprea { namespace builder_utils {
         
     }
 
-    CompleteType ExtractReturnType(ASTBuilder &builder, GazpreaParser::FunctionPrototypeContext *ctx) {
+    CompleteType ExtractReturnType(ASTBuilder &builder, gazprea::GazpreaParser::FunctionPrototypeContext *ctx) {
         if(!ctx) return CompleteType(BaseType::UNKNOWN);
         // FunctionProtoTypeContext: ctx->type() contains param types (maybe) then return type last.
         // IDs: ID(0) is function name; parameter names (if present) start at ID(1).
@@ -215,7 +211,7 @@ namespace gazprea { namespace builder_utils {
         return ExtractReturnTypeFromTypes(builder, types);
     }
 
-    CompleteType ExtractReturnType(ASTBuilder &builder, GazpreaParser::FunctionStatContext *ctx) {
+    CompleteType ExtractReturnType(ASTBuilder &builder, gazprea::GazpreaParser::FunctionStatContext *ctx) {
         if(!ctx) return CompleteType(BaseType::UNKNOWN);
         // FunctionStatContext: ctx->type() contains param types (maybe) then return type last.
         // IDs: ID(0) is function name; parameter names (if present) start at ID(1).
@@ -226,7 +222,7 @@ namespace gazprea { namespace builder_utils {
         return ExtractReturnTypeFromTypes(builder, types);
     }
 
-    CompleteType ExtractTupleReturnType(ASTBuilder &builder, GazpreaParser::FunctionBlockTupleReturnContext *ctx) {
+    CompleteType ExtractTupleReturnType(ASTBuilder &builder, gazprea::GazpreaParser::FunctionBlockTupleReturnContext *ctx) {
         if (!ctx) return CompleteType(BaseType::UNKNOWN);
         // For tuple-return variants the return is expressed with a tuple_dec node.
         if (ctx->tuple_dec()) {
@@ -240,7 +236,7 @@ namespace gazprea { namespace builder_utils {
         return CompleteType(BaseType::TUPLE);
     }
 
-    CompleteType ExtractTupleReturnType(ASTBuilder &builder, GazpreaParser::FunctionPrototypeTupleReturnContext *ctx) {
+    CompleteType ExtractTupleReturnType(ASTBuilder &builder, gazprea::GazpreaParser::FunctionPrototypeTupleReturnContext *ctx) {
         if (!ctx) return CompleteType(BaseType::UNKNOWN);
         if (ctx->tuple_dec()) {
             auto anyT = builder.visit(ctx->tuple_dec());
@@ -251,4 +247,4 @@ namespace gazprea { namespace builder_utils {
         return CompleteType(BaseType::TUPLE);
     }
     
-}} // namespace gazprea::builder_utils
+}// namespace gazprea::builder_utils

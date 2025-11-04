@@ -10,13 +10,8 @@
 #include <stdlib.h>
 #include "CompileTimeExceptions.h"
 
-using namespace antlr4;
-// Allow unqualified use of the generated parser type inside this TU.
-using gazprea::GazpreaParser;
-// Bring the generated parser type into this translation unit with a short name.
-// This is safe in a .cpp file (does not pollute other TUs).
-using GazpreaParser = gazprea::GazpreaParser;
 
+namespace gazprea{
 
 // Helper to return an AST node wrapped in std::any with an upcast to the
 // common base `ASTNode`. Use this when a visitor wants to return a concrete
@@ -25,7 +20,6 @@ template<typename T>
 static inline std::any node_any(std::shared_ptr<T> n) {
     return std::static_pointer_cast<ASTNode>(std::move(n));
 }
-
  
 
 /*
@@ -379,11 +373,11 @@ std::any ASTBuilder::visitOutputStat(GazpreaParser::OutputStatContext *ctx){
 std::any ASTBuilder::visitFunctionBlock(GazpreaParser::FunctionBlockContext *ctx){
     std::string funcName = ctx->ID(0)->getText();
     // Extract params and convert to VarInfo vector (parameters are const by default)
-    std::vector<std::pair<CompleteType, std::string>> params = gazprea::builder_utils::ExtractParams(*this, ctx);
+    std::vector<std::pair<CompleteType, std::string>> params = builder_utils::ExtractParams(*this, ctx);
     // Convert parser-style param list to VarInfo vector expected by the AST FuncNode
-    std::vector<VarInfo> varParams = gazprea::builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
+    std::vector<VarInfo> varParams = builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
     std::shared_ptr<BlockNode> body = nullptr;
-    CompleteType returnType = gazprea::builder_utils::ExtractReturnType(*this, ctx);
+    CompleteType returnType = builder_utils::ExtractReturnType(*this, ctx);
 
     if (ctx->block()) { // function has a block body
         auto anyBody = visit(ctx->block());
@@ -399,9 +393,9 @@ std::any ASTBuilder::visitFunctionBlock(GazpreaParser::FunctionBlockContext *ctx
 // combines a function signature with a function body
 std::any ASTBuilder::visitFunctionBlockTupleReturn(GazpreaParser::FunctionBlockTupleReturnContext *ctx){
     std::string funcName = ctx->ID(0)->getText();
-    std::vector<std::pair<CompleteType, std::string>> params = gazprea::builder_utils::ExtractParams(*this, ctx);
+    std::vector<std::pair<CompleteType, std::string>> params = builder_utils::ExtractParams(*this, ctx);
     // Convert to VarInfo expected by AST FuncNode constructors
-    std::vector<VarInfo> varParams = gazprea::builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
+    std::vector<VarInfo> varParams = builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
     std::shared_ptr<BlockNode> body = nullptr;
     CompleteType returnType = gazprea::builder_utils::ExtractReturnType(*this, ctx);
     
@@ -933,3 +927,4 @@ std::any ASTBuilder::visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx){
     return node_any(std::move(node));
 }
 
+}

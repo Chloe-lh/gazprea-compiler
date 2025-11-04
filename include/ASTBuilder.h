@@ -7,7 +7,8 @@
 Class converts Parse tree produced by ANTLR into AST Tree
 */
 
-class ASTBuilder: public gazprea::GazpreaBaseVisitor{
+namespace gazprea{
+class ASTBuilder: public GazpreaBaseVisitor{
     public:
         // Top-level statements and blocks (implemented in src/ASTBuilder.cpp)
         std::any visitFile(gazprea::GazpreaParser::FileContext *ctx) override;
@@ -70,3 +71,4 @@ class ASTBuilder: public gazprea::GazpreaBaseVisitor{
         std::any visitLoopDefault(gazprea::GazpreaParser::LoopDefaultContext *ctx) override;
     
 };
+}

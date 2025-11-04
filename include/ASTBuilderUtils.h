@@ -1,5 +1,6 @@
 #pragma once
-
+#include "AST.h"
+#include "ASTBuilder.h"
 #include "Types.h"
 #include "Scope.h"
 #include <vector>
@@ -11,11 +12,10 @@
 // types like GazpreaParser::ExprContext in function signatures.
 #include "GazpreaParser.h"
 
-class ASTBuilder;
-class ExprNode;
+namespace gazprea{ class ASTBuilder; }
 
-namespace gazprea { namespace builder_utils {
 
+namespace gazprea::builder_utils{
 std::vector<VarInfo> ParamsToVarInfo(const std::vector<std::pair<CompleteType, std::string>>& params,
                                      bool isConstDefault);
 
@@ -23,36 +23,36 @@ std::vector<VarInfo> ParamsToVarInfo(const std::vector<std::pair<CompleteType, s
 // ASTBuilder (calls builder.visit on each expr). Returns a vector whose
 // size matches the input exprCtxs; elements may be nullptr if a visit failed.
 std::vector<std::shared_ptr<ExprNode>> collectArgs(ASTBuilder &builder,
-    const std::vector<gazprea::GazpreaParser::ExprContext*>& exprCtxs);
+    const std::vector<GazpreaParser::ExprContext*>& exprCtxs);
 
 std::vector<std::pair<CompleteType, std::string>>
-ExtractParams(ASTBuilder &builder, gazprea::GazpreaParser::FunctionBlockContext *ctx);
+ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionBlockContext *ctx);
 
 std::vector<std::pair<CompleteType, std::string>>
-ExtractParams(ASTBuilder &builder, gazprea::GazpreaParser::ProcedureContext *ctx);
+ExtractParams(ASTBuilder &builder, GazpreaParser::ProcedureContext *ctx);
 
 std::vector<std::pair<CompleteType, std::string>>
-ExtractParams(ASTBuilder &builder, gazprea::GazpreaParser::FunctionPrototypeContext *ctx);
+ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionPrototypeContext *ctx);
 
 std::vector<std::pair<CompleteType, std::string>>
-ExtractParams(ASTBuilder &builder, gazprea::GazpreaParser::FunctionBlockTupleReturnContext *ctx);
+ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionBlockTupleReturnContext *ctx);
 
 std::vector<std::pair<CompleteType, std::string>>
-ExtractParams(ASTBuilder &builder, gazprea::GazpreaParser::FunctionPrototypeTupleReturnContext *ctx);
+ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionPrototypeTupleReturnContext *ctx);
 
 std::vector<std::pair<CompleteType, std::string>>
-ExtractParams(ASTBuilder &builder, gazprea::GazpreaParser::FunctionStatContext *ctx);
+ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionStatContext *ctx);
 
 
-CompleteType ExtractReturnType(ASTBuilder &builder, gazprea::GazpreaParser::FunctionBlockContext *ctx);
-CompleteType ExtractReturnType(ASTBuilder &builder, gazprea::GazpreaParser::FunctionPrototypeContext *ctx);
-CompleteType ExtractReturnType(ASTBuilder &builder, gazprea::GazpreaParser::FunctionStatContext *ctx);
-CompleteType ExtractReturnType(ASTBuilder &builder, gazprea::GazpreaParser::FunctionBlockTupleReturnContext *ctx);
-CompleteType ExtractReturnType(ASTBuilder &builder, gazprea::GazpreaParser::FunctionPrototypeTupleReturnContext *ctx);
+CompleteType ExtractReturnType(ASTBuilder &builder, GazpreaParser::FunctionBlockContext *ctx);
+CompleteType ExtractReturnType(ASTBuilder &builder, GazpreaParser::FunctionPrototypeContext *ctx);
+CompleteType ExtractReturnType(ASTBuilder &builder, GazpreaParser::FunctionStatContext *ctx);
+CompleteType ExtractReturnType(ASTBuilder &builder, GazpreaParser::FunctionBlockTupleReturnContext *ctx);
+CompleteType ExtractReturnType(ASTBuilder &builder, GazpreaParser::FunctionPrototypeTupleReturnContext *ctx);
 
 // Convenience helper: convert ExtractParams output to VarInfo vector
 std::vector<VarInfo> ParamsToVarInfo(const std::vector<std::pair<CompleteType, std::string>>& params,
                                       bool isConstDefault = true);
 
 
-}} // namespaces
+}
