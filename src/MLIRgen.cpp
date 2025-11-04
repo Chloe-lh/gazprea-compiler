@@ -126,3 +126,33 @@ void MLIRGen::visit(UnaryExpr* node) {
     }
 }
 
+void MLIRGen::visit(MultExpr* node){
+    node->left->accept(*this);
+    mlir::Value left = popValue();
+    node->right->accept(*this);
+    mlir::Value right = popValue();
+
+    if(left.getType().isa<mlir::IntegerType>()) {
+        if (node->op == "*") {
+            auto mul = builder_.create<mlir::arith::MulIOp>(loc_, left, right);
+            pushValue(mul);
+        } else if (node->op == "/") {
+            auto div = builder_.create<mlir::arith::DivSIOp>(loc_, left, right);
+            pushValue(div);
+        } else if (node->op == "%") {
+            auto rem = builder_.create<mlir::arith::RemSIOp>(loc_, left, right);
+            pushValue(rem);
+        }
+    } else if(left.getType().isa<mlir::FloatType>()) {
+        if (node->op == "*") {
+            auto mul = builder_.create<mlir::arith::MulFOp>(loc_, left, right);
+            pushValue(mul);
+        } else if (node->op == "/") {
+            auto div = builder_.create<mlir::arith::DivFOp>(loc_, left, right);
+            pushValue(div);
+        }
+    } else {
+        throw std::runtime_error("MLIRGen Error: Unsupported type for multiplication.");
+    }
+}
+
