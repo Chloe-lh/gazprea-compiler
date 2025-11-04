@@ -3,7 +3,7 @@ Traverse AST tree and for each node emit MLIR operations
 Backend sets up MLIR context, builder, and helper functions
 After generating the MLIR, Backend will lower the dialects and output LLVM IR
 */
-#include "MLIRGen.h"
+#include "MLIRgen.h"
 #include "BackEnd.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -125,3 +125,4 @@ void MLIRGen::visit(UnaryExpr* node) {
             break;
     }
 }
+
