@@ -288,4 +288,18 @@ CompleteType ExtractTupleReturnType(
   return CompleteType(BaseType::TUPLE);
 }
 
+// Backwards-compatible wrappers: header declares ExtractReturnType overloads
+// for tuple-return contexts
+CompleteType ExtractReturnType(
+    ASTBuilder &builder,
+    gazprea::GazpreaParser::FunctionBlockTupleReturnContext *ctx) {
+  return ExtractTupleReturnType(builder, ctx);
+}
+
+CompleteType ExtractReturnType(
+    ASTBuilder &builder,
+    gazprea::GazpreaParser::FunctionPrototypeTupleReturnContext *ctx) {
+  return ExtractTupleReturnType(builder, ctx);
+}
+
 } // namespace gazprea::builder_utils

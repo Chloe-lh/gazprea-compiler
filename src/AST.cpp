@@ -154,6 +154,31 @@ TypeAliasDecNode::TypeAliasDecNode(const std::string &aliasName,
   this->type = aliasedType;
 }
 
+void TypeAliasDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+
+TupleTypedDecNode::TupleTypedDecNode(const std::string &name,
+                                     CompleteType tupleType)
+    : init(nullptr) {
+  this->name = name;
+  this->type = std::move(tupleType);
+}
+
+TypedDecNode::TypedDecNode(const std::string &name,
+                           std::shared_ptr<TypeAliasNode> type_alias,
+                           const std::string &qualifier,
+                           std::shared_ptr<ExprNode> init)
+    : qualifier(qualifier), type_alias(std::move(type_alias)),
+      init(std::move(init)) {
+  this->name = name;
+}
+
+InferredDecNode::InferredDecNode(const std::string &name,
+                                 const std::string &qualifier,
+                                 std::shared_ptr<ExprNode> init)
+    : qualifier(qualifier), init(std::move(init)) {
+  this->name = name;
+}
+
 TupleTypeAliasNode::TupleTypeAliasNode(const std::string &aliasName,
                                        CompleteType tupleType)
     : aliasName(aliasName) {

@@ -1,7 +1,12 @@
 #include "SemanticAnalysisVisitor.h"
 #include "CompileTimeExceptions.h"
 #include "run_time_errors.h"
+#include <stdexcept>
+#include <sstream>
 #include <unordered_set>
+#include <algorithm>
+#include <set>
+
 
 void SemanticAnalysisVisitor::visit(FileNode* node) {
     // Init and enter global scope

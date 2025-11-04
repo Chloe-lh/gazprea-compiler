@@ -2,10 +2,7 @@
 #include "AST.h"
 #include "Scope.h"
 #include <unordered_map>
-#include <algorithm>
-#include <sstream>
-#include <set>
-#include <iterator>
+
 
 class SemanticAnalysisVisitor: public ASTVisitor {
     public:
@@ -58,7 +55,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         void visit(TupleAccessNode* node) override;
         void visit(TypeCastNode* node) override;
         void visit(TupleTypeCastNode* node) override;
-    void visit(FuncCallExpr* node) override;
+        void visit(FuncCallExpr* node) override;
         void visit(RealNode* node) override;
 
 
