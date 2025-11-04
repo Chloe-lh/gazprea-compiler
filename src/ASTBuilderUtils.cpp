@@ -11,8 +11,38 @@ using namespace gazprea::builder_utils;
 
 namespace gazprea { namespace builder_utils { 
 
+    std::vector<VarInfo> ParamsToVarInfo(const std::vector<std::pair<CompleteType, std::string>>& params,
+                                     bool isConstDefault) {
+        std::vector<VarInfo> out;
+        out.reserve(params.size());
+        for (const auto &p : params) {
+            out.push_back(VarInfo{ p.second, p.first, isConstDefault });
+        }
+    return out;
+    }
 
-    static std::vector<std::pair<CompleteType,std::string>> extractParamsFromParts(gazprea::ASTBuilder &builder,
+    std::vector<std::shared_ptr<ExprNode>> collectArgs(ASTBuilder &builder,
+        const std::vector<GazpreaParser::ExprContext*> &exprCtxs) {
+        std::vector<std::shared_ptr<ExprNode>> args;
+        args.reserve(exprCtxs.size());
+        for (auto ctx : exprCtxs) {
+            if (!ctx) { args.push_back(nullptr); continue; }
+            auto anyArg = builder.visit(ctx);
+            if (anyArg.has_value()) {
+                try {
+                    args.push_back(std::any_cast<std::shared_ptr<ExprNode>>(anyArg));
+                } catch (const std::bad_any_cast&) {
+                    args.push_back(nullptr);
+                }
+            } else {
+                args.push_back(nullptr);
+            }
+        }
+        return args;
+    }
+
+
+    static std::vector<std::pair<CompleteType,std::string>> extractParamsFromParts(ASTBuilder &builder,
                         const std::vector<GazpreaParser::TypeContext*>& types,
                         const std::vector<antlr4::tree::TerminalNode*>& ids) {
         std::vector<std::pair<CompleteType,std::string>> out;
@@ -36,7 +66,7 @@ namespace gazprea { namespace builder_utils {
     }
 
     std::vector<std::pair<CompleteType,std::string>>
-    ExtractParams(gazprea::ASTBuilder &builder, GazpreaParser::FunctionBlockContext *ctx) {
+    ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionBlockContext *ctx) {
         // For FunctionBlock, ctx->type() has params followed by return type.
         // Pass only param types (exclude last type) and IDs (ID(0) is function name).
         size_t typeCount = ctx->type().size();
@@ -54,7 +84,7 @@ namespace gazprea { namespace builder_utils {
     }
 
     std::vector<std::pair<CompleteType,std::string>>
-    ExtractParams(gazprea::ASTBuilder &builder, GazpreaParser::FunctionPrototypeContext *ctx) {
+    ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionPrototypeContext *ctx) {
         // Prototype: ctx->type() contains param types (maybe) then return type last.
         // IDs: ID(0) is function name; parameter names (if present) start at ID(1).
         size_t typeCount = ctx->type().size();
@@ -72,7 +102,7 @@ namespace gazprea { namespace builder_utils {
     }
 
     std::vector<std::pair<CompleteType, std::string>>
-    ExtractParams(gazprea::ASTBuilder &builder, GazpreaParser::FunctionBlockTupleReturnContext *ctx) {
+    ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionBlockTupleReturnContext *ctx) {
         // tuple-return: all types in ctx->type() are parameter types (return is in tuple_dec)
         size_t paramCount = ctx->type().size();
         std::vector<GazpreaParser::TypeContext *> types;
@@ -91,7 +121,7 @@ namespace gazprea { namespace builder_utils {
     }
 
     std::vector<std::pair<CompleteType, std::string>>
-    ExtractParams(gazprea::ASTBuilder &builder, GazpreaParser::FunctionPrototypeTupleReturnContext *ctx) {
+    ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionPrototypeTupleReturnContext *ctx) {
         // prototype tuple-return: parameter types are in ctx->type(), tuple return is in ctx->tuple_dec()
         size_t paramCount = ctx->type().size();
         std::vector<GazpreaParser::TypeContext *> types;
@@ -110,7 +140,7 @@ namespace gazprea { namespace builder_utils {
     }
 
     std::vector<std::pair<CompleteType, std::string>>
-    ExtractParams(gazprea::ASTBuilder &builder, GazpreaParser::FunctionStatContext *ctx) {
+    ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionStatContext *ctx) {
         // function stat alternative: last type in ctx->type() is the return type
         size_t typeCount = ctx->type().size();
         size_t paramCount = (typeCount > 0) ? typeCount - 1 : 0;
@@ -130,7 +160,7 @@ namespace gazprea { namespace builder_utils {
     }
 
     std::vector<std::pair<CompleteType, std::string>>
-    ExtractParams(gazprea::ASTBuilder &builder, GazpreaParser::ProcedureContext *ctx) {
+    ExtractParams(ASTBuilder &builder, GazpreaParser::ProcedureContext *ctx) {
         // procedure: no return type; all ctx->type() are parameters
         size_t paramCount = ctx->type().size();
         std::vector<GazpreaParser::TypeContext *> types;

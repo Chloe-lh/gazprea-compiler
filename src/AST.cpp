@@ -2,11 +2,6 @@
 #include "ASTVisitor.h"
 #include "Types.h"
 
-#include <memory>
-#include <string>
-#include <utility>
-#include <vector>
-
 // ─────────────────────────────────────────────────────────────
 // Accept methods for AST nodes
 // ─────────────────────────────────────────────────────────────
@@ -104,6 +99,14 @@ IntNode::IntNode(int v) : value(v) {}
 RealNode::RealNode(double value) : value(value) {}
 IdNode::IdNode(const std::string& id) : id(id) {}
 
+CallExprNode::CallExprNode(const std::string& name, std::vector<std::shared_ptr<ExprNode>> args)
+    : funcName(name), args(std::move(args)) {}
+
+void CallExprNode::accept(ASTVisitor& v) { v.visit(this); }
+
+// FuncCallExpr accept implementation (visitor expects FuncCallExpr*)
+void FuncCallExpr::accept(ASTVisitor& v) { v.visit(this); }
+
 // Function nodes
 FuncStatNode::FuncStatNode(
     const std::string& name,
@@ -160,5 +163,3 @@ AssignStatNode::AssignStatNode(const std::string& name, std::shared_ptr<ExprNode
     : name(name), expr(std::move(expr)) {}
 OutputStatNode::OutputStatNode(std::shared_ptr<ExprNode> expr)
     : expr(std::move(expr)) {}
-CallStatNode::CallStatNode(const std::string& funcName, std::vector<std::shared_ptr<ExprNode>> args)
-    : funcName(funcName), args(std::move(args)) {}

@@ -275,12 +275,28 @@ class ReturnStatNode: public StatNode{
         ReturnStatNode(std::shared_ptr<ExprNode> expr);
         void accept(ASTVisitor& visitor) override;
 };
-class CallStatNode : public StatNode {
+// does not return a calue
+class CallExprNode : public ExprNode {
 public:
     std::string funcName;
     std::vector<std::shared_ptr<ExprNode>> args;
-    CallStatNode(const std::string& funcName, std::vector<std::shared_ptr<ExprNode>> args);
-    void accept(ASTVisitor& visitor) override;
+    std::optional<FuncInfo> resolvedFunc;
+    CallExprNode(const std::string&, std::vector<std::shared_ptr<ExprNode>>);
+    void accept(ASTVisitor& v) override;
+};
+// Expression-style function call node (grammar: ID '(' expr* ')')
+// This preserves the older "FuncCallExpr" name used by the visitor API.
+class FuncCallExpr : public CallExprNode {
+public:
+    using CallExprNode::CallExprNode; // inherit constructor
+    void accept(ASTVisitor& v) override;
+};
+// can be used in statements
+class CallStatNode : public StatNode{
+public:
+    std::shared_ptr<FuncCallExpr> call; // wrapper around expression-style call
+    CallStatNode(std::shared_ptr<FuncCallExpr> c) : call(std::move(c)) {}
+    void accept(ASTVisitor& v) override;
 };
 
 class IfNode : public StatNode {

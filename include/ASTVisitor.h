@@ -1,6 +1,7 @@
 #pragma once
 #include "AST.h"
-#include "GazpreaBaseVisitor.h"
+
+class FuncCallExpr;
 
 class ASTVisitor {
 public:
@@ -35,6 +36,9 @@ public:
 
     // Expressions
     virtual void visit(ParenExpr* node) = 0;
+    virtual void visit(FuncCallExpr* node) = 0;
+    // Backwards-compatible overload: if we get a CallExprNode, forward to FuncCallExpr handler
+    virtual void visit(CallExprNode* node) { visit(static_cast<FuncCallExpr*>(node)); }
     virtual void visit(UnaryExpr* node) = 0;
     virtual void visit(ExpExpr* node) = 0;
     virtual void visit(MultExpr* node) = 0;
