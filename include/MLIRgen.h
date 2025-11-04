@@ -74,11 +74,11 @@ public:
     void visit(TupleLiteralNode* node) override;
 
     // helpers
-    void createLiteral(VarInfo* varInfo);
+    void allocaLiteral(VarInfo* varInfo);
 
 private:
-    mlir::Value popValue();
-    void pushValue(mlir::Value value);
+    VarInfo& popValue();
+    void pushValue(VarInfo& value);
 
     BackEnd& backend_;
     mlir::OpBuilder& builder_;
@@ -87,7 +87,7 @@ private:
     mlir::Location loc_;
 
     // Stack for intermediate MLIR values
-    std::vector<mlir::Value> v_stack_;
+    std::vector<VarInfo> v_stack_;
 
     // Storing named values + types
     Scope* root_;

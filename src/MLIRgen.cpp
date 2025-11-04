@@ -29,19 +29,16 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope)
       loc_(backend.getLoc()),
       root_(rootScope) {}
 
-mlir::Value MLIRGen::popValue() {
+VarInfo& MLIRGen::popValue() {
     if (v_stack_.empty()) {
         throw std::runtime_error("MLIRGen internal error: value stack underflow.");
     }
-    mlir::Value value = v_stack_.back();
+    VarInfo value = v_stack_.back();
     v_stack_.pop_back();
     return value;
 }
 
-void MLIRGen::pushValue(mlir::Value value) {
-    if (!value) {
-        throw std::runtime_error("MLIRGen internal error: attempting to push empty value onto stack.");
-    }
+void MLIRGen::pushValue(VarInfo& value) {
     v_stack_.push_back(value);
 }
 
@@ -60,54 +57,80 @@ void MLIRGen::visit(IdNode* node) {
         throw SymbolError(1, "Semantic Analysis: Variable '" + node->id + "' not initialized.");
     }
 
-    pushValue(varInfo->value); // will push either a value (constants, intermediates) or a memref address (vars). Parent node must handle checking.
+    pushValue(*varInfo); 
 
 }
 
 void MLIRGen::visit(TrueNode* node) {
     auto boolType = builder_.getI1Type();
 
-    auto trueLiteral = builder_.create<mlir::arith::ConstantOp>(
+    CompleteType completeType = CompleteType(BaseType::BOOL);
+    VarInfo* varInfo = &VarInfo(completeType);
+    allocaLiteral(varInfo);
+
+    auto constTrue = builder_.create<mlir::arith::ConstantOp>(
         loc_, boolType, builder_.getIntegerAttr(boolType, 1)
     );
-    pushValue(trueLiteral);
+    builder_.create<mlir::memref::StoreOp>(loc_, constTrue, varInfo->value, mlir::ValueRange{});
+
+    pushValue(*varInfo);
 }
 
 
 void MLIRGen::visit(FalseNode* node) {
-    auto boolType = builder_.getI1Type();
+    CompleteType completeType = CompleteType(BaseType::BOOL);
+    VarInfo* varInfo = &VarInfo(completeType);
 
-    auto trueLiteral = builder_.create<mlir::arith::ConstantOp>(
+    auto boolType = builder_.getI1Type();
+    allocaLiteral(varInfo);
+    auto constFalse = builder_.create<mlir::arith::ConstantOp>(
         loc_, boolType, builder_.getIntegerAttr(boolType, 0)
     );
-    pushValue(trueLiteral);
+    builder_.create<mlir::memref::StoreOp>(loc_, constFalse, varInfo->value, mlir::ValueRange{});
+
+    pushValue(*varInfo);
 }
 
 void MLIRGen::visit(CharNode* node) {
-    auto charType = builder_.getI8Type();
+    CompleteType completeType = CompleteType(BaseType::CHARACTER);
+    VarInfo* varInfo = &VarInfo(completeType);
 
-    auto charLiteral = builder_.create<mlir::arith::ConstantOp>(
+    auto charType = builder_.getI8Type();
+    allocaLiteral(varInfo);
+    auto constChar = builder_.create<mlir::arith::ConstantOp>(
         loc_, charType, builder_.getIntegerAttr(charType, static_cast<int>(node->value))
     );
-    pushValue(charLiteral);
+    builder_.create<mlir::memref::StoreOp>(loc_, constChar, varInfo->value, mlir::ValueRange{});
+
+    pushValue(*varInfo);
 }
 
 void MLIRGen::visit(IntNode* node) {
-    auto intType = builder_.getI32Type();
+    CompleteType completeType = CompleteType(BaseType::INTEGER);
+    VarInfo* varInfo = &VarInfo(completeType);
 
-    auto intLiteral = builder_.create<mlir::arith::ConstantOp>(
+    auto intType = builder_.getI32Type();
+    allocaLiteral(varInfo);
+    auto constInt = builder_.create<mlir::arith::ConstantOp>(
         loc_, intType, builder_.getIntegerAttr(intType, node->value)
     );
-    pushValue(intLiteral);
+    builder_.create<mlir::memref::StoreOp>(loc_, constInt, varInfo->value, mlir::ValueRange{});
+
+    pushValue(*varInfo);
 }
 
 void MLIRGen::visit(RealNode* node) {
-    auto realType = builder_.getF32Type();
+    CompleteType completeType = CompleteType(BaseType::REAL);
+    VarInfo* varInfo = &VarInfo(completeType);
 
-    auto realLiteral = builder_.create<mlir::arith::ConstantOp>(
+    auto realType = builder_.getF32Type();
+    allocaLiteral(varInfo);
+    auto constReal = builder_.create<mlir::arith::ConstantOp>(
         loc_, realType, builder_.getFloatAttr(realType, node->value)
     );
-    pushValue(realLiteral);
+    builder_.create<mlir::memref::StoreOp>(loc_, constReal, varInfo->value, mlir::ValueRange{});
+
+    pushValue(*varInfo);
 }
 
 void MLIRGen::visit(TupleLiteralNode* node) {
@@ -117,7 +140,7 @@ void MLIRGen::visit(TupleLiteralNode* node) {
 }
 
 
-void MLIRGen::createLiteral(VarInfo* varInfo) {
+void MLIRGen::allocaLiteral(VarInfo* varInfo) {
     varInfo->isConst = true;
     switch (varInfo->type.baseType) {
         case BaseType::BOOL:
@@ -156,12 +179,12 @@ void MLIRGen::createLiteral(VarInfo* varInfo) {
                 varInfo->mlirSubtypes.emplace_back(
                     mlirSubtype
                 );
-                createLiteral(&varInfo->mlirSubtypes.back());
+                allocaLiteral(&varInfo->mlirSubtypes.back());
             }
             break;
 
         default:
-            throw std::runtime_error("createLiteral FATAL: unsupported type " +
+            throw std::runtime_error("allocaLiteral FATAL: unsupported type " +
                                     std::to_string(static_cast<int>(varInfo->type.baseType)));
     }
 }
