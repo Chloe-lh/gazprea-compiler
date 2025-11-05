@@ -1,8 +1,10 @@
 #include "Scope.h"
+#include "CompileTimeExceptions.h"
 
 #include <iostream>
 #include <stdexcept>
 #include <string>
+
 
 // Static storage for global type aliases
 std::unordered_map<std::string, CompleteType> Scope::globalTypeAliases_{};

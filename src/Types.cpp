@@ -1,5 +1,6 @@
 #include "Types.h"
 #include <sstream>
+#include <algorithm>
 
 std::string toString(BaseType type) {
     switch (type) {
