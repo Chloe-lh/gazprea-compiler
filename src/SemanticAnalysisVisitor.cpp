@@ -84,6 +84,7 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
 
     bool isConst = true;
     if (node->qualifier == "var") {
+        if (current_->isInGlobal()) { throw GlobalError(1, "Cannot use var in global"); }
         isConst = false;
     } else if (node->qualifier == "const") {
     } else {
