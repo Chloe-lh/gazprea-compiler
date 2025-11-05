@@ -475,32 +475,34 @@ void MLIRGen::visit(ExpExpr* node) {
 
 void MLIRGen::visit(MultExpr* node){
     node->left->accept(*this);
-    mlir::Value left = popValue();
+    VarInfo leftInfo = popValue();
+    mlir::Value left = leftInfo.value;
     node->right->accept(*this);
-    mlir::Value right = popValue();
+    VarInfo rightInfo = popValue();
+    mlir::Value right = rightInfo.value;
 
+    mlir::Value result;
     if(left.getType().isa<mlir::IntegerType>()) {
         if (node->op == "*") {
-            auto mul = builder_.create<mlir::arith::MulIOp>(loc_, left, right);
-            pushValue(mul);
+            result = builder_.create<mlir::arith::MulIOp>(loc_, left, right);
         } else if (node->op == "/") {
-            auto div = builder_.create<mlir::arith::DivSIOp>(loc_, left, right);
-            pushValue(div);
+            result = builder_.create<mlir::arith::DivSIOp>(loc_, left, right);
         } else if (node->op == "%") {
-            auto rem = builder_.create<mlir::arith::RemSIOp>(loc_, left, right);
-            pushValue(rem);
+            result = builder_.create<mlir::arith::RemSIOp>(loc_, left, right);
         }
     } else if(left.getType().isa<mlir::FloatType>()) {
         if (node->op == "*") {
-            auto mul = builder_.create<mlir::arith::MulFOp>(loc_, left, right);
-            pushValue(mul);
+            result = builder_.create<mlir::arith::MulFOp>(loc_, left, right);
         } else if (node->op == "/") {
-            auto div = builder_.create<mlir::arith::DivFOp>(loc_, left, right);
-            pushValue(div);
+            result = builder_.create<mlir::arith::DivFOp>(loc_, left, right);
         }
     } else {
         throw std::runtime_error("MLIRGen Error: Unsupported type for multiplication.");
     }
+
+    leftInfo.identifier = "";
+    leftInfo.value = result;
+    pushValue(leftInfo);
 }
 
 void MLIRGen::visit(AddExpr* node){
