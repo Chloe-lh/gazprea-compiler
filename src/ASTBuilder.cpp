@@ -1074,5 +1074,101 @@ std::any ASTBuilder::visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx) {
 
   return node_any(std::move(node));
 }
+std::any ASTBuilder::visitIf(gazprea::GazpreaParser::IfContext *ctx) {
+  // Extract condition expression
+  std::shared_ptr<ExprNode> cond = nullptr;
+  if (ctx->expr()) {
+    auto anyCond = visit(ctx->expr());
+    if (anyCond.has_value() && anyCond.type() == typeid(std::shared_ptr<ExprNode>)) {
+      cond = std::any_cast<std::shared_ptr<ExprNode>>(anyCond);
+    } else {
+      try {
+        cond = std::any_cast<std::shared_ptr<ExprNode>>(anyCond);
+      } catch (const std::bad_any_cast &) {
+        cond = nullptr;
+      }
+    }
+  }
+
+  // The grammar allows either a block or a single statement for the then
+  // and optional else parts. Use the parse-tree positions to disambiguate
+  // which block/stat corresponds to the then vs else branch.
+  std::shared_ptr<BlockNode> thenBlock = nullptr;
+  std::shared_ptr<BlockNode> elseBlock = nullptr;
+  std::shared_ptr<StatNode> thenStat = nullptr;
+  std::shared_ptr<StatNode> elseStat = nullptr;
+
+  auto blocks = ctx->block(); // may be empty or contain up to two entries
+  auto stats = ctx->stat();   // may be empty or contain up to two entries
+
+  // Helper lambdas to visit and cast
+  auto visitBlockAt = [&](size_t i) -> std::shared_ptr<BlockNode> {
+    if (i >= blocks.size())
+      return nullptr;
+    auto anyB = visit(blocks[i]);
+    try {
+      if (anyB.has_value() && anyB.type() == typeid(std::shared_ptr<BlockNode>))
+        return std::any_cast<std::shared_ptr<BlockNode>>(anyB);
+    } catch (const std::bad_any_cast &) {
+    }
+    return nullptr;
+  };
+  auto visitStatAt = [&](size_t i) -> std::shared_ptr<StatNode> {
+    if (i >= stats.size())
+      return nullptr;
+    auto anyS = visit(stats[i]);
+    try {
+      if (anyS.has_value() && anyS.type() == typeid(std::shared_ptr<StatNode>))
+        return std::any_cast<std::shared_ptr<StatNode>>(anyS);
+    } catch (const std::bad_any_cast &) {
+    }
+    return nullptr;
+  };
+
+  // Determine which alternative is the 'then' part by comparing start token
+  // indices of the first block/stat (if present).
+  bool thenIsBlock = false;
+  if (!blocks.empty() && stats.empty()) {
+    thenIsBlock = true;
+  } else if (blocks.empty() && !stats.empty()) {
+    thenIsBlock = false;
+  } else if (!blocks.empty() && !stats.empty()) {
+    auto bTok = blocks[0]->getStart()->getTokenIndex();
+    auto sTok = stats[0]->getStart()->getTokenIndex();
+    thenIsBlock = (bTok < sTok);
+  }
+
+  if (thenIsBlock) {
+    thenBlock = visitBlockAt(0);
+    // else may be a second block or the first/stat(0) depending on which
+    if (blocks.size() >= 2) {
+      elseBlock = visitBlockAt(1);
+    } else if (stats.size() >= 1) {
+      // if there is a stat and it appears after the then-block, it is the
+      // else branch
+      if (stats[0]->getStart()->getTokenIndex() > blocks[0]->getStart()->getTokenIndex())
+        elseStat = visitStatAt(0);
+    }
+  } else {
+    thenStat = visitStatAt(0);
+    if (stats.size() >= 2) {
+      elseStat = visitStatAt(1);
+    } else if (blocks.size() >= 1) {
+      if (blocks[0]->getStart()->getTokenIndex() > stats[0]->getStart()->getTokenIndex())
+        elseBlock = visitBlockAt(0);
+    }
+  }
+
+  // Construct IfNode using the appropriate constructor (block-style or
+  // single-statement style). Prefer block-style if thenBlock is present.
+  std::shared_ptr<IfNode> node = nullptr;
+  if (thenBlock) {
+    node = std::make_shared<IfNode>(cond, thenBlock, elseBlock);
+  } else {
+    node = std::make_shared<IfNode>(cond, thenStat, elseStat);
+  }
+
+  return stat_any(std::move(node));
+}
 
 } // namespace gazprea
