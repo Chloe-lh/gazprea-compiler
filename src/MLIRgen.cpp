@@ -10,6 +10,7 @@ After generating the MLIR, Backend will lower the dialects and output LLVM IR
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "CompileTimeExceptions.h"
 
 
 #include <stdexcept>
