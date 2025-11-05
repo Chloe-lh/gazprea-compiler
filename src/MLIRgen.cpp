@@ -676,12 +676,17 @@ mlir::Value mlirTupleEquals(mlir::Value left, mlir::Value right, mlir::Location 
 
 void MLIRGen::visit(AndExpr* node){
     node->left->accept(*this);
-    mlir::Value left = popValue();
+    VarInfo leftInfo = popValue();
+    mlir::Value left = leftInfo.value;
     node->right->accept(*this);
-    mlir::Value right = popValue();
+    VarInfo rightInfo = popValue();
+    mlir::Value right = rightInfo.value;
 
     auto andOp = builder_.create<mlir::arith::AndIOp>(loc_, left, right);
-    pushValue(andOp);
+    
+    leftInfo.identifier = "";
+    leftInfo.value = andOp;
+    pushValue(leftInfo);
 }
 
 void MLIRGen::visit(OrExpr* node){
