@@ -62,6 +62,7 @@ void Scope::declareAlias(const std::string& identifier, const CompleteType& type
 
     if (globalTypeAliases_.find(identifier) != globalTypeAliases_.end()) {
         AliasingError err = AliasingError(1, "Semantic Analysis: Re-declaring existing alias '" + identifier + ".");
+        throw err;
     }
 
     globalTypeAliases_.emplace(identifier, type);
