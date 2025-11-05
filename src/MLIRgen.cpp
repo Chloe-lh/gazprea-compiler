@@ -193,6 +193,71 @@ void MLIRGen::visit(NotExpr* node) {
     pushValue(notOp);
 }
 
+void MLIRGen::visit(EqExpr* node){
+    node->left->accept(*this);
+    mlir::Value left = popValue();
+    node->right->accept(*this);
+    mlir::Value right = popValue();
+
+    mlir::Type type = left.getType();
+    mlir::Value = eqResult;
+   
+    if (type.isa<mlir::TupleType>()) {
+        eqResult = mlirTupleEquals(left, right, loc_, builder_);
+    } else {
+        eqResult = mlirScalarEquals(left, right, loc_, builder_);
+    }
+
+    if (node->op == "==") {
+        pushValue(eqResult);
+    } else if (node->op == "!=") {
+        auto one = builder_.create<mlir::arith::ConstantOp>(loc_, eqResult.getType(), builder_.getIntegerAttr(eqResult.getType(), 1));
+        auto notEq = builder_.create<mlir::arith::XOrIOp>(loc_, eqResult, one);
+        pushValue(notEq);
+    }
+}
+
+
+// Helper functions for equality
+mlir::Value scalarEquals(mlir::Value left, mlir::Value right, mlir::Location loc, mlir::OpBuilder& builder) {
+    mlir::Type type = left.getType();
+    if (type.isa<mlir::IntegerType>()) {
+        return builder.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::eq, left, right);
+    } else if (type.isa<mlir::FloatType>()) {
+        return builder.create<mlir::arith::CmpFOp>(loc, mlir::arith::CmpFPredicate::OEQ, left, right);
+    } else {
+        throw std::runtime_error("mlirScalarEquals: Unsupported type for equality");
+    }
+}
+
+mlir::Value mlirTupleEquals(mlir::Value left, mlir::Value right, mlir::Location loc, mlir::OpBuilder& builder) {
+    // left and right are both of TupleType
+    // otherwise, error
+    auto tupleType = left.getType().cast<mlir::TupleType>();
+    int numElements = tupleType.size();
+    mlir::Value result;
+
+    for (int i = 0; i < numElements; ++i) {
+        auto leftElem = builder.create<mlir::TupleGetOp>(loc, left, i);
+        auto rightElem = builder.create<mlir::TupleGetOp>(loc, right, i);
+        mlir::Type elemType = tupleType.getType(i);
+
+        mlir::Value elemEq;
+        if (elemType.isa<mlir::TupleType>()) {
+            elemEq = mlirTupleEquals(leftElem, rightElem, loc, builder); // recursive for nested tuples
+        } else {
+            elemEq = mlirScalarEquals(leftElem, rightElem, loc, builder);
+        }
+
+        if (i == 0) {
+            result = elemEq;
+        } else {
+            result = builder.create<mlir::arith::AndIOp>(loc, result, elemEq);
+        }
+    }
+    return result;
+}
+
 
 void MLIRGen::visit(AndExpr* node){
     node->left->accept(*this);
