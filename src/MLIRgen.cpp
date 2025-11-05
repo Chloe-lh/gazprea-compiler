@@ -183,6 +183,58 @@ void MLIRGen::visit(AddExpr* node){
     }
 }
 
+void MLIRGen::visit(CompExpr* node) {
+    node->left->accept(*this);
+    mlir::Value left = popValue();
+    node->right->accept(*this);
+    mlir::Value right = popValue();
+
+    mlir::Value cmp;
+    if (left.getType().isa<mlir::IntegerType>()) {
+        mlir::arith::CmpIPredicate predicate;
+        switch (node->op) {
+            case '<':
+                predicate = mlir::arith::CmpIPredicate::slt;
+                break;
+            case '<=':
+                predicate = mlir::arith::CmpIPredicate::sle;
+                break;
+            case '>':
+                predicate = mlir::arith::CmpIPredicate::sgt;
+                break;
+            case '>=':
+                predicate = mlir::arith::CmpIPredicate::sge;
+                break;
+            default:
+                throw std::runtime_error("MLIRGen Error: Unsupported comparison operator for integers.");
+        }
+        cmp = builder_.create<mlir::arith::CmpIOp>(loc_, predicate, left, right);
+    } else if (left.getType().isa<mlir::FloatType>()) {
+        mlir::arith::CmpFPredicate predicate;
+        switch (node->op) {
+            case '<':
+                predicate = mlir::arith::CmpFPredicate::OLT;
+                break;
+            case '<=':
+                predicate = mlir::arith::CmpFPredicate::OLE;
+                break;
+            case '>':
+                predicate = mlir::arith::CmpFPredicate::OGT;
+                break;
+            case '>=':
+                predicate = mlir::arith::CmpFPredicate::OGE;
+                break;
+            default:
+                throw std::runtime_error("MLIRGen Error: Unsupported comparison operator for reals.");
+        }
+        cmp = builder_.create<mlir::arith::CmpFOp>(loc_, predicate, left, right);
+    } else {
+        throw std::runtime_error("MLIRGen Error: Unsupported type for comparison.");
+    }
+    pushValue(cmp);
+}
+
+
 void MLIRGen::visit(NotExpr* node) {
     node->expr->accept(*this);
     mlir::Value operand = popValue();
