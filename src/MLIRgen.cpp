@@ -215,6 +215,7 @@ void MLIRGen::allocaLiteral(VarInfo* varInfo) {
     }
 }
 
+/* TODO: implement tuple-tuple casting for TupleTypeCastNode handling */
 VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
     VarInfo to = VarInfo(*toType);
     allocaLiteral(&to); // Create new value container
@@ -358,7 +359,7 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
                     builder_.create<mlir::memref::StoreOp>(loc_, fVal, to.value, mlir::ValueRange{});
                     break;
 
-                case BaseType::INTEGER:                 // Real -> Int (truncate fractional)
+                case BaseType::INTEGER:                 // Real -> Int (truncate)
                 {
                     mlir::Value iVal = builder_.create<mlir::arith::FPToSIOp>(
                         loc_, builder_.getI32Type(), fVal
