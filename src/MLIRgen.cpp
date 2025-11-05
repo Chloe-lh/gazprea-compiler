@@ -634,7 +634,7 @@ void MLIRGen::visit(EqExpr* node){
 
 
 // Helper functions for equality
-mlir::Value mlirscalarEquals(mlir::Value left, mlir::Value right, mlir::Location loc, mlir::OpBuilder& builder) {
+mlir::Value mlirScalarEquals(mlir::Value left, mlir::Value right, mlir::Location loc, mlir::OpBuilder& builder) {
     mlir::Type type = left.getType();
     if (type.isa<mlir::IntegerType>()) {
         return builder.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::eq, left, right);
