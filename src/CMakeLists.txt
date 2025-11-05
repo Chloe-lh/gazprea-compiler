@@ -4,6 +4,7 @@ set(
     "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/BackEnd.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/AST.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ASTPrinter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/ASTBuilder.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIRgen.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/SemanticAnalysisVisitor.cpp"

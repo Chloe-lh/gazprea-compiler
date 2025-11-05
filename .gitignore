@@ -13,3 +13,6 @@ build/
 
 # Ignore macOS files
 .DS_STORE
+
+# Ignore cache files
+.cache/
