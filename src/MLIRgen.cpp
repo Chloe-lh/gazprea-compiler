@@ -529,7 +529,7 @@ void MLIRGen::visit(AddExpr* node){
     } else {
         throw std::runtime_error("MLIRGen Error: Unsupported type for addition.");
     }
-    
+
     leftInfo.identifier = "";
     leftInfo.value = result;
     pushValue(leftInfo);
@@ -537,21 +537,23 @@ void MLIRGen::visit(AddExpr* node){
 
 void MLIRGen::visit(CompExpr* node) {
     node->left->accept(*this);
-    mlir::Value left = popValue();
+    VarInfo leftInfo = popValue();
+    mlir::Value left = leftInfo.value;
     node->right->accept(*this);
-    mlir::Value right = popValue();
+    VarInfo rightInfo = popValue();
+    mlir::Value right = rightInfo.value;
 
     mlir::Value cmp;
     if (left.getType().isa<mlir::IntegerType>()) {
         mlir::arith::CmpIPredicate predicate;
         switch (node->op) {
-            case '<':
+            case "<":
                 predicate = mlir::arith::CmpIPredicate::slt;
                 break;
             case "<=":
                 predicate = mlir::arith::CmpIPredicate::sle;
                 break;
-            case '>':
+            case ">":
                 predicate = mlir::arith::CmpIPredicate::sgt;
                 break;
             case ">=":
@@ -564,13 +566,13 @@ void MLIRGen::visit(CompExpr* node) {
     } else if (left.getType().isa<mlir::FloatType>()) {
         mlir::arith::CmpFPredicate predicate;
         switch (node->op) {
-            case '<':
+            case "<":
                 predicate = mlir::arith::CmpFPredicate::OLT;
                 break;
             case "<=":
                 predicate = mlir::arith::CmpFPredicate::OLE;
                 break;
-            case '>':
+            case ">":
                 predicate = mlir::arith::CmpFPredicate::OGT;
                 break;
             case ">=":
@@ -583,7 +585,9 @@ void MLIRGen::visit(CompExpr* node) {
     } else {
         throw std::runtime_error("MLIRGen Error: Unsupported type for comparison.");
     }
-    pushValue(cmp);
+    leftInfo.identifier = "";
+    leftInfo.value = cmp;
+    pushValue(leftInfo);
 }
 
 
