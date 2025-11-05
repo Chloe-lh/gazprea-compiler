@@ -427,16 +427,13 @@ void MLIRGen::visit(UnaryExpr* node) {
     VarInfo operand = popValue();
     mlir::Value operandVal = operand.value;
 
-    switch (node->op) {
-        case "+":
-            break;
-        case "-":
-            //subtract from zero works for both int and real
-            auto zero = builder_.create<mlir::arith::ConstantOp>(
-                loc_, operandVal.getType(), builder_.getZeroAttr(operandVal.getType()));
-            operand.value = builder_.create<mlir::arith::SubIOp>(loc_, zero, operandVal);
-            break;
+    if(node->op == "-"){
+        auto zero = builder_.create<mlir::arith::ConstantOp>(
+            loc_, operandVal.getType(), builder_.getZeroAttr(operandVal.getType()));
+        operand.value = builder_.create<mlir::arith::SubIOp>(loc_, zero, operandVal);
     }
+
+    operand.identifier = "";
     pushValue(operand);
 }
 
@@ -546,40 +543,30 @@ void MLIRGen::visit(CompExpr* node) {
     mlir::Value cmp;
     if (left.getType().isa<mlir::IntegerType>()) {
         mlir::arith::CmpIPredicate predicate;
-        switch (node->op) {
-            case "<":
-                predicate = mlir::arith::CmpIPredicate::slt;
-                break;
-            case "<=":
-                predicate = mlir::arith::CmpIPredicate::sle;
-                break;
-            case ">":
-                predicate = mlir::arith::CmpIPredicate::sgt;
-                break;
-            case ">=":
-                predicate = mlir::arith::CmpIPredicate::sge;
-                break;
-            default:
-                throw std::runtime_error("MLIRGen Error: Unsupported comparison operator for integers.");
+        if(node->op == "<"){
+            predicate = mlir::arith::CmpIPredicate::slt;
+        } else if(node->op == "<="){
+            predicate = mlir::arith::CmpIPredicate::sle;
+        } else if(node->op == ">"){
+            predicate = mlir::arith::CmpIPredicate::sgt;
+        } else if(node->op == ">="){
+            predicate = mlir::arith::CmpIPredicate::sge;
+        } else {
+            throw std::runtime_error("MLIRGen Error: Unsupported comparison operator for integers.");
         }
         cmp = builder_.create<mlir::arith::CmpIOp>(loc_, predicate, left, right);
     } else if (left.getType().isa<mlir::FloatType>()) {
         mlir::arith::CmpFPredicate predicate;
-        switch (node->op) {
-            case "<":
-                predicate = mlir::arith::CmpFPredicate::OLT;
-                break;
-            case "<=":
-                predicate = mlir::arith::CmpFPredicate::OLE;
-                break;
-            case ">":
-                predicate = mlir::arith::CmpFPredicate::OGT;
-                break;
-            case ">=":
-                predicate = mlir::arith::CmpFPredicate::OGE;
-                break;
-            default:
-                throw std::runtime_error("MLIRGen Error: Unsupported comparison operator for reals.");
+        if(node->op == "<"){
+            predicate = mlir::arith::CmpFPredicate::OLT;
+        } else if(node->op == "<="){
+            predicate = mlir::arith::CmpFPredicate::OLE;
+        } else if(node->op == ">"){
+            predicate = mlir::arith::CmpFPredicate::OGT;
+        } else if(node->op == ">="){
+            predicate = mlir::arith::CmpFPredicate::OGE;
+        } else {
+            throw std::runtime_error("MLIRGen Error: Unsupported comparison operator for reals.");
         }
         cmp = builder_.create<mlir::arith::CmpFOp>(loc_, predicate, left, right);
     } else {
