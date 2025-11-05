@@ -286,6 +286,9 @@ void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(TypeAliasDecNode* node) {
+    if (!current_->isInGlobal()) {
+        throw StatementError(1, "Alias declaration in non-global scope '" + node->alias + "'.");
+    }
     current_->declareAlias(node->alias, node->type);
 
     // assume node has been initialized with correct type
