@@ -1,3 +1,10 @@
+// Ensure single inclusion
+#pragma once
+
+// Standard library
+#include <memory>
+#include <ostream>
+
 // Pass manager
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"

@@ -3,6 +3,7 @@
 #include "AST.h"
 #include "ASTVisitor.h"
 #include "Scope.h"
+#include "BackEnd.h"
 
 
 #include <string>
@@ -48,6 +49,7 @@ public:
 
     // Expressions / Operators
     void visit(ParenExpr* node) override;
+    void visit(FuncCallExpr* node) override;
     void visit(UnaryExpr* node) override;   // unary+, unary-, not
     void visit(ExpExpr* node) override;     // ^
     void visit(MultExpr* node) override;    // *,/,%
@@ -72,9 +74,13 @@ public:
     void visit(RealNode* node) override;
     void visit(TupleLiteralNode* node) override;
 
+    // helpers
+    void allocaLiteral(VarInfo* varInfo);
+    VarInfo castType(VarInfo* from, CompleteType* to);
+
 private:
-    mlir::Value popValue();
-    void pushValue(mlir::Value value);
+    VarInfo popValue();
+    void pushValue(VarInfo& value);
 
     BackEnd& backend_;
     mlir::OpBuilder& builder_;
@@ -83,7 +89,7 @@ private:
     mlir::Location loc_;
 
     // Stack for intermediate MLIR values
-    std::vector<mlir::Value> v_stack_;
+    std::vector<VarInfo> v_stack_;
 
     // Storing named values + types
     Scope* root_;

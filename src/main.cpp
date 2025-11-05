@@ -11,7 +11,7 @@
 #include "AST.h"
 #include "ErrorListener.h"
 #include "SemanticAnalysisVisitor.h"
-#include "MLIRGen.h"
+#include "MLIRgen.h"
 
 #include <iostream>
 #include <fstream>
