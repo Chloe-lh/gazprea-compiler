@@ -423,7 +423,7 @@ void MLIRGen::visit(ParenExpr* node) {
 }
 
 void MLIRGen::visit(UnaryExpr* node) {
-    node->expr->accept(*this);
+    node->operand->accept(*this);
     VarInfo operand = popValue();
     mlir::Value operandVal = operand.value;
 
@@ -605,34 +605,6 @@ void MLIRGen::visit(NotExpr* node) {
     pushValue(operandInfo);
 }
 
-void MLIRGen::visit(EqExpr* node){
-    node->left->accept(*this);
-    VarInfo leftInfo = popValue();
-    mlir::Value left = leftInfo.value;
-    node->right->accept(*this);
-    VarInfo rightInfo = popValue();
-    mlir::Value right = rightInfo.value;
-
-    mlir::Type type = left.getType();
-    mlir::Value result;
-   
-    if (type.isa<mlir::TupleType>()) {
-        result = mlirTupleEquals(left, right, loc_, builder_);
-    } else {
-        result = mlirScalarEquals(left, right, loc_, builder_);
-    }
-
-    if (node->op == "!=") {
-        auto one = builder_.create<mlir::arith::ConstantOp>(loc_, result.getType(), builder_.getIntegerAttr(result.getType(), 1));
-        auto result = builder_.create<mlir::arith::XOrIOp>(loc_, result, one);
-    }
-
-    leftInfo.identifier = "";
-    leftInfo.value = result;
-    pushValue(leftInfo);
-}
-
-
 // Helper functions for equality
 mlir::Value mlirScalarEquals(mlir::Value left, mlir::Value right, mlir::Location loc, mlir::OpBuilder& builder) {
     mlir::Type type = left.getType();
@@ -645,21 +617,24 @@ mlir::Value mlirScalarEquals(mlir::Value left, mlir::Value right, mlir::Location
     }
 }
 
-mlir::Value mlirTupleEquals(mlir::Value left, mlir::Value right, mlir::Location loc, mlir::OpBuilder& builder) {
-    // left and right are both of TupleType
-    // otherwise, error
-    auto tupleType = left.getType().cast<mlir::TupleType>();
-    int numElements = tupleType.size();
+mlir::Value mlirTupleEquals(VarInfo& leftInfo, VarInfo& rightInfo, mlir::Location loc, mlir::OpBuilder& builder) {
+    // Both leftInfo and rightInfo are VarInfo with mlirSubtypes
+    int numElements = leftInfo.mlirSubtypes.size();
     mlir::Value result;
 
     for (int i = 0; i < numElements; ++i) {
-        auto leftElem = builder.create<mlir::TupleGetOp>(loc, left, i);
-        auto rightElem = builder.create<mlir::TupleGetOp>(loc, right, i);
-        mlir::Type elemType = tupleType.getType(i);
+        VarInfo& leftElemInfo = leftInfo.mlirSubtypes[i];
+        VarInfo& rightElemInfo = rightInfo.mlirSubtypes[i];
+
+        // Load the actual value from the memref
+        mlir::Value leftElem = builder.create<mlir::memref::LoadOp>(loc, leftElemInfo.value, mlir::ValueRange{});
+        mlir::Value rightElem = builder.create<mlir::memref::LoadOp>(loc, rightElemInfo.value, mlir::ValueRange{});
+
+        mlir::Type elemType = leftElem.getType();
 
         mlir::Value elemEq;
         if (elemType.isa<mlir::TupleType>()) {
-            elemEq = mlirTupleEquals(leftElem, rightElem, loc, builder); // recursive for nested tuples
+            elemEq = mlirTupleEquals(leftElemInfo, rightElemInfo, loc, builder); // recursive for nested tuples
         } else {
             elemEq = mlirScalarEquals(leftElem, rightElem, loc, builder);
         }
@@ -673,6 +648,33 @@ mlir::Value mlirTupleEquals(mlir::Value left, mlir::Value right, mlir::Location 
     return result;
 }
 
+
+void MLIRGen::visit(EqExpr* node){
+    node->left->accept(*this);
+    VarInfo leftInfo = popValue();
+    mlir::Value left = leftInfo.value;
+    node->right->accept(*this);
+    VarInfo rightInfo = popValue();
+    mlir::Value right = rightInfo.value;
+
+    mlir::Type type = left.getType();
+    mlir::Value result;
+   
+    if (type.isa<mlir::TupleType>()) {
+        result = mlirTupleEquals(leftInfo, rightInfo, loc_, builder_);
+    } else {
+        result = mlirScalarEquals(left, right, loc_, builder_);
+    }
+
+    if (node->op == "!=") {
+        auto one = builder_.create<mlir::arith::ConstantOp>(loc_, result.getType(), builder_.getIntegerAttr(result.getType(), 1));
+        result = builder_.create<mlir::arith::XOrIOp>(loc_, result, one);
+    }
+
+    leftInfo.identifier = "";
+    leftInfo.value = result;
+    pushValue(leftInfo);
+}
 
 void MLIRGen::visit(AndExpr* node){
     node->left->accept(*this);
