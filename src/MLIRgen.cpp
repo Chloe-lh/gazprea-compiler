@@ -507,29 +507,32 @@ void MLIRGen::visit(MultExpr* node){
 
 void MLIRGen::visit(AddExpr* node){
     node->left->accept(*this);
-    mlir::Value left = popValue();
+    VarInfo leftInfo = popValue();
+    mlir::Value left = leftInfo.value;
     node->right->accept(*this);
-    mlir::Value right = popValue();
+    VarInfo rightInfo = popValue();
+    mlir::Value right = rightInfo.value;
 
+    mlir::Value result;
     if(left.getType().isa<mlir::IntegerType>()) {
         if (node->op == "+") {
-            auto add = builder_.create<mlir::arith::AddIOp>(loc_, left, right);
-            pushValue(add);
+            result = builder_.create<mlir::arith::AddIOp>(loc_, left, right);
         } else if (node->op == "-") {
-            auto sub = builder_.create<mlir::arith::SubIOp>(loc_, left, right);
-            pushValue(sub);
+            result = builder_.create<mlir::arith::SubIOp>(loc_, left, right);
         }
     } else if(left.getType().isa<mlir::FloatType>()) {
         if (node->op == "+") {
-            auto add = builder_.create<mlir::arith::AddFOp>(loc_, left, right);
-            pushValue(add);
+            result = builder_.create<mlir::arith::AddFOp>(loc_, left, right);
         } else if (node->op == "-") {
-            auto sub = builder_.create<mlir::arith::SubFOp>(loc_, left, right);
-            pushValue(sub);
+            result = builder_.create<mlir::arith::SubFOp>(loc_, left, right);
         }
     } else {
         throw std::runtime_error("MLIRGen Error: Unsupported type for addition.");
     }
+    
+    leftInfo.identifier = "";
+    leftInfo.value = result;
+    pushValue(leftInfo);
 }
 
 void MLIRGen::visit(CompExpr* node) {
