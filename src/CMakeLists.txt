@@ -5,6 +5,8 @@ set(
     "${CMAKE_CURRENT_SOURCE_DIR}/BackEnd.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/AST.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/ASTBuilder.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/MLIRgen.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/SemanticAnalysisVisitor.cpp"
     "${CMAKE_SOURCE_DIR}/src/ASTBuilderUtils.cpp"
     "${CMAKE_SOURCE_DIR}/src/Scope.cpp"
     "${CMAKE_SOURCE_DIR}/src/Types.cpp"

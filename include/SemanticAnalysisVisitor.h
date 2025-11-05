@@ -2,10 +2,13 @@
 #include "AST.h"
 #include "Scope.h"
 #include <unordered_map>
+#include <memory>
 
 
 class SemanticAnalysisVisitor: public ASTVisitor {
     public:
+        Scope* getRootScope();
+
         void visit(FileNode* node) override;
 
         // Functions

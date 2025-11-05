@@ -6,12 +6,18 @@
 
 #include <vector>
 #include <memory>
+#include <mlir/IR/Value.h>
 
 
 struct VarInfo {
     std::string identifier;
     CompleteType type;
+    std::vector<VarInfo> mlirSubtypes;
     bool isConst;
+    mlir::Value value = nullptr;
+
+    VarInfo(CompleteType completeType): type(completeType) {}
+    VarInfo(std::string identifier, CompleteType completeType, bool isConst): identifier(identifier), type(completeType), isConst(isConst) {}
 };
 
 struct FuncInfo {
