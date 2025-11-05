@@ -81,17 +81,6 @@ void MLIRGen::visit(LoopNode* node) { throw std::runtime_error("not implemented"
 void MLIRGen::visit(BlockNode* node) { throw std::runtime_error("not implemented"); }
 
 // Expressions / Operators
-void MLIRGen::visit(ParenExpr* node) { node->expr->accept(*this); }
-void MLIRGen::visit(FuncCallExpr* node) { throw std::runtime_error("not implemented");}
-void MLIRGen::visit(UnaryExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(ExpExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(MultExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(AddExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(CompExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(NotExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(EqExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(AndExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(OrExpr* node) { throw std::runtime_error("not implemented"); }
 void MLIRGen::visit(TupleAccessNode* node) { throw std::runtime_error("not implemented"); }
 void MLIRGen::visit(TupleTypeCastNode* node) { throw std::runtime_error("not implemented"); }
 
