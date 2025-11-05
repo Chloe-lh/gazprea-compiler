@@ -54,45 +54,49 @@ void MLIRGen::visit(FileNode* node) {
 
 
 // Functions
-void MLIRGen::visit(FuncStatNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(FuncPrototypeNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(FuncBlockNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(ProcedureNode* node) { throw std::runtime_error("not implemented"); }
+void MLIRGen::visit(FuncStatNode* node) { throw std::runtime_error("FuncStatNode not implemented"); }
+void MLIRGen::visit(FuncPrototypeNode* node) { throw std::runtime_error("FuncPrototypeNode not implemented"); }
+void MLIRGen::visit(FuncBlockNode* node) { throw std::runtime_error("FuncBlockNode not implemented"); }
+void MLIRGen::visit(ProcedureNode* node) { throw std::runtime_error("ProcedureNode not implemented"); }
 
 // Declarations
-void MLIRGen::visit(TypedDecNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(InferredDecNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(TupleTypedDecNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(TypeAliasDecNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(TypeAliasNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(TupleTypeAliasNode* node) { throw std::runtime_error("not implemented"); }
+void MLIRGen::visit(TypedDecNode* node) { throw std::runtime_error("TypedDecNode not implemented"); }
+void MLIRGen::visit(InferredDecNode* node) { throw std::runtime_error("InferredDecNode not implemented"); }
+void MLIRGen::visit(TupleTypedDecNode* node) { throw std::runtime_error("TupleTypedDecNode not implemented"); }
+void MLIRGen::visit(TypeAliasDecNode* node) { throw std::runtime_error("TypeAliasDecNode not implemented"); }
+void MLIRGen::visit(TypeAliasNode* node) { throw std::runtime_error("TypeAliasNode not implemented"); }
+void MLIRGen::visit(TupleTypeAliasNode* node) { throw std::runtime_error("TupleTypeAliasNode not implemented"); }
 
 // Statements
-void MLIRGen::visit(AssignStatNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(OutputStatNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(InputStatNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(BreakStatNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(ContinueStatNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(ReturnStatNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(CallStatNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(IfNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(LoopNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(BlockNode* node) { throw std::runtime_error("not implemented"); }
+void MLIRGen::visit(AssignStatNode* node) { throw std::runtime_error("AssignStatNode not implemented"); }
+void MLIRGen::visit(OutputStatNode* node) { throw std::runtime_error("OutputStatNode not implemented"); }
+void MLIRGen::visit(InputStatNode* node) { throw std::runtime_error("InputStatNode not implemented"); }
+void MLIRGen::visit(BreakStatNode* node) { throw std::runtime_error("BreakStatNode not implemented"); }
+void MLIRGen::visit(ContinueStatNode* node) { throw std::runtime_error("ContinueStatNode not implemented"); }
+void MLIRGen::visit(ReturnStatNode* node) { throw std::runtime_error("ReturnStatNode not implemented"); }
+void MLIRGen::visit(CallStatNode* node) { throw std::runtime_error("CallStatNode not implemented"); }
+void MLIRGen::visit(IfNode* node) { 
+    throw std::runtime_error("IfNode not implemented"); 
+}
+void MLIRGen::visit(LoopNode* node) { throw std::runtime_error("LoopNode not implemented"); }
+void MLIRGen::visit(BlockNode* node) { 
+    throw std::runtime_error("BlockNode not implemented"); 
+}
 
 // Expressions / Operators
 void MLIRGen::visit(ParenExpr* node) { node->expr->accept(*this); }
-void MLIRGen::visit(FuncCallExpr* node) { throw std::runtime_error("not implemented");}
-void MLIRGen::visit(UnaryExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(ExpExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(MultExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(AddExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(CompExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(NotExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(EqExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(AndExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(OrExpr* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(TupleAccessNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(TupleTypeCastNode* node) { throw std::runtime_error("not implemented"); }
+void MLIRGen::visit(FuncCallExpr* node) { throw std::runtime_error("FuncCallExpr not implemented");}
+void MLIRGen::visit(UnaryExpr* node) { throw std::runtime_error("UnaryExpr not implemented"); }
+void MLIRGen::visit(ExpExpr* node) { throw std::runtime_error("ExpExpr not implemented"); }
+void MLIRGen::visit(MultExpr* node) { throw std::runtime_error("MultExpr not implemented"); }
+void MLIRGen::visit(AddExpr* node) { throw std::runtime_error("AddExpr not implemented"); }
+void MLIRGen::visit(CompExpr* node) { throw std::runtime_error("CompExpr not implemented"); }
+void MLIRGen::visit(NotExpr* node) { throw std::runtime_error("NotExpr not implemented"); }
+void MLIRGen::visit(EqExpr* node) { throw std::runtime_error("EqExpr not implemented"); }
+void MLIRGen::visit(AndExpr* node) { throw std::runtime_error("AndExpr not implemented"); }
+void MLIRGen::visit(OrExpr* node) { throw std::runtime_error("OrExpr not implemented"); }
+void MLIRGen::visit(TupleAccessNode* node) { throw std::runtime_error("TupleAccessNode not implemented"); }
+void MLIRGen::visit(TupleTypeCastNode* node) { throw std::runtime_error("TupleTypeCastNode not implemented"); }
 
 void MLIRGen::visit(TypeCastNode* node) {
     node->expr->accept(*this);
