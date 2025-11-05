@@ -75,6 +75,7 @@ public:
 
     // helpers
     void allocaLiteral(VarInfo* varInfo);
+    VarInfo castType(VarInfo* from, CompleteType* to);
 
 private:
     VarInfo& popValue();

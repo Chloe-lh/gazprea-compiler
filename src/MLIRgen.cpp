@@ -50,6 +50,13 @@ void MLIRGen::visit(FileNode* node) {
     }
 }
 
+void MLIRGen::visit(TypeCastNode* node) {
+    node->expr->accept(*this);
+    VarInfo from = popValue();
+    VarInfo result = castType(&from, &node->type);
+    pushValue(result);
+}
+
 void MLIRGen::visit(IdNode* node) {
     VarInfo* varInfo = currScope_->resolveVar(node->id);
 
@@ -206,4 +213,171 @@ void MLIRGen::allocaLiteral(VarInfo* varInfo) {
             throw std::runtime_error("allocaLiteral FATAL: unsupported type " +
                                     std::to_string(static_cast<int>(varInfo->type.baseType)));
     }
+}
+
+VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
+    VarInfo to = VarInfo(*toType);
+    allocaLiteral(&to); // Create new value container
+
+    switch (from->type.baseType) {
+        case (BaseType::BOOL):
+        {
+            mlir::Value boolVal = builder_.create<mlir::memref::LoadOp>(loc_, from->value, mlir::ValueRange{}); // Load value
+            switch (toType->baseType) {
+                case BaseType::BOOL:                    // Bool -> Bool
+                    builder_.create<mlir::memref::StoreOp>(
+                        loc_, boolVal, to.value, mlir::ValueRange{});
+                    break;
+       
+                case BaseType::INTEGER:                 // Bool -> Int
+                {
+                    mlir::Value intVal = builder_.create<mlir::arith::ExtUIOp>(
+                            loc_, builder_.getI32Type(), boolVal
+                        );
+                    builder_.create<mlir::memref::StoreOp>(loc_, intVal, to.value, mlir::ValueRange{});
+                    break;
+                }
+
+                case BaseType::CHARACTER:               // Bool -> Char
+                {
+                    mlir::Value charVal = builder_.create<mlir::arith::ExtUIOp>(
+                        loc_, builder_.getI8Type(), boolVal
+                    );
+                    builder_.create<mlir::memref::StoreOp>(loc_, charVal, to.value, mlir::ValueRange{});
+                    break;
+                }
+
+                case BaseType::REAL:                    // Bool -> Real
+                {
+                    mlir::Value realVal = builder_.create<mlir::arith::UIToFPOp>(
+                        loc_, builder_.getF32Type(), boolVal
+                    );
+                    builder_.create<mlir::memref::StoreOp>(loc_, realVal, to.value, mlir::ValueRange{});
+                    break;
+                }
+
+                default:
+                    throw LiteralError(1, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+            }
+            break;
+        }
+
+        case (BaseType::CHARACTER):
+        {
+            mlir::Value chVal = builder_.create<mlir::memref::LoadOp>(loc_, from->value, mlir::ValueRange{});
+            switch (toType->baseType) {
+                case BaseType::CHARACTER:               // Char -> Char
+                    builder_.create<mlir::memref::StoreOp>(loc_, chVal, to.value, mlir::ValueRange{});
+                    break;
+
+                case BaseType::BOOL:                    // Char -> Bool
+                {
+                    mlir::Value zeroConst = builder_.create<mlir::arith::ConstantOp>(
+                        loc_, builder_.getI8Type(), builder_.getIntegerAttr(builder_.getI8Type(), 0)
+                    );
+                    mlir::Value isZeroConst = builder_.create<mlir::arith::CmpIOp>(
+                        loc_, mlir::arith::CmpIPredicate::ne, chVal, zeroConst
+                    );  // '\0' == false
+                    builder_.create<mlir::memref::StoreOp>(loc_, isZeroConst, to.value, mlir::ValueRange{});
+                    break;
+                }
+
+                case BaseType::INTEGER:                 // Char -> Int
+                {
+                    mlir::Value intVal = builder_.create<mlir::arith::ExtUIOp>(
+                            loc_, builder_.getI32Type(), chVal
+                    );
+                    builder_.create<mlir::memref::StoreOp>(loc_, intVal, to.value, mlir::ValueRange{});
+                    break;
+                }
+
+                case BaseType::REAL:                    // Char -> Real
+                {
+                    mlir::Value realVal = builder_.create<mlir::arith::UIToFPOp>(
+                            loc_, builder_.getF32Type(), chVal
+                    );
+                    builder_.create<mlir::memref::StoreOp>(loc_, realVal, to.value, mlir::ValueRange{});
+                    break;
+                }
+
+                default:
+                    throw LiteralError(1, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+            }
+            break;
+        }
+
+        case (BaseType::INTEGER):
+        {
+            mlir::Value i32Val = builder_.create<mlir::memref::LoadOp>(loc_, from->value, mlir::ValueRange{});
+            switch (toType->baseType) {
+                case BaseType::INTEGER:                 // Int -> Int
+                    builder_.create<mlir::memref::StoreOp>(loc_, i32Val, to.value, mlir::ValueRange{});
+                    break;
+
+                case BaseType::BOOL:                    // Int -> Bool (ne 0)
+                {
+                    mlir::Value zero = builder_.create<mlir::arith::ConstantOp>(
+                        loc_, builder_.getI32Type(), builder_.getIntegerAttr(builder_.getI32Type(), 0)
+                    );
+                    mlir::Value neZeroConstant = builder_.create<mlir::arith::CmpIOp>(
+                        loc_, mlir::arith::CmpIPredicate::ne, i32Val, zero
+                    );
+                    builder_.create<mlir::memref::StoreOp>(loc_, neZeroConstant, to.value, mlir::ValueRange{});
+                    break;
+                }
+
+                case BaseType::CHARACTER:               // Int -> Char (mod 256)
+                {
+                    mlir::Value i8Val = builder_.create<mlir::arith::TruncIOp>(
+                        loc_, builder_.getI8Type(), i32Val
+                    );
+                    builder_.create<mlir::memref::StoreOp>(loc_, i8Val, to.value, mlir::ValueRange{});
+                    break;
+                }
+
+                case BaseType::REAL:                    // Int -> Real
+                {
+                    mlir::Value fVal = builder_.create<mlir::arith::SIToFPOp>(
+                        loc_, builder_.getF32Type(), i32Val
+                    );
+                    builder_.create<mlir::memref::StoreOp>(loc_, fVal, to.value, mlir::ValueRange{});
+                    break;
+                }
+
+                default:
+                    throw LiteralError(1, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+            }
+            break;
+        }
+
+        case (BaseType::REAL):
+        {
+            mlir::Value fVal = builder_.create<mlir::memref::LoadOp>(loc_, from->value, mlir::ValueRange{});
+            switch (toType->baseType) {
+                case BaseType::REAL:                    // Real -> Real
+                    builder_.create<mlir::memref::StoreOp>(loc_, fVal, to.value, mlir::ValueRange{});
+                    break;
+
+                case BaseType::INTEGER:                 // Real -> Int (truncate fractional)
+                {
+                    mlir::Value iVal = builder_.create<mlir::arith::FPToSIOp>(
+                        loc_, builder_.getI32Type(), fVal
+                    );
+                    builder_.create<mlir::memref::StoreOp>(loc_, iVal, to.value, mlir::ValueRange{});
+                    break;
+                }
+
+                case BaseType::CHARACTER:               // Real -> Char (not allowed)
+                case BaseType::BOOL:                    // Real -> Bool (not allowed)
+                default:
+                    throw LiteralError(1, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+            }
+            break;
+        }
+
+        default:
+            throw LiteralError(1, std::string("Codegen: unsupported cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+    }
+
+    return to;
 }
