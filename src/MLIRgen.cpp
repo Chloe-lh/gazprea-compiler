@@ -607,26 +607,29 @@ void MLIRGen::visit(NotExpr* node) {
 
 void MLIRGen::visit(EqExpr* node){
     node->left->accept(*this);
-    mlir::Value left = popValue();
+    VarInfo leftInfo = popValue();
+    mlir::Value left = leftInfo.value;
     node->right->accept(*this);
-    mlir::Value right = popValue();
+    VarInfo rightInfo = popValue();
+    mlir::Value right = rightInfo.value;
 
     mlir::Type type = left.getType();
-    mlir::Value = eqResult;
+    mlir::Value result;
    
     if (type.isa<mlir::TupleType>()) {
-        eqResult = mlirTupleEquals(left, right, loc_, builder_);
+        result = mlirTupleEquals(left, right, loc_, builder_);
     } else {
-        eqResult = mlirScalarEquals(left, right, loc_, builder_);
+        result = mlirScalarEquals(left, right, loc_, builder_);
     }
 
-    if (node->op == "==") {
-        pushValue(eqResult);
-    } else if (node->op == "!=") {
-        auto one = builder_.create<mlir::arith::ConstantOp>(loc_, eqResult.getType(), builder_.getIntegerAttr(eqResult.getType(), 1));
-        auto notEq = builder_.create<mlir::arith::XOrIOp>(loc_, eqResult, one);
-        pushValue(notEq);
+    if (node->op == "!=") {
+        auto one = builder_.create<mlir::arith::ConstantOp>(loc_, result.getType(), builder_.getIntegerAttr(result.getType(), 1));
+        auto result = builder_.create<mlir::arith::XOrIOp>(loc_, result, one);
     }
+
+    leftInfo.identifier = "";
+    leftInfo.value = result;
+    pushValue(leftInfo);
 }
 
 
