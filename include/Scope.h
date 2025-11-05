@@ -53,6 +53,7 @@ public:
 
     bool isInLoop();
     bool isInFunction();
+    void setInFunctionTrue();
     const CompleteType* getReturnType();
 
     Scope* parent() const { return parent_; }
@@ -80,5 +81,6 @@ private:
     bool declarationAllowed = true;
     bool isGlobal = false;
     bool inLoop = false;
+    bool inFunction = false;
     const CompleteType* returnType = nullptr; // nullptr if not inside a function
 };

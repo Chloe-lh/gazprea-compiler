@@ -145,11 +145,14 @@ void Scope::setGlobalTrue() {
 }
 
 bool Scope::isInLoop() { return this->inLoop; }
-bool Scope::isInFunction() { return this->returnType != nullptr; }
+bool Scope::isInFunction() { return this->inFunction; }
+void Scope::setInFunctionTrue() { this->inFunction = true; }
 const CompleteType* Scope::getReturnType() { return this->returnType; }
 
 Scope* Scope::createChild(const bool inLoop, const CompleteType* returnType) {
     children_.push_back(std::make_unique<Scope>(this, inLoop, returnType));
+    // Maintain 'inFunction' value to child scopes to prevent calls, etc. in pure functions
+    children_.back()->inFunction = this->inFunction;
     return children_.back().get();
 }
 
@@ -176,4 +179,3 @@ std::string Scope::printScope() const {
     result += ">>\n";
     return result;
 } 
-

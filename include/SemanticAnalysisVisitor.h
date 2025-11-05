@@ -32,7 +32,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         virtual void visit(BreakStatNode* node)     override;
         virtual void visit(ContinueStatNode* node)  override;
         virtual void visit(ReturnStatNode* node)    override;
-        virtual void visit(CallStatNode* node)      override; // TODO: not allowed within functions. 
+        virtual void visit(CallStatNode* node)      override;
         virtual void visit(IfNode* node)            override;
         virtual void visit(LoopNode* node)          override;
         virtual void visit(BlockNode* node)         override;

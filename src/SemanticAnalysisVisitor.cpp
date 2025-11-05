@@ -58,7 +58,9 @@ void SemanticAnalysisVisitor::visit(FuncStatNode* node) {
 
     // Enter function scope, bind parameters
     enterScopeFor(node, false, &node->returnType);
+    current_->setInFunctionTrue(); 
     for (const auto& v : params) {
+        if (!v.isConst) { throw AssignError(1, "Non-const arg given as function parameter");}
         current_->declareVar(v.identifier, v.type, true);
     }
 
@@ -154,7 +156,9 @@ void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
 
     // Enter function scope, bind parameters
     enterScopeFor(node, false, &node->returnType);
+    current_->setInFunctionTrue(); 
     for (const auto& v : params) {
+        if (!v.isConst) { throw AssignError(1, "Non-const arg given as function parameter");}
         current_->declareVar(v.identifier, v.type, true);
     }
 
@@ -363,6 +367,10 @@ void SemanticAnalysisVisitor::visit(CallStatNode* node) {
     if (!node->call) {
         throw std::runtime_error("Semantic Analysis: FATAL: empty call statement");
     }
+    if (current_->isInFunction()) {
+        throw CallError(1, "Cannot call procedure inside a function.");
+    }
+
     std::vector<VarInfo> args;
     args.reserve(node->call->args.size());
     for (const auto& e : node->call->args) {
