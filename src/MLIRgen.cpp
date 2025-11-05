@@ -10,6 +10,7 @@ After generating the MLIR, Backend will lower the dialects and output LLVM IR
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 
 
 #include <stdexcept>
@@ -124,6 +125,33 @@ void MLIRGen::visit(UnaryExpr* node) {
             pushValue(neg);
             break;
     }
+}
+
+void MLIRGen::visit(ExpExpr* node) {
+    node->left->accept(*this);
+    mlir::Value lhs = popValue();
+    node->right->accept(*this);
+    mlir::Value rhs = popValue();
+
+    bool isInt = lhs.getType().isa<mlir::IntegerType>();
+
+    // Promote to float if needed
+    if (isInt) {
+        auto f32Type = builder_.getF32Type();
+        lhs = builder_.create<mlir::arith::SIToFPOp>(loc_, f32Type, lhs);
+        rhs = builder_.create<mlir::arith::SIToFPOp>(loc_, f32Type, rhs);
+    }
+
+    mlir::Value result = builder_.create<mlir::math::PowFOp>(loc_, lhs, rhs);
+
+    // If original operands were int, apply math.floor and cast back to int
+    if (isInt) {
+        mlir::Value floored = builder_.create<mlir::math::FloorOp>(loc_, result);
+        auto intType = builder_.getI32Type();
+        result = builder_.create<mlir::arith::FPToSIOp>(loc_, intType, floored);
+    }
+
+    pushValue(result);
 }
 
 void MLIRGen::visit(MultExpr* node){
