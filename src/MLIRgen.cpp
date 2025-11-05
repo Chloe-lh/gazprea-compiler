@@ -418,7 +418,7 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
 }
 
 
-void MLIRGen::visit(ParentExpr* node) {
+void MLIRGen::visit(ParenExpr* node) {
     node->expr->accept(*this);
 }
 
@@ -537,13 +537,13 @@ void MLIRGen::visit(CompExpr* node) {
             case '<':
                 predicate = mlir::arith::CmpIPredicate::slt;
                 break;
-            case '<=':
+            case "<=":
                 predicate = mlir::arith::CmpIPredicate::sle;
                 break;
             case '>':
                 predicate = mlir::arith::CmpIPredicate::sgt;
                 break;
-            case '>=':
+            case ">=":
                 predicate = mlir::arith::CmpIPredicate::sge;
                 break;
             default:
@@ -556,13 +556,13 @@ void MLIRGen::visit(CompExpr* node) {
             case '<':
                 predicate = mlir::arith::CmpFPredicate::OLT;
                 break;
-            case '<=':
+            case "<=":
                 predicate = mlir::arith::CmpFPredicate::OLE;
                 break;
             case '>':
                 predicate = mlir::arith::CmpFPredicate::OGT;
                 break;
-            case '>=':
+            case ">=":
                 predicate = mlir::arith::CmpFPredicate::OGE;
                 break;
             default:
@@ -612,7 +612,7 @@ void MLIRGen::visit(EqExpr* node){
 
 
 // Helper functions for equality
-mlir::Value scalarEquals(mlir::Value left, mlir::Value right, mlir::Location loc, mlir::OpBuilder& builder) {
+mlir::Value mlirscalarEquals(mlir::Value left, mlir::Value right, mlir::Location loc, mlir::OpBuilder& builder) {
     mlir::Type type = left.getType();
     if (type.isa<mlir::IntegerType>()) {
         return builder.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::eq, left, right);
