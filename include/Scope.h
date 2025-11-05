@@ -53,6 +53,7 @@ public:
 
     bool isInLoop();
     bool isInFunction();
+    bool isInGlobal();
     void setInFunctionTrue();
     const CompleteType* getReturnType();
 
@@ -79,7 +80,7 @@ private:
     Scope* parent_;
     std::vector<std::unique_ptr<Scope>> children_;
     bool declarationAllowed = true;
-    bool isGlobal = false;
+    bool inGlobal = false;
     bool inLoop = false;
     bool inFunction = false;
     const CompleteType* returnType = nullptr; // nullptr if not inside a function

@@ -55,7 +55,7 @@ void Scope::declareProc(const std::string& identifier, const std::vector<VarInfo
 TODO add error line number to 2 errors below
 */
 void Scope::declareAlias(const std::string& identifier, const CompleteType& type) {
-    if (!isGlobal) {
+    if (!inGlobal) {
         GlobalError err = GlobalError(1, "Semantic Analysis: Cannot declare alias '" + identifier + "' in non-global scope."); 
         throw err;
     }
@@ -141,11 +141,12 @@ bool Scope::isDeclarationAllowed() {
 }
 
 void Scope::setGlobalTrue() {
-    this->isGlobal = true;
+    this->inGlobal = true;
 }
 
 bool Scope::isInLoop() { return this->inLoop; }
 bool Scope::isInFunction() { return this->inFunction; }
+bool Scope::isInGlobal() { return this->inGlobal; }
 void Scope::setInFunctionTrue() { this->inFunction = true; }
 const CompleteType* Scope::getReturnType() { return this->returnType; }
 
