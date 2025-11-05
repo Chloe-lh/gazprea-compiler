@@ -94,6 +94,8 @@ public:
       gazprea::GazpreaParser::TupleAccessExprContext *ctx) override;
   std::any visitTupleTypeCastExpr(GazpreaParser::TupleTypeCastExprContext *ctx) override;
   // Control flow
+  std::any visitIfStat(gazprea::GazpreaParser::IfStatContext *ctx) override;
+  std::any visitLoopStat(gazprea::GazpreaParser::LoopStatContext *ctx) override;
   std::any visitWhileLoopBlock(
       gazprea::GazpreaParser::WhileLoopBlockContext *ctx) override;
   std::any

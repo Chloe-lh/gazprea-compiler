@@ -9,6 +9,7 @@
 #include "BackEnd.h"
 #include "ASTBuilder.h"
 #include "AST.h"
+#include "ASTPrinter.h"
 #include "ErrorListener.h"
 #include "SemanticAnalysisVisitor.h"
 #include "MLIRgen.h"
@@ -38,7 +39,10 @@ int main(int argc, char **argv) {
   auto *tree = parser.file();
   gazprea::ASTBuilder builder;
   std::any astAny = builder.visitFile(tree);
-  auto ast = std::any_cast<std::shared_ptr<FileNode>>(astAny);
+  std::shared_ptr<FileNode> ast;
+  // visitFile returns node_any (ASTNode*), need to cast via ASTNode first
+  auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(astAny);
+  ast = std::dynamic_pointer_cast<FileNode>(astNode);
 
   // HOW TO USE A VISITOR
   // Make the visitor
@@ -49,6 +53,11 @@ int main(int argc, char **argv) {
   SemanticAnalysisVisitor semVisitor;
   ast->accept(semVisitor);
   Scope* rootScope = semVisitor.getRootScope();
+
+  std::cout << "--- Abstract Syntax Tree ---" << std::endl;
+  gazprea::ASTPrinter printer(std::cout, true); // Create a printer instance
+  ast->accept(printer);
+  std::cout << "--------------------------\n" << std::endl;
 
   std::ofstream os(argv[2]);
   BackEnd backend;

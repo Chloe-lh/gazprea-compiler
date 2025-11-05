@@ -1,0 +1,4 @@
+integer x = 5;
+if (x < 6) x -> std_output;
+integer y = 5;
+//CHECK_FILE:if2.out

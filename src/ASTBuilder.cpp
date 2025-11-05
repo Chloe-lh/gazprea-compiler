@@ -7,6 +7,7 @@
 #include "Types.h"
 #include "antlr4-runtime.h"
 #include <any>
+#include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <stdlib.h>
@@ -144,15 +145,15 @@ dec
 */
 std::any
 ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
-  // qualifier (optional)
-  std::string qualifier;
+  // qualifier (optional) - defaults to "const" if not provided (per grammar comment)
+  std::string qualifier = "const"; // default
   if (ctx->qualifier()) {
     auto qualAny = visit(ctx->qualifier());
     if (qualAny.has_value()) {
       try {
         qualifier = std::any_cast<std::string>(qualAny);
       } catch (const std::bad_any_cast &) {
-        qualifier = "";
+        qualifier = "const"; // default on error
       }
     }
   }
@@ -271,9 +272,9 @@ ASTBuilder::visitTupleAccessExpr(GazpreaParser::TupleAccessExprContext *ctx) {
   if (ta) {
     if (ta->ID())
       tupleName = ta->ID()->getText();
-    if (ta->TUPLE_INT()) {
+    if (ta->INT()) {
       try {
-        index = std::stoi(ta->TUPLE_INT()->getText());
+        index = std::stoi(ta->INT()->getText());
       } catch (const std::exception &) {
         index = 0;
       }
@@ -1073,6 +1074,78 @@ std::any ASTBuilder::visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx) {
   }
 
   return node_any(std::move(node));
+}
+
+// if: IF PARENLEFT expr PARENRIGHT (block|stat) (ELSE (block|stat))?;
+std::any ASTBuilder::visitIfStat(GazpreaParser::IfStatContext *ctx) {
+  auto ifCtx = ctx->if_stat();
+  if (!ifCtx) {
+    return nullptr;
+  }
+
+  // Visit the condition expression
+  auto condAny = visit(ifCtx->expr());
+  auto cond = std::any_cast<std::shared_ptr<ExprNode>>(condAny);
+
+  // Determine and visit the 'then' branch
+  std::shared_ptr<BlockNode> thenBlock = nullptr;
+  std::shared_ptr<StatNode> thenStat = nullptr;
+  bool thenWasBlock = !ifCtx->block().empty();
+
+  if (thenWasBlock) {
+    auto blockAny = visit(ifCtx->block(0));
+    auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(blockAny);
+    thenBlock = std::dynamic_pointer_cast<BlockNode>(astNode);
+  } else {
+    auto statAny = visit(ifCtx->stat(0));
+    thenStat = std::any_cast<std::shared_ptr<StatNode>>(statAny);
+  }
+
+  // Visit the 'else' branch, if it exists
+  std::shared_ptr<BlockNode> elseBlock = nullptr;
+  std::shared_ptr<StatNode> elseStat = nullptr;
+  if (ifCtx->ELSE()) {
+    if (thenWasBlock) {
+      // If 'then' was a block, 'else' is either the second block or the first stat
+      if (ifCtx->block().size() > 1) {
+        auto blockAny = visit(ifCtx->block(1));
+        auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(blockAny);
+        elseBlock = std::dynamic_pointer_cast<BlockNode>(astNode);
+      } else if (!ifCtx->stat().empty()) {
+        auto statAny = visit(ifCtx->stat(0));
+        elseStat = std::any_cast<std::shared_ptr<StatNode>>(statAny);
+      }
+    } else {
+      // If 'then' was a stat, 'else' is either the first block or the second stat
+      if (!ifCtx->block().empty()) {
+        auto blockAny = visit(ifCtx->block(0));
+        auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(blockAny);
+        elseBlock = std::dynamic_pointer_cast<BlockNode>(astNode);
+      } else if (ifCtx->stat().size() > 1) {
+        auto statAny = visit(ifCtx->stat(1));
+        elseStat = std::any_cast<std::shared_ptr<StatNode>>(statAny);
+      }
+    }
+  }
+
+  // Construct the IfNode using the correct constructor and return
+  std::shared_ptr<IfNode> node;
+  if (thenBlock) {
+    node = std::make_shared<IfNode>(cond, thenBlock, elseBlock);
+  } else {
+    node = std::make_shared<IfNode>(cond, thenStat, elseStat);
+  }
+  return node_any(std::move(node));
+}
+
+std::any ASTBuilder::visitLoopStat(GazpreaParser::LoopStatContext *ctx) {
+
+  // TODO: fix this
+  auto loopCtx = ctx->loop_stat();
+  if (!loopCtx) {
+    return nullptr;
+  }
+  return visit(loopCtx);
 }
 
 } // namespace gazprea
