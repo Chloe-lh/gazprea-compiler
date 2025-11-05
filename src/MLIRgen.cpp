@@ -58,6 +58,7 @@ void MLIRGen::visit(FileNode* node) {
 void MLIRGen::visit(FuncStatNode* node) { throw std::runtime_error("not implemented"); }
 void MLIRGen::visit(FuncPrototypeNode* node) { throw std::runtime_error("not implemented"); }
 void MLIRGen::visit(FuncBlockNode* node) { throw std::runtime_error("not implemented"); }
+void MLIRGen::visit(FuncCallExpr* node) { throw std::runtime_error("not implemented"); }
 void MLIRGen::visit(ProcedureNode* node) { throw std::runtime_error("not implemented"); }
 
 // Declarations
