@@ -49,6 +49,7 @@ public:
 
     // Expressions / Operators
     void visit(ParenExpr* node) override;
+    void visit(FuncCallExpr* node) override;
     void visit(UnaryExpr* node) override;   // unary+, unary-, not
     void visit(ExpExpr* node) override;     // ^
     void visit(MultExpr* node) override;    // *,/,%
@@ -78,7 +79,7 @@ public:
     VarInfo castType(VarInfo* from, CompleteType* to);
 
 private:
-    VarInfo& popValue();
+    VarInfo popValue();
     void pushValue(VarInfo& value);
 
     BackEnd& backend_;
