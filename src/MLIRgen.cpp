@@ -442,9 +442,11 @@ void MLIRGen::visit(UnaryExpr* node) {
 
 void MLIRGen::visit(ExpExpr* node) {
     node->left->accept(*this);
-    mlir::Value lhs = popValue();
+    VarInfo left = popValue();
+    mlir::Value lhs = left->value;
     node->right->accept(*this);
-    mlir::Value rhs = popValue();
+    VarInfo right = popValue();
+    mlir::Value rhs = right->value;
 
     bool isInt = lhs.getType().isa<mlir::IntegerType>();
 
@@ -464,7 +466,11 @@ void MLIRGen::visit(ExpExpr* node) {
         result = builder_.create<mlir::arith::FPToSIOp>(loc_, intType, floored);
     }
 
-    pushValue(result);
+    //assume both operands are of same type
+    //the left operand object is pushed back to the stack with a new value
+    left->identifier = ""; 
+    left->value = result;
+    pushValue(left);
 }
 
 void MLIRGen::visit(MultExpr* node){
