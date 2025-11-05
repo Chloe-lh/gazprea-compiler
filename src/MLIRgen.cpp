@@ -425,7 +425,7 @@ void MLIRGen::visit(ParenExpr* node) {
 void MLIRGen::visit(UnaryExpr* node) {
     node->expr->accept(*this);
     VarInfo operand = popValue();
-    mlir::Value operandVal = operand->value;
+    mlir::Value operandVal = operand.value;
 
     switch (node->op) {
         case "+":
@@ -434,7 +434,7 @@ void MLIRGen::visit(UnaryExpr* node) {
             //subtract from zero works for both int and real
             auto zero = builder_.create<mlir::arith::ConstantOp>(
                 loc_, operandVal.getType(), builder_.getZeroAttr(operandVal.getType()));
-            operand->value = builder_.create<mlir::arith::SubIOp>(loc_, zero, operandVal);
+            operand.value = builder_.create<mlir::arith::SubIOp>(loc_, zero, operandVal);
             break;
     }
     pushValue(operand);
@@ -443,10 +443,10 @@ void MLIRGen::visit(UnaryExpr* node) {
 void MLIRGen::visit(ExpExpr* node) {
     node->left->accept(*this);
     VarInfo left = popValue();
-    mlir::Value lhs = left->value;
+    mlir::Value lhs = left.value;
     node->right->accept(*this);
     VarInfo right = popValue();
-    mlir::Value rhs = right->value;
+    mlir::Value rhs = right.value;
 
     bool isInt = lhs.getType().isa<mlir::IntegerType>();
 
@@ -468,8 +468,8 @@ void MLIRGen::visit(ExpExpr* node) {
 
     //assume both operands are of same type
     //the left operand object is pushed back to the stack with a new value
-    left->identifier = ""; 
-    left->value = result;
+    left.identifier = ""; 
+    left.value = result;
     pushValue(left);
 }
 
