@@ -66,9 +66,21 @@ void MLIRGen::visit(ProcedureNode* node) { throw std::runtime_error("not impleme
 void MLIRGen::visit(TypedDecNode* node) { throw std::runtime_error("not implemented"); }
 void MLIRGen::visit(InferredDecNode* node) { throw std::runtime_error("not implemented"); }
 void MLIRGen::visit(TupleTypedDecNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(TypeAliasDecNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(TypeAliasNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(TupleTypeAliasNode* node) { throw std::runtime_error("not implemented"); }
+
+/* Resolve aliases using currScope_->resolveAlias */
+void MLIRGen::visit(TypeAliasDecNode* node) {
+    /* Nothing to do - already declared during semantic analysis. */
+}
+
+/* Resolve aliases using currScope_->resolveAlias */
+void MLIRGen::visit(TypeAliasNode* node) {
+    /* Nothing to do - already declared during semantic analysis. */
+}
+
+/* Resolve aliases using currScope_->resolveAlias */
+void MLIRGen::visit(TupleTypeAliasNode* node) {
+    /* Nothing to do - already declared during semantic analysis. */
+}
 
 // Statements
 void MLIRGen::visit(AssignStatNode* node) { throw std::runtime_error("not implemented"); }
