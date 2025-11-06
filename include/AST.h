@@ -6,7 +6,21 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <variant>
+#include <cstdint>
 #include <vector>
+
+struct ConstantValue {
+  CompleteType type;
+  // use int64_t for integers to avoid overflow while folding;
+  // real uses double.
+  std::variant<int64_t, double, bool, char, std::string> value;
+
+  ConstantValue() : type(CompleteType(BaseType::UNKNOWN)) {}
+  ConstantValue(const CompleteType &t,
+                std::variant<int64_t, double, bool, char, std::string> v)
+      : type(t), value(std::move(v)) {}
+};
 
 // abstract class that is extended by the different passes in the pipeline
 class ASTVisitor;
@@ -34,6 +48,9 @@ class ExprNode : public ASTNode {
 public:
   virtual ~ExprNode() = default;
   virtual void accept(ASTVisitor &visitor) = 0;
+  // Optional compile-time constant annotation. When present, this records the
+  // evaluated constant and its type so later passes or tests can inspect it.
+  std::optional<ConstantValue> constant;
 };
 // statements
 class StatNode : public ASTNode {
