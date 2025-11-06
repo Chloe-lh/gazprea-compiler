@@ -103,6 +103,10 @@ ParenExpr::ParenExpr(std::shared_ptr<ExprNode> expr) : expr(std::move(expr)) {}
 CharNode::CharNode(char v) : value(v) {}
 IntNode::IntNode(int v) : value(v) {}
 RealNode::RealNode(double value) : value(value) {}
+StringNode::StringNode(std::string v) : value(std::move(v)) {
+  this->type = CompleteType(BaseType::STRING);
+}
+void StringNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 IdNode::IdNode(const std::string &id) : id(id) {}
 
 CallExprNode::CallExprNode(const std::string &name,
