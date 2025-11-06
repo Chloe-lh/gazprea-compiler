@@ -181,86 +181,6 @@ void MLIRGen::visit(FuncCallExpr* node) { throw std::runtime_error("FuncCallExpr
 void MLIRGen::visit(ProcedureNode* node) { throw std::runtime_error("ProcedureNode not implemented"); }
 
 // Declarations
-mlir::Type MLIRGen::getLLVMType(CompleteType type) {
-    switch (type.baseType) {
-        case BaseType::BOOL:
-            return builder_.getI1Type();
-        case BaseType::CHARACTER:
-            return builder_.getI8Type();
-        case BaseType::INTEGER:
-            return builder_.getI32Type();
-        case BaseType::REAL:
-            return builder_.getF32Type();
-        case BaseType::TUPLE:
-            // For tuples, we'll need to create a struct type or handle differently
-            // For now, throw an error - tuples as globals need more complex handling
-            throw std::runtime_error("Tuple types as globals not yet implemented");
-        default:
-            throw std::runtime_error("Unsupported type for global variable");
-    }
-}
-
-mlir::Value MLIRGen::createGlobalVariable(const std::string& name, CompleteType type, bool isConst, mlir::Attribute initValue) {
-    mlir::Type llvmType = getLLVMType(type);
-    
-    // Use module-level builder for globals (save current insertion point)
-    auto* moduleBuilder = backend_.getBuilder().get();
-    auto savedInsertionPoint = moduleBuilder->saveInsertionPoint();
-    moduleBuilder->setInsertionPointToStart(module_.getBody());
-    
-    // Create the global variable at module level
-    moduleBuilder->create<mlir::LLVM::GlobalOp>(
-        loc_,
-        llvmType,
-        isConst,  // constant
-        mlir::LLVM::Linkage::Internal,
-        name,
-        initValue,  // initial value (can be nullptr)
-        0  // alignment (0 = default)
-    );
-    
-    // Restore insertion point
-    moduleBuilder->restoreInsertionPoint(savedInsertionPoint);
-    
-    // The global is now in the module - we'll access it via lookupSymbol when needed
-    // Return a placeholder value - actual access will use AddressOfOp
-    return nullptr;  // Actual access will be done via module_.lookupSymbol<LLVM::GlobalOp>(name)
-}
-
-mlir::Attribute MLIRGen::extractConstantValue(std::shared_ptr<ExprNode> expr, CompleteType targetType) {
-    if (!expr) {
-        return nullptr;
-    }
-    
-    // Try to extract compile-time constant values from literal nodes
-    if (auto intNode = std::dynamic_pointer_cast<IntNode>(expr)) {
-        if (targetType.baseType == BaseType::INTEGER) {
-            return builder_.getIntegerAttr(builder_.getI32Type(), intNode->value);
-        } else if (targetType.baseType == BaseType::REAL) {
-            // Integer can be promoted to real at compile time
-            return builder_.getFloatAttr(builder_.getF32Type(), static_cast<float>(intNode->value));
-        }
-    } else if (auto realNode = std::dynamic_pointer_cast<RealNode>(expr)) {
-        if (targetType.baseType == BaseType::REAL) {
-            return builder_.getFloatAttr(builder_.getF32Type(), realNode->value);
-        }
-    } else if (auto charNode = std::dynamic_pointer_cast<CharNode>(expr)) {
-        if (targetType.baseType == BaseType::CHARACTER) {
-            return builder_.getIntegerAttr(builder_.getI8Type(), static_cast<int>(charNode->value));
-        }
-    } else if (auto trueNode = std::dynamic_pointer_cast<TrueNode>(expr)) {
-        if (targetType.baseType == BaseType::BOOL) {
-            return builder_.getIntegerAttr(builder_.getI1Type(), 1);
-        }
-    } else if (auto falseNode = std::dynamic_pointer_cast<FalseNode>(expr)) {
-        if (targetType.baseType == BaseType::BOOL) {
-            return builder_.getIntegerAttr(builder_.getI1Type(), 0);
-        }
-    }
-    
-    // Not a compile-time constant - return nullptr to indicate deferral needed
-    return nullptr;
-}
 
 void MLIRGen::initializeGlobalInMain(const std::string& varName, std::shared_ptr<ExprNode> initExpr) {
     // Look up the global variable
@@ -288,7 +208,7 @@ void MLIRGen::visit(TypedDecNode* node) {
     // Resolve variable declared by semantic analysis
     VarInfo* declaredVar = currScope_->resolveVar(node->name);
 
-    // Keep local constness consistent (semantic pass enforces this already)
+    // defensive sync for qualifier flag
     if (node->qualifier == "const") {
         declaredVar->isConst = true;
     } else if (node->qualifier == "var") {
@@ -296,41 +216,86 @@ void MLIRGen::visit(TypedDecNode* node) {
     }
 
     // Ensure storage exists regardless of initializer
-    if (!declaredVar->value && declaredVar->type.baseType != BaseType::TUPLE) {
-        this->allocaVar(declaredVar);
-    } else if (declaredVar->type.baseType == BaseType::TUPLE && declaredVar->mlirSubtypes.empty()) {
-        this->allocaVar(declaredVar);
+    if (!declaredVar->value) {
+        allocaVar(declaredVar);
     }
 
-    // Optional initializer: evaluate then assign with implicit promotion
+    // Handle optional initializer + promotion
     if (node->init) {
         node->init->accept(*this);
         VarInfo literal = popValue();
-        this->assignTo(&literal, declaredVar);
+        assignTo(&literal, declaredVar);
     }
 }
 
+/* Functionally the same as TypedDecNode except initializer is required */
 void MLIRGen::visit(InferredDecNode* node) {
+    if (!node->init) {
+        throw std::runtime_error("FATAL: Inferred declaration without initializer.");
+    }
+    node->init->accept(*this); // Resolve init value
 
-    // 1. Analyze the initializer to determine type
-    // 2. Create global with that type
-    // 3. Defer initialization to main()
+    VarInfo literal = popValue();
+    VarInfo* declaredVar = currScope_->resolveVar(node->name);
+
+
+    // Semantic analysis should have handled this - this is just in casse
+    if (node->qualifier == "const") {
+        declaredVar->isConst = true;
+    } else if (node->qualifier == "var") {
+        declaredVar->isConst = false;
+    } else {
+        throw StatementError(1, "Cannot infer variable '" + node->name + "' without qualifier."); // TODO: line number
+    }
     
-    // For now, this is a limitation - we need type inference at module level
-    throw std::runtime_error("InferredDecNode as global not yet fully implemented - need type inference");
+    assignTo(&literal, declaredVar);
 }
 
 void MLIRGen::visit(TupleTypedDecNode* node) {
-    // Tuples as globals are more complex - for now, throw an error
-    // Proper implementation would create a struct type and handle element-wise initialization
-    throw std::runtime_error("TupleTypedDecNode as global not yet fully implemented");
+    // Resolve variable declared by semantic analysis
+    VarInfo* declaredVar = currScope_->resolveVar(node->name);
+
+    // Ensure storage for tuple elements exists
+    if (declaredVar->mlirSubtypes.empty()) {
+        allocaVar(declaredVar);
+    }
+
+    // Handle optional initializer
+    if (node->init) {
+        node->init->accept(*this);
+        VarInfo literal = popValue();
+        assignTo(&literal, declaredVar);
+    }
 }
-void MLIRGen::visit(TypeAliasDecNode* node) { throw std::runtime_error("TypeAliasDecNode not implemented"); }
-void MLIRGen::visit(TypeAliasNode* node) { throw std::runtime_error("TypeAliasNode not implemented"); }
-void MLIRGen::visit(TupleTypeAliasNode* node) { throw std::runtime_error("TupleTypeAliasNode not implemented"); }
+
+/* Resolve aliases using currScope_->resolveAlias */
+void MLIRGen::visit(TypeAliasDecNode* node) {
+    /* Nothing to do - already declared during semantic analysis. */
+}
+
+/* Resolve aliases using currScope_->resolveAlias */
+void MLIRGen::visit(TypeAliasNode* node) {
+    /* Nothing to do - already declared during semantic analysis. */
+}
+
+/* Resolve aliases using currScope_->resolveAlias */
+void MLIRGen::visit(TupleTypeAliasNode* node) {
+    /* Nothing to do - already declared during semantic analysis. */
+}
 
 // Statements
-void MLIRGen::visit(AssignStatNode* node) { throw std::runtime_error("AssignStatNode not implemented"); }
+void MLIRGen::visit(AssignStatNode* node) {
+    if (!node->expr) throw std::runtime_error("FATAL: No expr for assign stat found"); 
+    node->expr->accept(*this);
+    VarInfo* to = currScope_->resolveVar(node->name);
+    VarInfo from = popValue();
+
+    if (to->isConst) {
+        throw AssignError(1, "Cannot assign to const variable '" + to->identifier + "'.");
+    }
+
+    assignTo(&from, to);
+}
 
 void MLIRGen::visit(OutputStatNode* node) {
     
@@ -696,8 +661,56 @@ void MLIRGen::visit(TupleLiteralNode* node) {
     pushValue(tupleVarInfo);
 }
 
+void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable) {
+    // Tuple assignment: element-wise store with implicit scalar promotions
+    if (variable->type.baseType == BaseType::TUPLE) {
+        if (literal->type.baseType != BaseType::TUPLE) {
+            throw AssignError(1, "Cannot assign non-tuple to tuple variable '");
+        }
+        // Ensure destination tuple storage exists
+        if (variable->mlirSubtypes.empty()) {
+            allocaVar(variable);
+        }
+        // Ensure literal has alloca'd elements
+        if (literal->mlirSubtypes.empty()) {
+            throw std::runtime_error("FATAL: Assigning to '" + variable->identifier + "' with tuple that has no mlirSubtypes.");
+        }
+        if (literal->type.subTypes.size() != variable->type.subTypes.size()) {
+            throw AssignError(1, "Tuple arity mismatch in assignment.");
+        }
+        for (size_t i = 0; i < variable->mlirSubtypes.size(); ++i) {
+            VarInfo srcElem = literal->mlirSubtypes[i];
+            VarInfo& dstElem = variable->mlirSubtypes[i];
+            // Promote if needed (supports int->real, no-op otherwise)
+            VarInfo promoted = promoteType(&srcElem, &dstElem.type);
+            mlir::Value loaded = builder_.create<mlir::memref::LoadOp>(loc_, promoted.value, mlir::ValueRange{});
+            builder_.create<mlir::memref::StoreOp>(loc_, loaded, dstElem.value, mlir::ValueRange{});
+        }
+        return;
+    }
+
+    // Scalar assignment
+    // ensure var has a memref allocated
+    if (!variable->value) {
+        allocaVar(variable);
+    }
+
+    VarInfo promoted = promoteType(literal, &variable->type); // handle type promotions + errors
+
+    mlir::Value loadedVal = builder_.create<mlir::memref::LoadOp>(
+        loc_, promoted.value, mlir::ValueRange{}
+    );
+    builder_.create<mlir::memref::StoreOp>(
+        loc_, loadedVal, variable->value, mlir::ValueRange{}
+    );
+}
+
 void MLIRGen::allocaLiteral(VarInfo* varInfo) {
     varInfo->isConst = true;
+    allocaVar(varInfo);
+}
+
+void MLIRGen::allocaVar(VarInfo* varInfo) {
     switch (varInfo->type.baseType) {
         case BaseType::BOOL:
             varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
@@ -722,9 +735,13 @@ void MLIRGen::allocaLiteral(VarInfo* varInfo) {
             }
             for (CompleteType& subtype: varInfo->type.subTypes) {
                 VarInfo mlirSubtype = VarInfo(subtype);
-                mlirSubtype.isConst = true;
-                varInfo->mlirSubtypes.emplace_back(mlirSubtype);
-                allocaLiteral(&varInfo->mlirSubtypes.back());
+                mlirSubtype.isConst = varInfo->isConst; // Copy 'const'ness from parent
+
+                // Copy over type info into VarInfo's subtypes
+                varInfo->mlirSubtypes.emplace_back(
+                    mlirSubtype
+                );
+                allocaVar(&varInfo->mlirSubtypes.back());
             }
             break;
 
@@ -902,46 +919,14 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
     return to;
 }
 
-void MLIRGen::allocaVar(VarInfo* varInfo) {
-    switch (varInfo->type.baseType) {
-        case BaseType::BOOL:
-            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
-                loc_, mlir::MemRefType::get({}, builder_.getI1Type()));
-            break;
-        case BaseType::CHARACTER:
-            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
-                loc_, mlir::MemRefType::get({}, builder_.getI8Type()));
-            break;
-        case BaseType::INTEGER:
-            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
-                loc_, mlir::MemRefType::get({}, builder_.getI32Type()));
-            break;
-        case BaseType::REAL:
-            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
-                loc_, mlir::MemRefType::get({}, builder_.getF32Type()));
-            break;
-        case BaseType::TUPLE: {
-            if (varInfo->type.subTypes.size() < 2) {
-                throw SizeError(1, "Error: Tuple must have at least 2 elements.");
-            }
-            for (CompleteType& subtype : varInfo->type.subTypes) {
-                VarInfo mlirSubtype = VarInfo(subtype);
-                mlirSubtype.isConst = varInfo->isConst;
-                varInfo->mlirSubtypes.emplace_back(mlirSubtype);
-                allocaVar(&varInfo->mlirSubtypes.back());
-            }
-            break;
-        }
-        default:
-            throw std::runtime_error("allocaVar FATAL: unsupported type " +
-                std::to_string(static_cast<int>(varInfo->type.baseType)));
-    }
-}
-
+/* Only allows implicit promotion from integer -> real. throws AssignError otherwise. */
 VarInfo MLIRGen::promoteType(VarInfo* from, CompleteType* toType) {
+    // No-op when types are identical
     if (from->type == *toType) {
-        return *from; // no-op
+        return *from;
     }
+
+    // Only support integer -> real promotion
     if (from->type.baseType == BaseType::INTEGER && toType->baseType == BaseType::REAL) {
         VarInfo to = VarInfo(*toType);
         allocaLiteral(&to);
@@ -950,46 +935,9 @@ VarInfo MLIRGen::promoteType(VarInfo* from, CompleteType* toType) {
         builder_.create<mlir::memref::StoreOp>(loc_, fVal, to.value, mlir::ValueRange{});
         return to;
     }
+
     throw AssignError(1, std::string("Codegen: unsupported promotion from '") +
         toString(from->type) + "' to '" + toString(*toType) + "'.");
-}
-
-void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable) {
-    // Tuple assignment: element-wise
-    if (variable->type.baseType == BaseType::TUPLE) {
-        if (literal->type.baseType != BaseType::TUPLE) {
-            throw AssignError(1, "Cannot assign non-tuple to tuple variable.");
-        }
-        if (variable->mlirSubtypes.empty()) {
-            allocaVar(variable);
-        }
-        if (literal->mlirSubtypes.empty()) {
-            throw AssignError(1, "Tuple source has no element storage.");
-        }
-        if (literal->type.subTypes.size() != variable->type.subTypes.size()) {
-            throw AssignError(1, "Tuple arity mismatch in assignment.");
-        }
-        for (size_t i = 0; i < variable->mlirSubtypes.size(); ++i) {
-            VarInfo srcElem = literal->mlirSubtypes[i];
-            VarInfo& dstElem = variable->mlirSubtypes[i];
-            VarInfo promoted = promoteType(&srcElem, &dstElem.type);
-            mlir::Value loaded = builder_.create<mlir::memref::LoadOp>(loc_, promoted.value, mlir::ValueRange{});
-            builder_.create<mlir::memref::StoreOp>(loc_, loaded, dstElem.value, mlir::ValueRange{});
-        }
-        return;
-    }
-
-    // Scalar assignment
-    if (!variable->value) {
-        allocaVar(variable);
-    }
-    VarInfo promoted = promoteType(literal, &variable->type);
-    mlir::Value loadedVal = builder_.create<mlir::memref::LoadOp>(
-        loc_, promoted.value, mlir::ValueRange{}
-    );
-    builder_.create<mlir::memref::StoreOp>(
-        loc_, loadedVal, variable->value, mlir::ValueRange{}
-    );
 }
 
 

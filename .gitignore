@@ -13,12 +13,3 @@ build/
 
 # Ignore macOS files
 .DS_STORE
-
-# Ignore cache files
-.cache/
-
-# Ignore antlr generated files
-grammar/.antlr/
-
-# Ignore test output files
-tests/fake-output/
