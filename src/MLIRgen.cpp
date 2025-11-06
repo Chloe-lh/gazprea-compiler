@@ -284,39 +284,28 @@ void MLIRGen::initializeGlobalInMain(const std::string& varName, std::shared_ptr
 }
 
 void MLIRGen::visit(TypedDecNode* node) {
-    // Get the variable's type from the type alias
-    CompleteType varType = node->type_alias->type;
-    
-    // Check if variable is already declared in the current scope
-    // We check the symbols map directly to avoid throwing if the variable doesn't exist
-    const auto& symbols = currScope_->symbols();
-    if (symbols.find(node->name) != symbols.end()) {
-        throw SymbolError(1, "Variable '" + node->name + "' already declared.");
+    // Resolve variable declared by semantic analysis
+    VarInfo* declaredVar = currScope_->resolveVar(node->name);
+
+    // Keep local constness consistent (semantic pass enforces this already)
+    if (node->qualifier == "const") {
+        declaredVar->isConst = true;
+    } else if (node->qualifier == "var") {
+        declaredVar->isConst = false;
     }
-    
-    // Determine if this is a constant
-    bool isConst = (node->qualifier == "const" || node->qualifier.empty());
-    
-    // Try to extract compile-time constant value from initializer
-    mlir::Attribute initAttr = nullptr;
+
+    // Ensure storage exists regardless of initializer
+    if (!declaredVar->value && declaredVar->type.baseType != BaseType::TUPLE) {
+        this->allocaVar(declaredVar);
+    } else if (declaredVar->type.baseType == BaseType::TUPLE && declaredVar->mlirSubtypes.empty()) {
+        this->allocaVar(declaredVar);
+    }
+
+    // Optional initializer: evaluate then assign with implicit promotion
     if (node->init) {
-        initAttr = extractConstantValue(node->init, varType);
-    }
-    
-    // Create global variable with initializer (if compile-time constant)
-    createGlobalVariable(
-        node->name,
-        varType,
-        isConst,
-        initAttr  // nullptr if not a compile-time constant
-    );
-    
-    // Store in scope
-    currScope_->declareVar(node->name, varType, isConst);
-    
-    // If initialization expression is not a compile-time constant, defer to main()
-    if (node->init && !initAttr) {
-        deferredInits_.push_back({node->name, node->init});
+        node->init->accept(*this);
+        VarInfo literal = popValue();
+        this->assignTo(&literal, declaredVar);
     }
 }
 
@@ -876,6 +865,96 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
     }
 
     return to;
+}
+
+void MLIRGen::allocaVar(VarInfo* varInfo) {
+    switch (varInfo->type.baseType) {
+        case BaseType::BOOL:
+            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
+                loc_, mlir::MemRefType::get({}, builder_.getI1Type()));
+            break;
+        case BaseType::CHARACTER:
+            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
+                loc_, mlir::MemRefType::get({}, builder_.getI8Type()));
+            break;
+        case BaseType::INTEGER:
+            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
+                loc_, mlir::MemRefType::get({}, builder_.getI32Type()));
+            break;
+        case BaseType::REAL:
+            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
+                loc_, mlir::MemRefType::get({}, builder_.getF32Type()));
+            break;
+        case BaseType::TUPLE: {
+            if (varInfo->type.subTypes.size() < 2) {
+                throw SizeError(1, "Error: Tuple must have at least 2 elements.");
+            }
+            for (CompleteType& subtype : varInfo->type.subTypes) {
+                VarInfo mlirSubtype = VarInfo(subtype);
+                mlirSubtype.isConst = varInfo->isConst;
+                varInfo->mlirSubtypes.emplace_back(mlirSubtype);
+                allocaVar(&varInfo->mlirSubtypes.back());
+            }
+            break;
+        }
+        default:
+            throw std::runtime_error("allocaVar FATAL: unsupported type " +
+                std::to_string(static_cast<int>(varInfo->type.baseType)));
+    }
+}
+
+VarInfo MLIRGen::promoteType(VarInfo* from, CompleteType* toType) {
+    if (from->type == *toType) {
+        return *from; // no-op
+    }
+    if (from->type.baseType == BaseType::INTEGER && toType->baseType == BaseType::REAL) {
+        VarInfo to = VarInfo(*toType);
+        allocaLiteral(&to);
+        mlir::Value i32Val = builder_.create<mlir::memref::LoadOp>(loc_, from->value, mlir::ValueRange{});
+        mlir::Value fVal = builder_.create<mlir::arith::SIToFPOp>(loc_, builder_.getF32Type(), i32Val);
+        builder_.create<mlir::memref::StoreOp>(loc_, fVal, to.value, mlir::ValueRange{});
+        return to;
+    }
+    throw AssignError(1, std::string("Codegen: unsupported promotion from '") +
+        toString(from->type) + "' to '" + toString(*toType) + "'.");
+}
+
+void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable) {
+    // Tuple assignment: element-wise
+    if (variable->type.baseType == BaseType::TUPLE) {
+        if (literal->type.baseType != BaseType::TUPLE) {
+            throw AssignError(1, "Cannot assign non-tuple to tuple variable.");
+        }
+        if (variable->mlirSubtypes.empty()) {
+            allocaVar(variable);
+        }
+        if (literal->mlirSubtypes.empty()) {
+            throw AssignError(1, "Tuple source has no element storage.");
+        }
+        if (literal->type.subTypes.size() != variable->type.subTypes.size()) {
+            throw AssignError(1, "Tuple arity mismatch in assignment.");
+        }
+        for (size_t i = 0; i < variable->mlirSubtypes.size(); ++i) {
+            VarInfo srcElem = literal->mlirSubtypes[i];
+            VarInfo& dstElem = variable->mlirSubtypes[i];
+            VarInfo promoted = promoteType(&srcElem, &dstElem.type);
+            mlir::Value loaded = builder_.create<mlir::memref::LoadOp>(loc_, promoted.value, mlir::ValueRange{});
+            builder_.create<mlir::memref::StoreOp>(loc_, loaded, dstElem.value, mlir::ValueRange{});
+        }
+        return;
+    }
+
+    // Scalar assignment
+    if (!variable->value) {
+        allocaVar(variable);
+    }
+    VarInfo promoted = promoteType(literal, &variable->type);
+    mlir::Value loadedVal = builder_.create<mlir::memref::LoadOp>(
+        loc_, promoted.value, mlir::ValueRange{}
+    );
+    builder_.create<mlir::memref::StoreOp>(
+        loc_, loadedVal, variable->value, mlir::ValueRange{}
+    );
 }
 
 
