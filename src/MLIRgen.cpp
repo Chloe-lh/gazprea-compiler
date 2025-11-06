@@ -344,7 +344,18 @@ void MLIRGen::visit(TupleTypeAliasNode* node) {
 }
 
 // Statements
-void MLIRGen::visit(AssignStatNode* node) { throw std::runtime_error("AssignStatNode not implemented"); }
+void MLIRGen::visit(AssignStatNode* node) {
+    if (!node->expr) throw std::runtime_error("FATAL: No expr for assign stat found"); 
+    node->expr->accept(*this);
+    VarInfo* to = currScope_->resolveVar(node->name);
+    VarInfo from = popValue();
+
+    if (to->isConst) {
+        throw AssignError(1, "Cannot assign to const variable '" + to->identifier + "'.");
+    }
+
+    assignTo(&from, to);
+}
 
 void MLIRGen::visit(OutputStatNode* node) {
     
