@@ -1,10 +1,10 @@
 {
   "testDir": "testfiles",
   "testedExecutablePaths": {
-    "<team-name>": "<path-to-gazprea>"
+    "gazprea-sweaties": "../bin/gazc"
   },
   "runtimes": {
-    "<team-name>": "<path-to-runtime>"
+    "gazprea-sweaties": "../bin/libgazrt.dylib"
   }, 
   "toolchains": {
     "gazprea-llc": [
@@ -17,7 +17,7 @@
       }, 
       {
         "stepName": "llc",
-        "executablePath": "<path-to-llc>",
+        "executablePath": "./../../llvm-project/build/bin/llc",
         "arguments": ["-filetype=obj", "$INPUT", "-o", "$OUTPUT"],
         "output": "gaz.o"
       },

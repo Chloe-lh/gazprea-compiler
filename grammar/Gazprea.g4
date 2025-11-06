@@ -1,6 +1,6 @@
 grammar Gazprea;
 
-file: (dec|func|procedure|type_alias)* EOF;
+file: (dec|func|procedure|type_alias|stat)* EOF;
 
 func
     : FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS type block       #FunctionBlock
@@ -26,6 +26,8 @@ stat
     | CONTINUE END                  #ContinueStat
     | RETURN expr? END              #ReturnStat
     | CALL ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT END  #CallStat
+    | if_stat                             #IfStat
+    | loop_stat                           #LoopStat
     ;
 
 type //this should include basic types
@@ -68,15 +70,14 @@ expr
 
 tuple_dec: TUPLE PARENLEFT type (COMMA type)+ PARENRIGHT;
 tuple_literal: PARENLEFT expr (COMMA expr)+ PARENRIGHT;
-tuple_access: ID DECIM TUPLE_INT;
-TUPLE_INT: [1-9][0-9]*;
+tuple_access: ID DECIM INT;
 
 // declarations must be placed at the start of the block
 block: CURLLEFT dec* stat* CURLRIGHT;
 
-if: IF PARENLEFT expr PARENRIGHT (block|stat) (ELSE (block|stat))?;
+if_stat: IF PARENLEFT expr PARENRIGHT (block|stat) (ELSE (block|stat))?;
 
-loop
+loop_stat
     : LOOP (block|stat) (WHILE PARENLEFT expr PARENRIGHT END)? #LoopDefault
     | LOOP (WHILE PARENLEFT expr PARENRIGHT) (block|stat) #WhileLoopBlock
     ;
@@ -187,7 +188,7 @@ STRUCT: 'struct';
 ID: [a-zA-Z_][a-zA-Z0-9_]*;
 
 //skip whitespace and comments
-SL_COMMENT: '//'.*? -> skip; 
+SL_COMMENT: '//'.*? ('\n'|EOF) -> skip; 
 ML_COMMENT: '/*' .*? '*/' -> skip; //cannot be nested
 WS : [ \t\r\n]+ -> skip ;
 

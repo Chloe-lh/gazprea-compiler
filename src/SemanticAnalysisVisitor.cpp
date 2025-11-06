@@ -78,6 +78,12 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
     if (!current_->isDeclarationAllowed()) {
         throw DefinitionError(1, "Semantic Analysis: Declarations must appear at the top of a block."); // FIXME: placeholder error
     }
+    
+    // Visit the type alias first to resolve any type aliases
+    if (node->type_alias) {
+        node->type_alias->accept(*this);
+    }
+    
     if (node->init) {
         node->init->accept(*this);
     }

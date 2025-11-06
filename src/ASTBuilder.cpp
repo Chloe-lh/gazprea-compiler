@@ -8,6 +8,7 @@
 #include "Types.h"
 #include "antlr4-runtime.h"
 #include <any>
+#include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <stdlib.h>
@@ -23,13 +24,13 @@ template <typename T> static inline std::any node_any(std::shared_ptr<T> n) {
 }
 // Helpers that canonicalize the std::any payload for different AST families.
 template <typename T> static inline std::any expr_any(std::shared_ptr<T> n) {
-  return std::static_pointer_cast<ExprNode>(std::move(n));
+  return std::any(std::static_pointer_cast<ExprNode>(std::move(n)));
 }
 template <typename T> static inline std::any stat_any(std::shared_ptr<T> n) {
-  return std::static_pointer_cast<StatNode>(std::move(n));
+  return std::any(std::static_pointer_cast<StatNode>(std::move(n)));
 }
 template <typename T> static inline std::any dec_any(std::shared_ptr<T> n) {
-  return std::static_pointer_cast<DecNode>(std::move(n));
+  return std::any(std::static_pointer_cast<DecNode>(std::move(n)));
 }
 
 // Small helper for safely extracting shared_ptr<T> from a std::any produced
@@ -50,7 +51,31 @@ std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
   for (auto child : ctx->children) {
     auto anyNode = visit(child);
     if (anyNode.has_value()) {
-      auto node = safe_any_cast_ptr<ASTNode>(anyNode);
+      std::shared_ptr<ASTNode> node = nullptr;
+      // Try casting to ASTNode first
+      try {
+        node = std::any_cast<std::shared_ptr<ASTNode>>(anyNode);
+      } catch (const std::bad_any_cast &) {
+        // Try casting to StatNode and upcast
+        try {
+          auto statNode = std::any_cast<std::shared_ptr<StatNode>>(anyNode);
+          node = std::static_pointer_cast<ASTNode>(statNode);
+        } catch (const std::bad_any_cast &) {
+          // Try casting to DecNode and upcast
+          try {
+            auto decNode = std::any_cast<std::shared_ptr<DecNode>>(anyNode);
+            node = std::static_pointer_cast<ASTNode>(decNode);
+          } catch (const std::bad_any_cast &) {
+            // Try casting to ExprNode and upcast (unlikely but possible)
+            try {
+              auto exprNode = std::any_cast<std::shared_ptr<ExprNode>>(anyNode);
+              node = std::static_pointer_cast<ASTNode>(exprNode);
+            } catch (const std::bad_any_cast &) {
+              // Skip invalid node
+            }
+          }
+        }
+      }
       if (node)
         nodes.push_back(node);
     }
@@ -58,6 +83,7 @@ std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
   auto node = std::make_shared<FileNode>(std::move(nodes));
   return node_any(std::move(node));
 }
+
 std::any ASTBuilder::visitBlock(GazpreaParser::BlockContext *ctx) {
   std::vector<std::shared_ptr<DecNode>> decs;
   std::vector<std::shared_ptr<StatNode>> stats;
@@ -144,15 +170,15 @@ dec
 */
 std::any
 ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
-  // qualifier (optional)
-  std::string qualifier;
+  // qualifier (optional) - defaults to "const" if not provided (per grammar comment)
+  std::string qualifier = "const"; // default
   if (ctx->qualifier()) {
     auto qualAny = visit(ctx->qualifier());
     if (qualAny.has_value()) {
       try {
         qualifier = std::any_cast<std::string>(qualAny);
       } catch (const std::bad_any_cast &) {
-        qualifier = "";
+        qualifier = "const"; // default on error
       }
     }
   }
@@ -259,9 +285,9 @@ ASTBuilder::visitTupleAccessExpr(GazpreaParser::TupleAccessExprContext *ctx) {
   if (ta) {
     if (ta->ID())
       tupleName = ta->ID()->getText();
-    if (ta->TUPLE_INT()) {
+    if (ta->INT()) {
       try {
-        index = std::stoi(ta->TUPLE_INT()->getText());
+        index = std::stoi(ta->INT()->getText());
       } catch (const std::exception &) {
         index = 0;
       }
@@ -394,7 +420,11 @@ std::any ASTBuilder::visitOutputStat(GazpreaParser::OutputStatContext *ctx) {
   if (ctx->expr()) {
     auto anyExpr = visit(ctx->expr());
     if (anyExpr.has_value()) {
-      expr = safe_any_cast_ptr<ExprNode>(anyExpr);
+      try {
+        expr = std::any_cast<std::shared_ptr<ExprNode>>(anyExpr);
+      } catch (const std::bad_any_cast &) {
+        expr = nullptr;
+      }
     }
   }
   auto node = std::make_shared<OutputStatNode>(expr);
@@ -1041,89 +1071,77 @@ std::any ASTBuilder::visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx) {
 
   return node_any(std::move(node));
 }
-std::any ASTBuilder::visitIf(gazprea::GazpreaParser::IfContext *ctx) {
-  // Extract condition expression
-  std::shared_ptr<ExprNode> cond = nullptr;
-  if (ctx->expr()) {
-    auto anyCond = visit(ctx->expr());
-    if (anyCond.has_value()) {
-      cond = safe_any_cast_ptr<ExprNode>(anyCond);
-    }
+
+// if: IF PARENLEFT expr PARENRIGHT (block|stat) (ELSE (block|stat))?;
+std::any ASTBuilder::visitIfStat(gazprea::GazpreaParser::IfStatContext *ctx) {
+  auto ifCtx = ctx->if_stat();
+  if (!ifCtx) {
+    return nullptr;
   }
 
-  // The grammar allows either a block or a single statement for the then
-  // and optional else parts. Use the parse-tree positions to disambiguate
-  // which block/stat corresponds to the then vs else branch.
+  // Visit the condition expression
+  auto condAny = visit(ifCtx->expr());
+  auto cond = std::any_cast<std::shared_ptr<ExprNode>>(condAny);
+
+  // Determine and visit the 'then' branch
   std::shared_ptr<BlockNode> thenBlock = nullptr;
-  std::shared_ptr<BlockNode> elseBlock = nullptr;
   std::shared_ptr<StatNode> thenStat = nullptr;
-  std::shared_ptr<StatNode> elseStat = nullptr;
+  bool thenWasBlock = !ifCtx->block().empty();
 
-  auto blocks = ctx->block(); // may be empty or contain up to two entries
-  auto stats = ctx->stat();   // may be empty or contain up to two entries
-
-  // Helper lambdas to visit and cast
-  auto visitBlockAt = [&](size_t i) -> std::shared_ptr<BlockNode> {
-    if (i >= blocks.size())
-      return nullptr;
-    auto anyB = visit(blocks[i]);
-    if (anyB.has_value())
-      return safe_any_cast_ptr<BlockNode>(anyB);
-    return nullptr;
-  };
-  auto visitStatAt = [&](size_t i) -> std::shared_ptr<StatNode> {
-    if (i >= stats.size())
-      return nullptr;
-    auto anyS = visit(stats[i]);
-    if (anyS.has_value())
-      return safe_any_cast_ptr<StatNode>(anyS);
-    return nullptr;
-  };
-
-  // Determine which alternative is the 'then' part by comparing start token
-  // indices of the first block/stat (if present).
-  bool thenIsBlock = false;
-  if (!blocks.empty() && stats.empty()) {
-    thenIsBlock = true;
-  } else if (blocks.empty() && !stats.empty()) {
-    thenIsBlock = false;
-  } else if (!blocks.empty() && !stats.empty()) {
-    auto bTok = blocks[0]->getStart()->getTokenIndex();
-    auto sTok = stats[0]->getStart()->getTokenIndex();
-    thenIsBlock = (bTok < sTok);
-  }
-
-  if (thenIsBlock) {
-    thenBlock = visitBlockAt(0);
-    // else may be a second block or the first/stat(0) depending on which
-    if (blocks.size() >= 2) {
-      elseBlock = visitBlockAt(1);
-    } else if (stats.size() >= 1) {
-      // if there is a stat and it appears after the then-block, it is the
-      // else branch
-      if (stats[0]->getStart()->getTokenIndex() > blocks[0]->getStart()->getTokenIndex())
-        elseStat = visitStatAt(0);
-    }
+  if (thenWasBlock) {
+    auto blockAny = visit(ifCtx->block(0));
+    auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(blockAny);
+    thenBlock = std::dynamic_pointer_cast<BlockNode>(astNode);
   } else {
-    thenStat = visitStatAt(0);
-    if (stats.size() >= 2) {
-      elseStat = visitStatAt(1);
-    } else if (blocks.size() >= 1) {
-      if (blocks[0]->getStart()->getTokenIndex() > stats[0]->getStart()->getTokenIndex())
-        elseBlock = visitBlockAt(0);
+    auto statAny = visit(ifCtx->stat(0));
+    thenStat = std::any_cast<std::shared_ptr<StatNode>>(statAny);
+  }
+
+  // Visit the 'else' branch, if it exists
+  std::shared_ptr<BlockNode> elseBlock = nullptr;
+  std::shared_ptr<StatNode> elseStat = nullptr;
+  if (ifCtx->ELSE()) {
+    if (thenWasBlock) {
+      // If 'then' was a block, 'else' is either the second block or the first stat
+      if (ifCtx->block().size() > 1) {
+        auto blockAny = visit(ifCtx->block(1));
+        auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(blockAny);
+        elseBlock = std::dynamic_pointer_cast<BlockNode>(astNode);
+      } else if (!ifCtx->stat().empty()) {
+        auto statAny = visit(ifCtx->stat(0));
+        elseStat = std::any_cast<std::shared_ptr<StatNode>>(statAny);
+      }
+    } else {
+      // If 'then' was a stat, 'else' is either the first block or the second stat
+      if (!ifCtx->block().empty()) {
+        auto blockAny = visit(ifCtx->block(0));
+        auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(blockAny);
+        elseBlock = std::dynamic_pointer_cast<BlockNode>(astNode);
+      } else if (ifCtx->stat().size() > 1) {
+        auto statAny = visit(ifCtx->stat(1));
+        elseStat = std::any_cast<std::shared_ptr<StatNode>>(statAny);
+      }
     }
   }
 
-  // Construct IfNode using the appropriate constructor (block-style or
-  // single-statement style). Prefer block-style if thenBlock is present.
-  std::shared_ptr<IfNode> node = nullptr;
+  // Construct the IfNode using the correct constructor and return
+  std::shared_ptr<IfNode> node;
   if (thenBlock) {
     node = std::make_shared<IfNode>(cond, thenBlock, elseBlock);
   } else {
     node = std::make_shared<IfNode>(cond, thenStat, elseStat);
   }
+  return node_any(std::move(node));
+}
 
-  return stat_any(std::move(node));
+std::any ASTBuilder::visitLoopStat(GazpreaParser::LoopStatContext *ctx) {
+
+  // TODO: fix this
+  auto loopCtx = ctx->loop_stat();
+  if (!loopCtx) {
+    return nullptr;
+  }
+  return visit(loopCtx);
 }
 
 } // namespace gazprea

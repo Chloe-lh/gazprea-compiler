@@ -79,7 +79,13 @@ public:
     void allocaLiteral(VarInfo* varInfo);
     void allocaVar(VarInfo* varInfo);
     VarInfo castType(VarInfo* from, CompleteType* to);
+
     VarInfo promoteType(VarInfo* from, CompleteType* to);
+    mlir::Type getLLVMType(CompleteType type);
+    mlir::Value createGlobalVariable(const std::string& name, CompleteType type, bool isConst, mlir::Attribute initValue = nullptr);
+    mlir::Attribute extractConstantValue(std::shared_ptr<ExprNode> expr, CompleteType targetType);
+    void initializeGlobalInMain(const std::string& varName, std::shared_ptr<ExprNode> initExpr);
+
 
 private:
     VarInfo popValue();
@@ -87,6 +93,7 @@ private:
 
     BackEnd& backend_;
     mlir::OpBuilder& builder_;
+    mlir::OpBuilder allocaBuilder_;  // only for allocas
     mlir::ModuleOp module_;
     mlir::MLIRContext& context_;
     mlir::Location loc_;
@@ -97,4 +104,11 @@ private:
     // Storing named values + types
     Scope* root_;
     Scope* currScope_;
+    
+    // Track deferred global variable initializations (non-constant expressions)
+    struct DeferredInit {
+        std::string varName;
+        std::shared_ptr<ExprNode> initExpr;
+    };
+    std::vector<DeferredInit> deferredInits_;
 };
