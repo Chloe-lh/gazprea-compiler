@@ -64,7 +64,27 @@ void MLIRGen::visit(ProcedureNode* node) { throw std::runtime_error("not impleme
 
 // Declarations
 void MLIRGen::visit(TypedDecNode* node) { throw std::runtime_error("not implemented"); }
-void MLIRGen::visit(InferredDecNode* node) { throw std::runtime_error("not implemented"); }
+void MLIRGen::visit(InferredDecNode* node) {
+    if (!node->init) {
+        throw std::runtime_error("FATAL: Inferred declaration without initializer.");
+    }
+    node->init->accept(*this); // Resolve init value
+
+    VarInfo literal = popValue();
+    VarInfo* declaredVar = currScope_->resolveVar(node->name);
+
+
+    // Semantic analysis should have handled this - this is just in casse
+    if (node->qualifier == "const") {
+        declaredVar->isConst = true;
+    } else if (node->qualifier == "var") {
+        declaredVar->isConst = false;
+    } else {
+        throw StatementError(1, "Cannot infer variable '" + node->name + "' without qualifier."); // TODO: line number
+    }
+    
+    assignTo(&literal, declaredVar);
+}
 void MLIRGen::visit(TupleTypedDecNode* node) { throw std::runtime_error("not implemented"); }
 
 /* Resolve aliases using currScope_->resolveAlias */
@@ -214,8 +234,31 @@ void MLIRGen::visit(TupleLiteralNode* node) {
     pushValue(tupleVarInfo);
 }
 
+void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable) {
+    if (literal->type.baseType == BaseType::TUPLE || variable->type.baseType == BaseType::TUPLE) throw std::runtime_error("FATAL: tuple assignment not implemented in helper");
+
+
+    // ensure var has a memref allocated
+    if (!variable->value) {
+        allocaVar(variable);
+    }
+
+    VarInfo promoted = promoteType(literal, &variable->type); // handle type promotions + errors
+
+    mlir::Value loadedVal = builder_.create<mlir::memref::LoadOp>(
+        loc_, promoted.value, mlir::ValueRange{}
+    );
+    builder_.create<mlir::memref::StoreOp>(
+        loc_, loadedVal, variable->value, mlir::ValueRange{}
+    );
+}
+
 void MLIRGen::allocaLiteral(VarInfo* varInfo) {
     varInfo->isConst = true;
+    allocaVar(varInfo);
+}
+
+void MLIRGen::allocaVar(VarInfo* varInfo) {
     switch (varInfo->type.baseType) {
         case BaseType::BOOL:
             varInfo->value = builder_.create<mlir::memref::AllocaOp>(
@@ -247,13 +290,13 @@ void MLIRGen::allocaLiteral(VarInfo* varInfo) {
 
             for (CompleteType& subtype: varInfo->type.subTypes) {
                 VarInfo mlirSubtype = VarInfo(subtype);
-                mlirSubtype.isConst = true; // Literals are always const
+                mlirSubtype.isConst = varInfo->isConst; // Copy 'const'ness from parent
 
                 // Copy over type info into VarInfo's subtypes
                 varInfo->mlirSubtypes.emplace_back(
                     mlirSubtype
                 );
-                allocaLiteral(&varInfo->mlirSubtypes.back());
+                allocaVar(&varInfo->mlirSubtypes.back());
             }
             break;
 
@@ -429,6 +472,27 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
     }
 
     return to;
+}
+
+/* Only allows implicit promotion from integer -> real. throws AssignError otherwise. */
+VarInfo MLIRGen::promoteType(VarInfo* from, CompleteType* toType) {
+    // No-op when types are identical
+    if (from->type == *toType) {
+        return *from;
+    }
+
+    // Only support integer -> real promotion
+    if (from->type.baseType == BaseType::INTEGER && toType->baseType == BaseType::REAL) {
+        VarInfo to = VarInfo(*toType);
+        allocaLiteral(&to);
+        mlir::Value i32Val = builder_.create<mlir::memref::LoadOp>(loc_, from->value, mlir::ValueRange{});
+        mlir::Value fVal = builder_.create<mlir::arith::SIToFPOp>(loc_, builder_.getF32Type(), i32Val);
+        builder_.create<mlir::memref::StoreOp>(loc_, fVal, to.value, mlir::ValueRange{});
+        return to;
+    }
+
+    throw AssignError(1, std::string("Codegen: unsupported promotion from '") +
+        toString(from->type) + "' to '" + toString(*toType) + "'.");
 }
 
 

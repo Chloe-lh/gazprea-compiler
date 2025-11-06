@@ -75,8 +75,11 @@ public:
     void visit(TupleLiteralNode* node) override;
 
     // helpers
+    void assignTo(VarInfo* literal, VarInfo* variable);
     void allocaLiteral(VarInfo* varInfo);
+    void allocaVar(VarInfo* varInfo);
     VarInfo castType(VarInfo* from, CompleteType* to);
+    VarInfo promoteType(VarInfo* from, CompleteType* to);
 
 private:
     VarInfo popValue();
