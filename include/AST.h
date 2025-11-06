@@ -395,6 +395,10 @@ class TypeCastNode : public ExprNode {
 public:
   CompleteType targetType;
   std::shared_ptr<ExprNode> expr;
+  // If the target type in a cast was written as an identifier (alias),
+  // capture the alias name here so semantic analysis can resolve it
+  // When this is non-empty, `targetType` may be UNKNOWN as a placeholder.
+  std::string targetAliasName;
   TypeCastNode(const CompleteType &targetType, std::shared_ptr<ExprNode> expr);
   void accept(ASTVisitor &visitor) override;
 };

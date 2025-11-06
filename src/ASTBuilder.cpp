@@ -107,8 +107,9 @@ std::any ASTBuilder::visitTupleTypeCastExpr(GazpreaParser::TupleTypeCastExprCont
 std::any ASTBuilder::visitTypeCastExpr(GazpreaParser::TypeCastExprContext *ctx) {
   // Determine the target type (returns a CompleteType from visitType)
   CompleteType target = CompleteType(BaseType::UNKNOWN);
-  if (ctx->type()) {
-    auto anyType = visit(ctx->type());
+  auto tctx = ctx->type();
+  if (tctx) {
+    auto anyType = visit(tctx);
     if (anyType.has_value() && anyType.type() == typeid(CompleteType)) {
       try {
         target = std::any_cast<CompleteType>(anyType);
@@ -134,6 +135,11 @@ std::any ASTBuilder::visitTypeCastExpr(GazpreaParser::TypeCastExprContext *ctx) 
     }
   }
   auto node = std::make_shared<TypeCastNode>(target, expr);
+  // Preserve alias name text for casts like as<AliasName>(expr)
+  if (tctx && tctx->ID()) {
+    node->targetAliasName = tctx->ID()->getText();
+    node->targetType = CompleteType(BaseType::UNKNOWN);
+  }
   return expr_any(std::move(node));
 }
 /*
