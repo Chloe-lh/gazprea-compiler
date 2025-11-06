@@ -456,6 +456,30 @@ void MLIRGen::visit(ExpExpr* node) {
         rhs = builder_.create<mlir::arith::SIToFPOp>(loc_, f32Type, rhs);
     }
 
+    // Error check: 0 raised to negative power
+    auto zero = builder_.create<mlir::arith::ConstantOp>(
+            loc_, lhs.getType(), builder_.getZeroAttr(lhs.getType()));
+    
+    mlir::Value isZero = builder_.create<mlir::arith::CmpFOp>(
+            loc_, mlir::arith::CmpFPredicate::OEQ, lhs, zero);
+    
+    mlir::Value ltZero = builder_.create<mlir::arith::CmpFOp>(
+            loc_, mlir::arith::CmpFPredicate::OLT, rhs, zero);
+    
+    mlir::Value invalidExp = builder_.create<mlir::arith::AndIOp>(loc_, isZero, ltZero);
+
+    auto parentBlock = builder_.getBlock();
+    auto errorBlock = parentBlock->splitBlock(builder_.getInsertionPoint());
+    auto continueBlock = errorBlock->splitBlock(errorBlock->begin());
+    
+    builder_.create<mlir::cf::CondBranchOp>(loc_, invalidExp, errorBlock, mlir::ValueRange{}, continueBlock, mlir::ValueRange{});
+
+    builder_.setInsertionPointToStart(errorBlock);
+    auto errorMsg = builder_.create<mlir::arith::ConstantOp>(loc_, builder_.getStringAttr("Math Error: 0 cannot be raised to a negative power."));
+    builder_.create<mlir::func::CallOp>(loc_, "MathError", mlir::TypeRange{}, mlir::ValueRange{errorMsg});
+    
+    builder_.setInsertionPointToStart(continueBlock);
+
     mlir::Value result = builder_.create<mlir::math::PowFOp>(loc_, lhs, rhs);
 
     // If original operands were int, apply math.floor and cast back to int
