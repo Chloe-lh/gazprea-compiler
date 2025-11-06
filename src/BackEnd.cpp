@@ -87,6 +87,12 @@ int BackEnd::lowerDialects() {
     return 0;
 }
 
+void BackEnd::dumpMLIR(std::ostream &os) {
+    // Dump the MLIR module to the output stream
+    llvm::raw_os_ostream output(os);
+    module.print(output);
+}
+
 void BackEnd::dumpLLVM(std::ostream &os) {  
     // The only remaining dialects in our module after the passes are builtin
     // and LLVM. Setup translation patterns to get them to LLVM IR.
