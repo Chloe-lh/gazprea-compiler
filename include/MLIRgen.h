@@ -77,6 +77,8 @@ public:
     // helpers
     void allocaLiteral(VarInfo* varInfo);
     VarInfo castType(VarInfo* from, CompleteType* to);
+    mlir::Type getLLVMType(CompleteType type);
+    mlir::Value createGlobalVariable(const std::string& name, CompleteType type, bool isConst, mlir::Attribute initValue = nullptr);
 
 private:
     VarInfo popValue();
@@ -84,6 +86,7 @@ private:
 
     BackEnd& backend_;
     mlir::OpBuilder& builder_;
+    mlir::OpBuilder allocaBuilder_;  // only for allocas
     mlir::ModuleOp module_;
     mlir::MLIRContext& context_;
     mlir::Location loc_;

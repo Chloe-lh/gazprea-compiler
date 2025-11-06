@@ -11,25 +11,53 @@ After generating the MLIR, Backend will lower the dialects and output LLVM IR
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "CompileTimeExceptions.h"
 
 
 #include <stdexcept>
 
-MLIRGen::MLIRGen(BackEnd& backend)
+MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope)
     : backend_(backend),
       builder_(*backend.getBuilder()),
+      allocaBuilder_(*backend.getBuilder()), // Dummy init, will be set in FileNode
+      module_(backend.getModule()),
+      context_(backend.getContext()),
+      loc_(backend.getLoc()),
+      root_(rootScope) {
+
+    // Ensure printf and global strings are created upfront
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("printf")) {
+        auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+        auto i32Ty = builder_.getI32Type();
+        auto printfType = mlir::LLVM::LLVMFunctionType::get(i32Ty, ptrTy, true);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "printf", printfType);
+    }
+    auto createGlobalStringIfMissing = [&](const char *str, const char *name) {
+        if (!module_.lookupSymbol<mlir::LLVM::GlobalOp>(name)) {
+            mlir::Type charType = builder_.getI8Type();
+            auto strRef = mlir::StringRef(str, strlen(str) + 1);
+            auto strType = mlir::LLVM::LLVMArrayType::get(charType, strRef.size());
+            builder_.create<mlir::LLVM::GlobalOp>(loc_, strType, true,
+                                    mlir::LLVM::Linkage::Internal, name,
+                                    builder_.getStringAttr(strRef), 0);
+        }
+    };
+    createGlobalStringIfMissing("%d\0", "intFormat");
+    createGlobalStringIfMissing("%c\0", "charFormat");
+    createGlobalStringIfMissing("%f\0", "floatFormat");
+    createGlobalStringIfMissing("\n\0", "newline");
+}
+
+MLIRGen::MLIRGen(BackEnd& backend)
+// TODO: is this constructor needed?
+    : backend_(backend),
+      builder_(*backend.getBuilder()),
+      allocaBuilder_(*backend.getBuilder()), // Dummy init, will be set in FileNode
       module_(backend.getModule()),
       context_(backend.getContext()),
       loc_(backend.getLoc()) {}
 
-MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope)
-    : backend_(backend),
-      builder_(*backend.getBuilder()),
-      module_(backend.getModule()),
-      context_(backend.getContext()),
-      loc_(backend.getLoc()),
-      root_(rootScope) {}
 
 VarInfo MLIRGen::popValue() {
     if (v_stack_.empty()) {
@@ -45,12 +73,87 @@ void MLIRGen::pushValue(VarInfo& value) {
 }
 
 void MLIRGen::visit(FileNode* node) {
-    // Initialize current scope to the semantic root if provided
     currScope_ = root_;
-    for (auto& line: node->stats) {
-        line->accept(*this);
+    
+    // Separate nodes by type: declarations, functions/procedures, and statements
+    std::vector<std::shared_ptr<ASTNode>> declarations;
+    std::vector<std::shared_ptr<ASTNode>> functions;
+    std::vector<std::shared_ptr<ASTNode>> statements;
+    
+    for (auto& child : node->stats) {
+        // Determine the type of node
+        if (std::dynamic_pointer_cast<DecNode>(child)) {
+            declarations.push_back(child);
+        } else if (std::dynamic_pointer_cast<FuncStatNode>(child) ||
+                   std::dynamic_pointer_cast<FuncBlockNode>(child) ||
+                   std::dynamic_pointer_cast<FuncPrototypeNode>(child) ||
+                   std::dynamic_pointer_cast<ProcedureNode>(child)) {
+            functions.push_back(child);
+        } else if (std::dynamic_pointer_cast<StatNode>(child)) {
+            statements.push_back(child);
+        } else if (std::dynamic_pointer_cast<TypeAliasDecNode>(child)) {
+            // Type aliases are also declarations
+            declarations.push_back(child);
+        }
     }
+
+    // Set insertion point to module level for creating globals
+    auto* moduleBuilder = backend_.getBuilder().get();
+    auto savedInsertionPoint = moduleBuilder->saveInsertionPoint();
+    moduleBuilder->setInsertionPointToStart(module_.getBody());
+    
+    for (auto& decl : declarations) {
+        decl->accept(*this);
+    }
+    
+    // Step 2: Process functions/procedures (emit as separate functions)
+    // Functions will set their own insertion points
+    for (auto& func : functions) {
+        func->accept(*this);
+    }
+    
+    // Step 3: Process statements - wrap in main() function
+    // Only create main if there are statements
+    if (!statements.empty()) {
+        // Restore builder to module level to create main function
+        moduleBuilder->restoreInsertionPoint(savedInsertionPoint);
+        moduleBuilder->setInsertionPointToStart(module_.getBody());
+        
+        mlir::FunctionType mainType = builder_.getFunctionType({}, {builder_.getI32Type()});
+        auto mainFunc = builder_.create<mlir::func::FuncOp>(loc_, "main", mainType);
+        mlir::Block* entryBlock = mainFunc.addEntryBlock();
+        
+        // The allocaBuilder points to the very beginning of the function.
+        // All memref.alloca operations MUST be generated here.
+        allocaBuilder_ = mlir::OpBuilder(entryBlock, entryBlock->begin());
+
+        // The main builder starts generating code inside the main function's entry block.
+        builder_.setInsertionPointToStart(entryBlock);
+
+        for (auto& stat : statements) {
+            stat->accept(*this);
+        }
+
+        // Add a `return 0` at the end of main.
+        // Ensure return is the last operation - find the last operation and insert after it
+        if (!entryBlock->empty()) {
+            // Remove any existing terminator
+            mlir::Operation& lastOp = entryBlock->back();
+            if (lastOp.hasTrait<mlir::OpTrait::IsTerminator>()) {
+                lastOp.erase();
+            }
+            // Insert return after the last operation
+            builder_.setInsertionPointAfter(&entryBlock->back());
+        }
+        mlir::Value zero = builder_.create<mlir::arith::ConstantOp>(
+            loc_, builder_.getI32Type(), builder_.getI32IntegerAttr(0));
+        builder_.create<mlir::func::ReturnOp>(loc_, zero);
+    }
+    
+    // Restore the original insertion point
+    moduleBuilder->restoreInsertionPoint(savedInsertionPoint);
 }
+
 
 
 
@@ -61,59 +164,278 @@ void MLIRGen::visit(FuncBlockNode* node) { throw std::runtime_error("FuncBlockNo
 void MLIRGen::visit(ProcedureNode* node) { throw std::runtime_error("ProcedureNode not implemented"); }
 
 // Declarations
-void MLIRGen::visit(TypedDecNode* node) { throw std::runtime_error("TypedDecNode not implemented"); }
-void MLIRGen::visit(InferredDecNode* node) { throw std::runtime_error("InferredDecNode not implemented"); }
-void MLIRGen::visit(TupleTypedDecNode* node) { throw std::runtime_error("TupleTypedDecNode not implemented"); }
+mlir::Type MLIRGen::getLLVMType(CompleteType type) {
+    switch (type.baseType) {
+        case BaseType::BOOL:
+            return builder_.getI1Type();
+        case BaseType::CHARACTER:
+            return builder_.getI8Type();
+        case BaseType::INTEGER:
+            return builder_.getI32Type();
+        case BaseType::REAL:
+            return builder_.getF32Type();
+        case BaseType::TUPLE:
+            // For tuples, we'll need to create a struct type or handle differently
+            // For now, throw an error - tuples as globals need more complex handling
+            throw std::runtime_error("Tuple types as globals not yet implemented");
+        default:
+            throw std::runtime_error("Unsupported type for global variable");
+    }
+}
+
+mlir::Value MLIRGen::createGlobalVariable(const std::string& name, CompleteType type, bool isConst, mlir::Attribute initValue) {
+    mlir::Type llvmType = getLLVMType(type);
+    
+    // Use module-level builder for globals (save current insertion point)
+    auto* moduleBuilder = backend_.getBuilder().get();
+    auto savedInsertionPoint = moduleBuilder->saveInsertionPoint();
+    moduleBuilder->setInsertionPointToStart(module_.getBody());
+    
+    // Create the global variable at module level
+    moduleBuilder->create<mlir::LLVM::GlobalOp>(
+        loc_,
+        llvmType,
+        isConst,  // constant
+        mlir::LLVM::Linkage::Internal,
+        name,
+        initValue,  // initial value (can be nullptr)
+        0  // alignment (0 = default)
+    );
+    
+    // Restore insertion point
+    moduleBuilder->restoreInsertionPoint(savedInsertionPoint);
+    
+    // The global is now in the module - we'll access it via lookupSymbol when needed
+    // Return a placeholder value - actual access will use AddressOfOp
+    return nullptr;  // Actual access will be done via module_.lookupSymbol<LLVM::GlobalOp>(name)
+}
+
+void MLIRGen::visit(TypedDecNode* node) {
+    // Get the variable's type from the type alias
+    CompleteType varType = node->type_alias->type;
+    
+    // Check if variable is already declared
+    if (currScope_->resolveVar(node->name)) {
+        throw SymbolError(1, "Variable '" + node->name + "' already declared.");
+    }
+    
+    // For now, we'll create globals without initialization
+    // Initialization will need to be handled separately when we're in a function context
+    // This is a simplified approach - proper implementation would:
+    // 1. Check if init is a compile-time constant -> use as attribute
+    // 2. Otherwise -> defer to main() initialization
+    
+    // Create global variable (without initializer for now)
+    createGlobalVariable(
+        node->name,
+        varType,
+        node->qualifier == "const" || node->qualifier.empty(),  // empty qualifier means const by default
+        nullptr  // Initialization handled separately
+    );
+    
+    // Store in scope
+    // Note: We'll need to get the global's address when accessing it
+    // For now, declare it in scope - the value will be set when we access it
+    currScope_->declareVar(node->name, varType, node->qualifier != "var");
+    
+    // Store initialization info for later (if needed)
+    // TODO: Properly handle initialization when we're in main()
+}
+
+void MLIRGen::visit(InferredDecNode* node) {
+    // For inferred types, we need the initializer to determine the type
+    // But we can't evaluate expressions at module level
+    // So we'll need to handle this differently - for now, throw an error
+    // A proper implementation would:
+    // 1. Analyze the initializer to determine type
+    // 2. Create global with that type
+    // 3. Defer initialization to main()
+    
+    // For now, this is a limitation - we need type inference at module level
+    throw std::runtime_error("InferredDecNode as global not yet fully implemented - need type inference");
+}
+
+void MLIRGen::visit(TupleTypedDecNode* node) {
+    // Tuples as globals are more complex - for now, throw an error
+    // Proper implementation would create a struct type and handle element-wise initialization
+    throw std::runtime_error("TupleTypedDecNode as global not yet fully implemented");
+}
 void MLIRGen::visit(TypeAliasDecNode* node) { throw std::runtime_error("TypeAliasDecNode not implemented"); }
 void MLIRGen::visit(TypeAliasNode* node) { throw std::runtime_error("TypeAliasNode not implemented"); }
 void MLIRGen::visit(TupleTypeAliasNode* node) { throw std::runtime_error("TupleTypeAliasNode not implemented"); }
 
 // Statements
 void MLIRGen::visit(AssignStatNode* node) { throw std::runtime_error("AssignStatNode not implemented"); }
-void MLIRGen::visit(OutputStatNode* node) { throw std::runtime_error("OutputStatNode not implemented"); }
+
+void MLIRGen::visit(OutputStatNode* node) {
+    
+    if (!node->expr) {
+        return;
+    }
+    
+    // Evaluate the expression to get the value to print
+    node->expr->accept(*this);
+    VarInfo exprVarInfo = popValue();
+
+    // Load the value from its memref
+    mlir::Value loadedValue = builder_.create<mlir::memref::LoadOp>(
+        loc_, exprVarInfo.value, mlir::ValueRange{});
+
+    // Determine format string name and get format string/printf upfront
+    const char* formatStrName = nullptr;
+    switch (exprVarInfo.type.baseType) {
+        case BaseType::BOOL:
+        case BaseType::INTEGER:
+            formatStrName = "intFormat";
+            break;
+        case BaseType::REAL:
+            formatStrName = "floatFormat";
+            break;
+        case BaseType::CHARACTER:
+            formatStrName = "charFormat";
+            break;
+        default:
+            throw std::runtime_error("MLIRGen::OutputStat: Unsupported type for printing.");
+    }
+
+    // Lookup the format string and printf function (these are module-level symbols)
+    auto formatString = module_.lookupSymbol<mlir::LLVM::GlobalOp>(formatStrName);
+    auto printfFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("printf");
+    
+    if (!formatString || !printfFunc) {
+        throw std::runtime_error("MLIRGen::OutputStat: Format string or printf function not found.");
+    }
+    
+    // Get the address of the format string - create this before any value transformations
+    mlir::Value formatStringPtr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, formatString);
+    
+    // Now transform the value if needed (extensions)
+    mlir::Value valueToPrint = loadedValue;
+    switch (exprVarInfo.type.baseType) {
+        case BaseType::BOOL:
+            // Extend boolean to i32 for printing
+            valueToPrint = builder_.create<mlir::arith::ExtUIOp>(
+                loc_, builder_.getI32Type(), loadedValue);
+            break;
+        case BaseType::REAL:
+            // Extend float to f64 for printing
+            valueToPrint = builder_.create<mlir::arith::ExtFOp>(
+                loc_, builder_.getF64Type(), loadedValue);
+            break;
+        case BaseType::CHARACTER:
+            // Extend character to i32 for printing
+            valueToPrint = builder_.create<mlir::arith::ExtSIOp>(
+                loc_, builder_.getI32Type(), loadedValue);
+            break;
+        case BaseType::INTEGER:
+            // No extension needed for integer
+            break;
+        default:
+            break;
+    }
+    
+    // Create the printf call with format string and value
+    // Both operands (formatStringPtr and valueToPrint) must dominate this operation
+    builder_.create<mlir::LLVM::CallOp>(
+        loc_, 
+        printfFunc, 
+        mlir::ValueRange{formatStringPtr, valueToPrint}
+    );
+}
+
 void MLIRGen::visit(InputStatNode* node) { throw std::runtime_error("InputStatNode not implemented"); }
 void MLIRGen::visit(BreakStatNode* node) { throw std::runtime_error("BreakStatNode not implemented"); }
 void MLIRGen::visit(ContinueStatNode* node) { throw std::runtime_error("ContinueStatNode not implemented"); }
 void MLIRGen::visit(ReturnStatNode* node) { throw std::runtime_error("ReturnStatNode not implemented"); }
 void MLIRGen::visit(CallStatNode* node) { throw std::runtime_error("CallStatNode not implemented"); }
 void MLIRGen::visit(IfNode* node) {
-    // Evaluate the condition expression
+    
+    // Evaluate the condition expression in the current block
     node->cond->accept(*this);
     VarInfo condVarInfo = popValue();
     
-    // Load the boolean value from the condition
+    // Load the condition value from its memref in the current block
     mlir::Value conditionValue = builder_.create<mlir::memref::LoadOp>(
-        loc_, condVarInfo.value, mlir::ValueRange{}
-    );
-    
+        loc_, condVarInfo.value, mlir::ValueRange{});
+
     // Determine if we have an else branch
     bool hasElse = (node->elseBlock != nullptr) || (node->elseStat != nullptr);
     
     // Create the scf.if operation
-    auto ifOp = builder_.create<mlir::scf::IfOp>(
-        loc_, conditionValue, hasElse
-    );
-    
+    auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, conditionValue, hasElse);
+
     // Build the 'then' region
-    builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
-    if (node->thenBlock) {
-        node->thenBlock->accept(*this);
-    } else if (node->thenStat) {
-        node->thenStat->accept(*this);
+    {
+        auto& thenBlock = ifOp.getThenRegion().front();
+        
+        // Set insertion point to the start of the then block
+        builder_.setInsertionPointToStart(&thenBlock);
+        
+        // Update allocaBuilder to point to the then block so allocas are created here
+        auto savedAllocaBuilder = allocaBuilder_;
+        allocaBuilder_ = mlir::OpBuilder(&thenBlock, thenBlock.begin());
+        
+        // Visit the then branch
+        if (node->thenBlock) {
+            node->thenBlock->accept(*this);
+        } else if (node->thenStat) {
+            node->thenStat->accept(*this);
+        }
+        
+        allocaBuilder_ = savedAllocaBuilder;
+        
+        // Remove any existing terminators
+        int terminatorCount = 0;
+        while (!thenBlock.empty() && thenBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+            thenBlock.back().erase();
+            terminatorCount++;
+        }
+        if (terminatorCount > 0) {
+        }
+        
+        // Insert yield at the end of the block
+        if (!thenBlock.empty()) {
+            builder_.setInsertionPointAfter(&thenBlock.back());
+        } else {
+            builder_.setInsertionPointToStart(&thenBlock);
+        }
+        builder_.create<mlir::scf::YieldOp>(loc_);
     }
-    builder_.create<mlir::scf::YieldOp>(loc_);
-    
+
     // Build the 'else' region if it exists
     if (hasElse) {
-        builder_.setInsertionPointToStart(&ifOp.getElseRegion().front());
+        auto& elseBlock = ifOp.getElseRegion().front();
+        
+        // Set insertion point to the start of the else block
+        builder_.setInsertionPointToStart(&elseBlock);
+        
+        // Update allocaBuilder to point to the else block so allocas are created here
+        auto savedAllocaBuilder = allocaBuilder_;
+        allocaBuilder_ = mlir::OpBuilder(&elseBlock, elseBlock.begin());
+        
+        // Visit the else branch
         if (node->elseBlock) {
             node->elseBlock->accept(*this);
         } else if (node->elseStat) {
             node->elseStat->accept(*this);
         }
+
+        allocaBuilder_ = savedAllocaBuilder;
+        
+        // Remove any existing terminators
+        while (!elseBlock.empty() && elseBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+            elseBlock.back().erase();
+        }
+        
+        // Insert yield at the end of the block
+        if (!elseBlock.empty()) {
+            builder_.setInsertionPointAfter(&elseBlock.back());
+        } else {
+            builder_.setInsertionPointToStart(&elseBlock);
+        }
         builder_.create<mlir::scf::YieldOp>(loc_);
     }
-    
+
     // Restore insertion point after the if operation
     builder_.setInsertionPointAfter(ifOp);
 }
@@ -130,6 +452,7 @@ void MLIRGen::visit(ExpExpr* node) { throw std::runtime_error("ExpExpr not imple
 void MLIRGen::visit(MultExpr* node) { throw std::runtime_error("MultExpr not implemented"); }
 void MLIRGen::visit(AddExpr* node) { throw std::runtime_error("AddExpr not implemented"); }
 void MLIRGen::visit(CompExpr* node) {
+    
     // Visit left and right operands
     node->left->accept(*this);
     node->right->accept(*this);
@@ -287,14 +610,17 @@ void MLIRGen::visit(CharNode* node) {
 }
 
 void MLIRGen::visit(IntNode* node) {
+    
     CompleteType completeType = CompleteType(BaseType::INTEGER);
     VarInfo varInfo = VarInfo(completeType);
 
     auto intType = builder_.getI32Type();
     allocaLiteral(&varInfo);
+    
     auto constInt = builder_.create<mlir::arith::ConstantOp>(
         loc_, intType, builder_.getIntegerAttr(intType, node->value)
     );
+    
     builder_.create<mlir::memref::StoreOp>(loc_, constInt, varInfo.value, mlir::ValueRange{});
 
     pushValue(varInfo);
@@ -344,41 +670,30 @@ void MLIRGen::allocaLiteral(VarInfo* varInfo) {
     varInfo->isConst = true;
     switch (varInfo->type.baseType) {
         case BaseType::BOOL:
-            varInfo->value = builder_.create<mlir::memref::AllocaOp>(
+            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
                 loc_, mlir::MemRefType::get({}, builder_.getI1Type()));
             break;
-
-        case (BaseType::CHARACTER):
-            varInfo->value = builder_.create<mlir::memref::AllocaOp>(
-                loc_, mlir::MemRefType::get({}, builder_.getI8Type())
-            );
+        case BaseType::CHARACTER:
+            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
+                loc_, mlir::MemRefType::get({}, builder_.getI8Type()));
             break;
-
-        case (BaseType::INTEGER):
-            varInfo->value = builder_.create<mlir::memref::AllocaOp>(
-                loc_, mlir::MemRefType::get({}, builder_.getI32Type())
-            );
+        case BaseType::INTEGER:
+            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
+                loc_, mlir::MemRefType::get({}, builder_.getI32Type()));
             break;
-
-        case (BaseType::REAL):
-            varInfo->value = builder_.create<mlir::memref::AllocaOp>(
-                loc_, mlir::MemRefType::get({}, builder_.getF32Type())
-            );
+        case BaseType::REAL:
+            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
+                loc_, mlir::MemRefType::get({}, builder_.getF32Type()));
             break;
 
         case (BaseType::TUPLE):
             if (varInfo->type.subTypes.size() < 2) {
                 throw SizeError(1, "Error: Tuple must have at least 2 elements.");
             }
-
             for (CompleteType& subtype: varInfo->type.subTypes) {
                 VarInfo mlirSubtype = VarInfo(subtype);
-                mlirSubtype.isConst = true; // Literals are always const
-
-                // Copy over type info into VarInfo's subtypes
-                varInfo->mlirSubtypes.emplace_back(
-                    mlirSubtype
-                );
+                mlirSubtype.isConst = true;
+                varInfo->mlirSubtypes.emplace_back(mlirSubtype);
                 allocaLiteral(&varInfo->mlirSubtypes.back());
             }
             break;
