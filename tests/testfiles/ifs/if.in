@@ -3,4 +3,5 @@ if (x < 6) {
     x -> std_output;
 }
 integer y = 5;
+if (y < 6) y -> std_output;
 //CHECK_FILE:if.out

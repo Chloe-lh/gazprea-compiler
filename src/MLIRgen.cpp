@@ -106,15 +106,15 @@ void MLIRGen::visit(FileNode* node) {
         decl->accept(*this);
     }
     
-    // Step 2: Process functions/procedures (emit as separate functions)
+    // Process functions/procedures (emit as separate functions)
     // Functions will set their own insertion points
     for (auto& func : functions) {
         func->accept(*this);
     }
     
-    // Step 3: Process statements - wrap in main() function
-    // Only create main if there are statements
-    if (!statements.empty()) {
+    // Process statements - wrap in main() function
+    // Create main if there are statements OR deferred initializations
+    if (!statements.empty() || !deferredInits_.empty()) {
         // Restore builder to module level to create main function
         moduleBuilder->restoreInsertionPoint(savedInsertionPoint);
         moduleBuilder->setInsertionPointToStart(module_.getBody());
@@ -129,6 +129,15 @@ void MLIRGen::visit(FileNode* node) {
 
         // The main builder starts generating code inside the main function's entry block.
         builder_.setInsertionPointToStart(entryBlock);
+
+        // Process deferred global variable initializations first
+        // This ensures globals are initialized before they're used in statements
+        for (auto& deferredInit : deferredInits_) {
+            initializeGlobalInMain(deferredInit.varName, deferredInit.initExpr);
+        }
+        
+        // Clear the deferred initializations list
+        deferredInits_.clear();
 
         for (auto& stat : statements) {
             stat->accept(*this);
@@ -210,43 +219,99 @@ mlir::Value MLIRGen::createGlobalVariable(const std::string& name, CompleteType 
     return nullptr;  // Actual access will be done via module_.lookupSymbol<LLVM::GlobalOp>(name)
 }
 
+mlir::Attribute MLIRGen::extractConstantValue(std::shared_ptr<ExprNode> expr, CompleteType targetType) {
+    if (!expr) {
+        return nullptr;
+    }
+    
+    // Try to extract compile-time constant values from literal nodes
+    if (auto intNode = std::dynamic_pointer_cast<IntNode>(expr)) {
+        if (targetType.baseType == BaseType::INTEGER) {
+            return builder_.getIntegerAttr(builder_.getI32Type(), intNode->value);
+        }
+    } else if (auto realNode = std::dynamic_pointer_cast<RealNode>(expr)) {
+        if (targetType.baseType == BaseType::REAL) {
+            return builder_.getFloatAttr(builder_.getF32Type(), realNode->value);
+        }
+    } else if (auto charNode = std::dynamic_pointer_cast<CharNode>(expr)) {
+        if (targetType.baseType == BaseType::CHARACTER) {
+            return builder_.getIntegerAttr(builder_.getI8Type(), static_cast<int>(charNode->value));
+        }
+    } else if (auto trueNode = std::dynamic_pointer_cast<TrueNode>(expr)) {
+        if (targetType.baseType == BaseType::BOOL) {
+            return builder_.getIntegerAttr(builder_.getI1Type(), 1);
+        }
+    } else if (auto falseNode = std::dynamic_pointer_cast<FalseNode>(expr)) {
+        if (targetType.baseType == BaseType::BOOL) {
+            return builder_.getIntegerAttr(builder_.getI1Type(), 0);
+        }
+    }
+    
+    // Not a compile-time constant - return nullptr to indicate deferral needed
+    return nullptr;
+}
+
+void MLIRGen::initializeGlobalInMain(const std::string& varName, std::shared_ptr<ExprNode> initExpr) {
+    // Look up the global variable
+    auto globalOp = module_.lookupSymbol<mlir::LLVM::GlobalOp>(varName);
+    if (!globalOp) {
+        throw SymbolError(1, "Global variable '" + varName + "' not found for initialization.");
+    }
+    
+    // Get the address of the global
+    mlir::Value globalAddr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
+    
+    // Evaluate the initialization expression
+    initExpr->accept(*this);
+    VarInfo initVarInfo = popValue();
+    
+    // Load the value from the memref
+    mlir::Value initValue = builder_.create<mlir::memref::LoadOp>(
+        loc_, initVarInfo.value, mlir::ValueRange{});
+    
+    // Store the value into the global using LLVM::StoreOp
+    builder_.create<mlir::LLVM::StoreOp>(loc_, initValue, globalAddr);
+}
+
 void MLIRGen::visit(TypedDecNode* node) {
     // Get the variable's type from the type alias
     CompleteType varType = node->type_alias->type;
     
-    // Check if variable is already declared
-    if (currScope_->resolveVar(node->name)) {
+    // Check if variable is already declared in the current scope
+    // We check the symbols map directly to avoid throwing if the variable doesn't exist
+    const auto& symbols = currScope_->symbols();
+    if (symbols.find(node->name) != symbols.end()) {
         throw SymbolError(1, "Variable '" + node->name + "' already declared.");
     }
     
-    // For now, we'll create globals without initialization
-    // Initialization will need to be handled separately when we're in a function context
-    // This is a simplified approach - proper implementation would:
-    // 1. Check if init is a compile-time constant -> use as attribute
-    // 2. Otherwise -> defer to main() initialization
+    // Determine if this is a constant
+    bool isConst = (node->qualifier == "const" || node->qualifier.empty());
     
-    // Create global variable (without initializer for now)
+    // Try to extract compile-time constant value from initializer
+    mlir::Attribute initAttr = nullptr;
+    if (node->init) {
+        initAttr = extractConstantValue(node->init, varType);
+    }
+    
+    // Create global variable with initializer (if compile-time constant)
     createGlobalVariable(
         node->name,
         varType,
-        node->qualifier == "const" || node->qualifier.empty(),  // empty qualifier means const by default
-        nullptr  // Initialization handled separately
+        isConst,
+        initAttr  // nullptr if not a compile-time constant
     );
     
     // Store in scope
-    // Note: We'll need to get the global's address when accessing it
-    // For now, declare it in scope - the value will be set when we access it
-    currScope_->declareVar(node->name, varType, node->qualifier != "var");
+    currScope_->declareVar(node->name, varType, isConst);
     
-    // Store initialization info for later (if needed)
-    // TODO: Properly handle initialization when we're in main()
+    // If initialization expression is not a compile-time constant, defer to main()
+    if (node->init && !initAttr) {
+        deferredInits_.push_back({node->name, node->init});
+    }
 }
 
 void MLIRGen::visit(InferredDecNode* node) {
-    // For inferred types, we need the initializer to determine the type
-    // But we can't evaluate expressions at module level
-    // So we'll need to handle this differently - for now, throw an error
-    // A proper implementation would:
+
     // 1. Analyze the initializer to determine type
     // 2. Create global with that type
     // 3. Defer initialization to main()
@@ -557,12 +622,42 @@ void MLIRGen::visit(TypeCastNode* node) {
 void MLIRGen::visit(IdNode* node) {
     VarInfo* varInfo = currScope_->resolveVar(node->id);
 
-    if (!varInfo || !varInfo->value) {
-        throw SymbolError(1, "Semantic Analysis: Variable '" + node->id + "' not initialized.");
+    if (!varInfo) {
+        throw SymbolError(1, "Semantic Analysis: Variable '" + node->id + "' not defined.");
+    }
+
+    // If the variable doesn't have a value, it's likely a global variable
+    // For globals, we need to create operations to access them
+    if (!varInfo->value) {
+        // Look up the global variable in the module
+        auto globalOp = module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->id);
+        if (!globalOp) {
+            throw SymbolError(1, "Semantic Analysis: Variable '" + node->id + "' not initialized.");
+        }
+        
+        // Get the address of the global variable
+        mlir::Value globalAddr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
+        
+        // Get the element type from the global (GlobalOp.getType() returns the element type)
+        mlir::Type elementType = globalOp.getType();
+        
+        // Create a temporary alloca to hold the loaded value
+        // This allows us to use the same memref-based code path
+        VarInfo tempVarInfo = VarInfo(varInfo->type);
+        allocaLiteral(&tempVarInfo);
+        
+        // Load from global using LLVM::LoadOp
+        mlir::Value loadedValue = builder_.create<mlir::LLVM::LoadOp>(
+            loc_, elementType, globalAddr);
+        
+        // Store the loaded value into the temporary memref
+        builder_.create<mlir::memref::StoreOp>(loc_, loadedValue, tempVarInfo.value, mlir::ValueRange{});
+        
+        pushValue(tempVarInfo);
+        return;
     }
 
     pushValue(*varInfo); 
-
 }
 
 void MLIRGen::visit(TrueNode* node) {

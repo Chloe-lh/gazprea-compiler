@@ -47,6 +47,7 @@ class BackEnd {
     int emitModule();
     int lowerDialects();
     void dumpLLVM(std::ostream &os);
+    void dumpMLIR(std::ostream &os);
 
    mlir::Location getLoc() const {
       return loc;

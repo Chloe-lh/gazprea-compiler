@@ -79,6 +79,8 @@ public:
     VarInfo castType(VarInfo* from, CompleteType* to);
     mlir::Type getLLVMType(CompleteType type);
     mlir::Value createGlobalVariable(const std::string& name, CompleteType type, bool isConst, mlir::Attribute initValue = nullptr);
+    mlir::Attribute extractConstantValue(std::shared_ptr<ExprNode> expr, CompleteType targetType);
+    void initializeGlobalInMain(const std::string& varName, std::shared_ptr<ExprNode> initExpr);
 
 private:
     VarInfo popValue();
@@ -97,4 +99,11 @@ private:
     // Storing named values + types
     Scope* root_;
     Scope* currScope_;
+    
+    // Track deferred global variable initializations (non-constant expressions)
+    struct DeferredInit {
+        std::string varName;
+        std::shared_ptr<ExprNode> initExpr;
+    };
+    std::vector<DeferredInit> deferredInits_;
 };
