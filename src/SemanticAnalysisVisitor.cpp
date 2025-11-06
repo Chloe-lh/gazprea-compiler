@@ -92,6 +92,7 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
     }
 
     // Declared type is carried as a CompleteType on the alias node
+    node->type_alias->accept(*this);
     CompleteType& varType = node->type_alias->type;
 
     // Ensure not already declared in scope
