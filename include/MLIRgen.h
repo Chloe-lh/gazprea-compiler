@@ -75,12 +75,14 @@ public:
     void visit(TupleLiteralNode* node) override;
 
     // helpers
+    void assignTo(VarInfo* literal, VarInfo* variable);
     void allocaLiteral(VarInfo* varInfo);
+    void allocaVar(VarInfo* varInfo);
     VarInfo castType(VarInfo* from, CompleteType* to);
-    mlir::Type getLLVMType(CompleteType type);
-    mlir::Value createGlobalVariable(const std::string& name, CompleteType type, bool isConst, mlir::Attribute initValue = nullptr);
-    mlir::Attribute extractConstantValue(std::shared_ptr<ExprNode> expr, CompleteType targetType);
+    VarInfo promoteType(VarInfo* from, CompleteType* to);
+    
     void initializeGlobalInMain(const std::string& varName, std::shared_ptr<ExprNode> initExpr);
+
 
 private:
     VarInfo popValue();
