@@ -35,6 +35,7 @@ type //this should include basic types
     | CHARACTER
     | INTEGER
     | REAL
+    | STRING
     | ID
     ;
 
@@ -48,6 +49,7 @@ expr
     : tuple_access                                      #TupleAccessExpr
     | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr
     | PARENLEFT expr PARENRIGHT                         #ParenExpr
+    | STRING_LIT                                       #StringExpr
     | <assoc=right> (ADD|MINUS) expr                    #UnaryExpr
     | <assoc=right> expr EXP expr                       #ExpExpr
     | expr op=(MULT|DIV|REM) expr                       #MultExpr
@@ -93,6 +95,7 @@ real
     ;
 
 CHAR: '\'' (ESC_SEQ | ~[\\']) '\'';
+STRING_LIT: '"' (ESC_SEQ | ~('\\'|'"'))* '"';
 
 fragment ESC_SEQ:
       '\\0'  // Null
