@@ -38,8 +38,29 @@ template <typename T> static inline std::any dec_any(std::shared_ptr<T> n) {
 template <typename T> static inline std::shared_ptr<T>
 safe_any_cast_ptr(const std::any &a) {
   try {
-    if (a.has_value() && a.type() == typeid(std::shared_ptr<T>))
+    if (!a.has_value())
+      return nullptr;
+    // Exact type match
+    if (a.type() == typeid(std::shared_ptr<T>))
       return std::any_cast<std::shared_ptr<T>>(a);
+    // Upcast case: value stored as std::shared_ptr<ASTNode>
+    if (a.type() == typeid(std::shared_ptr<ASTNode>)) {
+      auto base = std::any_cast<std::shared_ptr<ASTNode>>(a);
+      return std::dynamic_pointer_cast<T>(base);
+    }
+    // Common families also derive from ASTNode; try those too
+    if (a.type() == typeid(std::shared_ptr<ExprNode>)) {
+      auto base = std::any_cast<std::shared_ptr<ExprNode>>(a);
+      return std::dynamic_pointer_cast<T>(base);
+    }
+    if (a.type() == typeid(std::shared_ptr<StatNode>)) {
+      auto base = std::any_cast<std::shared_ptr<StatNode>>(a);
+      return std::dynamic_pointer_cast<T>(base);
+    }
+    if (a.type() == typeid(std::shared_ptr<DecNode>)) {
+      auto base = std::any_cast<std::shared_ptr<DecNode>>(a);
+      return std::dynamic_pointer_cast<T>(base);
+    }
   } catch (const std::bad_any_cast &) {
     // fall through
   }

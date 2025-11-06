@@ -372,7 +372,8 @@ void SemanticAnalysisVisitor::visit(ContinueStatNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(ReturnStatNode* node) {
-    if (!current_->isInFunction()) {
+    // Allow return inside func/proc, determined by non-null expected return type on the scope
+    if (current_->getReturnType() == nullptr) {
         throw StatementError(1, "Cannot use 'return' outside of function."); // TODO add line num
     }
 

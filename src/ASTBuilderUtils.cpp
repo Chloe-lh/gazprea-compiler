@@ -175,8 +175,10 @@ ExtractParams(ASTBuilder &builder,
 std::vector<std::pair<CompleteType, std::string>>
 ExtractParams(ASTBuilder &builder,
               gazprea::GazpreaParser::ProcedureContext *ctx) {
-  // procedure: no return type; all ctx->type() are parameters
-  size_t paramCount = ctx->type().size();
+  // procedure: optional RETURNS type at the end, parameter types precede it
+  size_t typeCount = ctx->type().size();
+  bool hasReturn = (ctx->RETURNS() != nullptr);
+  size_t paramCount = hasReturn && typeCount > 0 ? typeCount - 1 : typeCount;
   std::vector<GazpreaParser::TypeContext *> types;
   types.reserve(paramCount);
   for (size_t i = 0; i < paramCount; ++i) {
