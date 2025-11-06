@@ -75,8 +75,12 @@ void MLIRGen::pushValue(VarInfo& value) {
 }
 
 void MLIRGen::visit(FileNode* node) {
+    // Start from the semantic root, then descend into the top-level global scope
     currScope_ = root_;
-    
+    if (currScope_ && !currScope_->children().empty()) {
+        currScope_ = currScope_->children().front().get();
+    }
+
     // Separate nodes by type: declarations, functions/procedures, and statements
     std::vector<std::shared_ptr<ASTNode>> declarations;
     std::vector<std::shared_ptr<ASTNode>> functions;
