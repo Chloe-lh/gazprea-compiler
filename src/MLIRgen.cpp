@@ -10,6 +10,7 @@ After generating the MLIR, Backend will lower the dialects and output LLVM IR
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "CompileTimeExceptions.h"
 
 
@@ -75,8 +76,46 @@ void MLIRGen::visit(BreakStatNode* node) { throw std::runtime_error("BreakStatNo
 void MLIRGen::visit(ContinueStatNode* node) { throw std::runtime_error("ContinueStatNode not implemented"); }
 void MLIRGen::visit(ReturnStatNode* node) { throw std::runtime_error("ReturnStatNode not implemented"); }
 void MLIRGen::visit(CallStatNode* node) { throw std::runtime_error("CallStatNode not implemented"); }
-void MLIRGen::visit(IfNode* node) { 
-    throw std::runtime_error("IfNode not implemented"); 
+void MLIRGen::visit(IfNode* node) {
+    // Evaluate the condition expression
+    node->cond->accept(*this);
+    VarInfo condVarInfo = popValue();
+    
+    // Load the boolean value from the condition
+    mlir::Value conditionValue = builder_.create<mlir::memref::LoadOp>(
+        loc_, condVarInfo.value, mlir::ValueRange{}
+    );
+    
+    // Determine if we have an else branch
+    bool hasElse = (node->elseBlock != nullptr) || (node->elseStat != nullptr);
+    
+    // Create the scf.if operation
+    auto ifOp = builder_.create<mlir::scf::IfOp>(
+        loc_, conditionValue, hasElse
+    );
+    
+    // Build the 'then' region
+    builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
+    if (node->thenBlock) {
+        node->thenBlock->accept(*this);
+    } else if (node->thenStat) {
+        node->thenStat->accept(*this);
+    }
+    builder_.create<mlir::scf::YieldOp>(loc_);
+    
+    // Build the 'else' region if it exists
+    if (hasElse) {
+        builder_.setInsertionPointToStart(&ifOp.getElseRegion().front());
+        if (node->elseBlock) {
+            node->elseBlock->accept(*this);
+        } else if (node->elseStat) {
+            node->elseStat->accept(*this);
+        }
+        builder_.create<mlir::scf::YieldOp>(loc_);
+    }
+    
+    // Restore insertion point after the if operation
+    builder_.setInsertionPointAfter(ifOp);
 }
 void MLIRGen::visit(LoopNode* node) { throw std::runtime_error("LoopNode not implemented"); }
 void MLIRGen::visit(BlockNode* node) { 
@@ -90,7 +129,94 @@ void MLIRGen::visit(UnaryExpr* node) { throw std::runtime_error("UnaryExpr not i
 void MLIRGen::visit(ExpExpr* node) { throw std::runtime_error("ExpExpr not implemented"); }
 void MLIRGen::visit(MultExpr* node) { throw std::runtime_error("MultExpr not implemented"); }
 void MLIRGen::visit(AddExpr* node) { throw std::runtime_error("AddExpr not implemented"); }
-void MLIRGen::visit(CompExpr* node) { throw std::runtime_error("CompExpr not implemented"); }
+void MLIRGen::visit(CompExpr* node) {
+    // Visit left and right operands
+    node->left->accept(*this);
+    node->right->accept(*this);
+    
+    // Pop operands (right first, then left)
+    VarInfo rightVarInfo = popValue();
+    VarInfo leftVarInfo = popValue();
+    
+    // Determine the promoted type for comparison
+    CompleteType promotedType = promote(leftVarInfo.type, rightVarInfo.type);
+    if (promotedType.baseType == BaseType::UNKNOWN) {
+        promotedType = promote(rightVarInfo.type, leftVarInfo.type);
+    }
+    if (promotedType.baseType == BaseType::UNKNOWN) {
+        throw std::runtime_error("CompExpr: cannot promote types for comparison");
+    }
+    
+    // Cast both operands to the promoted type
+    VarInfo leftPromoted = castType(&leftVarInfo, &promotedType);
+    VarInfo rightPromoted = castType(&rightVarInfo, &promotedType);
+    
+    // Load the values
+    mlir::Value leftVal = builder_.create<mlir::memref::LoadOp>(
+        loc_, leftPromoted.value, mlir::ValueRange{}
+    );
+    mlir::Value rightVal = builder_.create<mlir::memref::LoadOp>(
+        loc_, rightPromoted.value, mlir::ValueRange{}
+    );
+    
+    // Create comparison operation based on operator and type
+    mlir::Value cmpResult;
+    CompleteType boolType = CompleteType(BaseType::BOOL);
+    VarInfo resultVarInfo = VarInfo(boolType);
+    allocaLiteral(&resultVarInfo);
+    
+    if (promotedType.baseType == BaseType::INTEGER) {
+        // Integer comparison
+        mlir::arith::CmpIPredicate predicate;
+        if (node->op == "<") {
+            predicate = mlir::arith::CmpIPredicate::slt;
+        } else if (node->op == ">") {
+            predicate = mlir::arith::CmpIPredicate::sgt;
+        } else if (node->op == "<=") {
+            predicate = mlir::arith::CmpIPredicate::sle;
+        } else if (node->op == ">=") {
+            predicate = mlir::arith::CmpIPredicate::sge;
+        } else if (node->op == "==") {
+            predicate = mlir::arith::CmpIPredicate::eq;
+        } else if (node->op == "!=") {
+            predicate = mlir::arith::CmpIPredicate::ne;
+        } else {
+            throw std::runtime_error("CompExpr: unknown operator '" + node->op + "'");
+        }
+        cmpResult = builder_.create<mlir::arith::CmpIOp>(
+            loc_, predicate, leftVal, rightVal
+        );
+    } else if (promotedType.baseType == BaseType::REAL) {
+        // Floating point comparison
+        mlir::arith::CmpFPredicate predicate;
+        if (node->op == "<") {
+            predicate = mlir::arith::CmpFPredicate::OLT;
+        } else if (node->op == ">") {
+            predicate = mlir::arith::CmpFPredicate::OGT;
+        } else if (node->op == "<=") {
+            predicate = mlir::arith::CmpFPredicate::OLE;
+        } else if (node->op == ">=") {
+            predicate = mlir::arith::CmpFPredicate::OGE;
+        } else if (node->op == "==") {
+            predicate = mlir::arith::CmpFPredicate::OEQ;
+        } else if (node->op == "!=") {
+            predicate = mlir::arith::CmpFPredicate::ONE;
+        } else {
+            throw std::runtime_error("CompExpr: unknown operator '" + node->op + "'");
+        }
+        cmpResult = builder_.create<mlir::arith::CmpFOp>(
+            loc_, predicate, leftVal, rightVal
+        );
+    } else {
+        throw std::runtime_error("CompExpr: comparison not supported for type");
+    }
+    
+    // Store the comparison result
+    builder_.create<mlir::memref::StoreOp>(loc_, cmpResult, resultVarInfo.value, mlir::ValueRange{});
+    
+    // Push result onto stack
+    pushValue(resultVarInfo);
+}
 void MLIRGen::visit(NotExpr* node) { throw std::runtime_error("NotExpr not implemented"); }
 void MLIRGen::visit(EqExpr* node) { throw std::runtime_error("EqExpr not implemented"); }
 void MLIRGen::visit(AndExpr* node) { throw std::runtime_error("AndExpr not implemented"); }
