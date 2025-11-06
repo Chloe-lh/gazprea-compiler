@@ -2,6 +2,7 @@
 #include "AST.h"
 #include "ASTBuilderUtils.h"
 #include "CompileTimeExceptions.h"
+#include "ConstantHelpers.h"
 #include "GazpreaParser.h"
 #include "Scope.h"
 #include "Types.h"
@@ -10,6 +11,7 @@
 #include <memory>
 #include <stdexcept>
 #include <stdlib.h>
+#include <type_traits>
 
 namespace gazprea {
 
@@ -48,7 +50,7 @@ std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
   for (auto child : ctx->children) {
     auto anyNode = visit(child);
     if (anyNode.has_value()) {
-      auto node = std::any_cast<std::shared_ptr<ASTNode>>(anyNode);
+      auto node = safe_any_cast_ptr<ASTNode>(anyNode);
       if (node)
         nodes.push_back(node);
     }
@@ -61,13 +63,13 @@ std::any ASTBuilder::visitBlock(GazpreaParser::BlockContext *ctx) {
   std::vector<std::shared_ptr<StatNode>> stats;
   for (auto decCtx : ctx->dec()) {
     auto decAny = visit(decCtx);
-    auto dec = std::any_cast<std::shared_ptr<DecNode>>(decAny);
+    auto dec = safe_any_cast_ptr<DecNode>(decAny);
     if (dec)
       decs.push_back(dec);
   }
   for (auto statCtx : ctx->stat()) {
     auto statAny = visit(statCtx);
-    auto stat = std::any_cast<std::shared_ptr<StatNode>>(statAny);
+    auto stat = safe_any_cast_ptr<StatNode>(statAny);
     if (stat)
       stats.push_back(stat);
   }
@@ -75,7 +77,6 @@ std::any ASTBuilder::visitBlock(GazpreaParser::BlockContext *ctx) {
   return node_any(std::move(node));
 }
 //| AS '<' tuple_dec  '>' PARENLEFT expr PARENRIGHT   #TupleTypeCastExpr
-// TODO  std::any visitTypeCastExpr(GazpreaParser::TypeCastExprContext *ctx)
 std::any ASTBuilder::visitTupleTypeCastExpr(GazpreaParser::TupleTypeCastExprContext *ctx){
   CompleteType targetTupleType = CompleteType(BaseType::UNKNOWN);
   if (ctx->tuple_dec()) {
@@ -93,11 +94,8 @@ std::any ASTBuilder::visitTupleTypeCastExpr(GazpreaParser::TupleTypeCastExprCont
   if (ctx->expr()) {
     auto anyExpr = visit(ctx->expr());
     if (anyExpr.has_value()) {
-      try {
-        expr = std::any_cast<std::shared_ptr<ExprNode>>(anyExpr);
-      } catch (const std::bad_any_cast &) {
-        expr = nullptr;
-      }
+      expr = safe_any_cast_ptr<ExprNode>(anyExpr);
+      
     }
   }
   auto node = std::make_shared<TupleTypeCastNode>(targetTupleType, expr);
@@ -127,11 +125,7 @@ std::any ASTBuilder::visitTypeCastExpr(GazpreaParser::TypeCastExprContext *ctx) 
   if (ctx->expr()) {
     auto anyExpr = visit(ctx->expr());
     if (anyExpr.has_value()) {
-      try {
-        expr = std::any_cast<std::shared_ptr<ExprNode>>(anyExpr);
-      } catch (const std::bad_any_cast &) {
-        expr = nullptr;
-      }
+      expr = safe_any_cast_ptr<ExprNode>(anyExpr);
     }
   }
   auto node = std::make_shared<TypeCastNode>(target, expr);
@@ -196,11 +190,7 @@ ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
   if (ctx->expr()) {
     auto exprAny = visit(ctx->expr());
     if (exprAny.has_value()) {
-      try {
-        init = std::any_cast<std::shared_ptr<ExprNode>>(exprAny);
-      } catch (const std::bad_any_cast &) {
-        init = nullptr;
-      }
+      init = safe_any_cast_ptr<ExprNode>(exprAny);
     }
   }
   auto node = std::make_shared<TypedDecNode>(id, typeAlias, qualifier, init);
@@ -226,11 +216,7 @@ ASTBuilder::visitInferredTypeDec(GazpreaParser::InferredTypeDecContext *ctx) {
   if (ctx->expr()) {
     auto exprAny = visit(ctx->expr());
     if (exprAny.has_value()) {
-      try {
-        expr = std::any_cast<std::shared_ptr<ExprNode>>(exprAny);
-      } catch (const std::bad_any_cast &) {
-        expr = nullptr;
-      }
+      expr = safe_any_cast_ptr<ExprNode>(exprAny);
     }
   }
   auto node = std::make_shared<InferredDecNode>(qualifier, id, expr);
@@ -256,11 +242,7 @@ ASTBuilder::visitTupleTypedDec(GazpreaParser::TupleTypedDecContext *ctx) {
   if (ctx->expr()) {
     auto anyInit = visit(ctx->expr());
     if (anyInit.has_value()) {
-      try {
-        init = std::any_cast<std::shared_ptr<ExprNode>>(anyInit);
-      } catch (const std::bad_any_cast &) {
-        init = nullptr;
-      }
+      init = safe_any_cast_ptr<ExprNode>(anyInit);
     }
   }
 
@@ -355,7 +337,7 @@ ASTBuilder::visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) {
 std::any ASTBuilder::visitAssignStat(GazpreaParser::AssignStatContext *ctx) {
   std::string name = ctx->ID()->getText();
   auto exprAny = visit(ctx->expr());
-  auto expr = std::any_cast<std::shared_ptr<ExprNode>>(exprAny);
+  auto expr = safe_any_cast_ptr<ExprNode>(exprAny);
   auto node = std::make_shared<AssignStatNode>(name, expr);
   return stat_any(std::move(node));
 }
@@ -373,15 +355,7 @@ std::any ASTBuilder::visitReturnStat(GazpreaParser::ReturnStatContext *ctx) {
   if (ctx->expr()) {
     auto anyExpr = visit(ctx->expr());
     if (anyExpr.has_value()) {
-      if (anyExpr.type() == typeid(std::shared_ptr<ExprNode>)) {
-        expr = std::any_cast<std::shared_ptr<ExprNode>>(anyExpr);
-      } else {
-        try {
-          expr = std::any_cast<std::shared_ptr<ExprNode>>(anyExpr);
-        } catch (const std::bad_any_cast &) {
-          // leave expr as nullptr on mismatch
-        }
-      }
+      expr = safe_any_cast_ptr<ExprNode>(anyExpr);
     }
   }
   auto node = std::make_shared<ReturnStatNode>(expr);
@@ -420,15 +394,7 @@ std::any ASTBuilder::visitOutputStat(GazpreaParser::OutputStatContext *ctx) {
   if (ctx->expr()) {
     auto anyExpr = visit(ctx->expr());
     if (anyExpr.has_value()) {
-      if (anyExpr.type() == typeid(std::shared_ptr<ExprNode>)) {
-        expr = std::any_cast<std::shared_ptr<ExprNode>>(anyExpr);
-      } else {
-        try {
-          expr = std::any_cast<std::shared_ptr<ExprNode>>(anyExpr);
-        } catch (const std::bad_any_cast &) {
-          expr = nullptr;
-        }
-      }
+      expr = safe_any_cast_ptr<ExprNode>(anyExpr);
     }
   }
   auto node = std::make_shared<OutputStatNode>(expr);
@@ -452,9 +418,8 @@ ASTBuilder::visitFunctionBlock(GazpreaParser::FunctionBlockContext *ctx) {
 
   if (ctx->block()) { // function has a block body
     auto anyBody = visit(ctx->block());
-    if (anyBody.has_value() &&
-        anyBody.type() == typeid(std::shared_ptr<BlockNode>)) {
-      body = std::any_cast<std::shared_ptr<BlockNode>>(anyBody);
+    if (anyBody.has_value()) {
+      body = safe_any_cast_ptr<BlockNode>(anyBody);
     }
   }
 
@@ -478,9 +443,8 @@ std::any ASTBuilder::visitFunctionBlockTupleReturn(
 
   if (ctx->block()) { // function has a block
     auto anyBody = visit(ctx->block());
-    if (anyBody.has_value() &&
-        anyBody.type() == typeid(std::shared_ptr<BlockNode>)) {
-      body = std::any_cast<std::shared_ptr<BlockNode>>(anyBody);
+    if (anyBody.has_value()) {
+      body = safe_any_cast_ptr<BlockNode>(anyBody);
     }
   }
   auto node =
@@ -505,9 +469,8 @@ std::any ASTBuilder::visitProcedure(GazpreaParser::ProcedureContext *ctx) {
 
   if (ctx->block()) { // procedure has a block body
     auto anyBody = visit(ctx->block());
-    if (anyBody.has_value() &&
-        anyBody.type() == typeid(std::shared_ptr<BlockNode>)) {
-      body = std::any_cast<std::shared_ptr<BlockNode>>(anyBody);
+    if (anyBody.has_value()) {
+      body = safe_any_cast_ptr<BlockNode>(anyBody);
     }
   }
 
@@ -556,17 +519,7 @@ ASTBuilder::visitFunctionStat(GazpreaParser::FunctionStatContext *ctx) {
   if (ctx->stat()) {
     auto anyStat = visit(ctx->stat());
     if (anyStat.has_value()) {
-      // Preferred: safe-check the type then any_cast
-      if (anyStat.type() == typeid(std::shared_ptr<StatNode>)) {
-        returnStat = std::any_cast<std::shared_ptr<StatNode>>(anyStat);
-      } else {
-        // try catching bad_any_cast to avoid crashes
-        try {
-          returnStat = std::any_cast<std::shared_ptr<StatNode>>(anyStat);
-        } catch (const std::bad_any_cast &) {
-          // not a StatNode — leave null ptr
-        }
-      }
+      returnStat = safe_any_cast_ptr<StatNode>(anyStat);
     }
   }
   // construct FuncStatNode using VarInfo vector
@@ -585,14 +538,18 @@ std::any ASTBuilder::visitUnaryExpr(GazpreaParser::UnaryExprContext *ctx) {
   if (ctx->expr()) {
     auto anyExpr = visit(ctx->expr());
     if (anyExpr.has_value()) {
-      try {
-        expr = std::any_cast<std::shared_ptr<ExprNode>>(anyExpr);
-      } catch (const std::bad_any_cast &) {
-        expr = nullptr;
-      }
+      expr = safe_any_cast_ptr<ExprNode>(anyExpr);
     }
   }
   auto node = std::make_shared<UnaryExpr>(op, expr);
+  node->constant.reset();
+  if(expr && expr->constant){
+      auto res = gazprea::computeUnaryNumeric(*expr->constant, op);
+      if(res){
+        node->constant = *res;
+        node->type = node->constant->type;
+      }
+    }
   return expr_any(std::move(node));
 }
 std::any ASTBuilder::visitNotExpr(GazpreaParser::NotExprContext *ctx) {
@@ -604,14 +561,18 @@ std::any ASTBuilder::visitNotExpr(GazpreaParser::NotExprContext *ctx) {
   if (ctx->expr()) {
     auto anyExpr = visit(ctx->expr());
     if (anyExpr.has_value()) {
-      try {
-        expr = std::any_cast<std::shared_ptr<ExprNode>>(anyExpr);
-      } catch (const std::bad_any_cast &) {
-        expr = nullptr;
-      }
+      expr = safe_any_cast_ptr<ExprNode>(anyExpr);
     }
   }
-  auto node = std::make_shared<NotExpr>(op, expr);
+  auto node = std::make_shared<UnaryExpr>(op, expr);
+  node->constant.reset();
+  if(expr && expr->constant){
+      auto res = gazprea::computeUnaryNumeric(*expr->constant, op);
+      if(res){
+        node->constant = *res;
+        node->type = node->constant->type;
+      }
+    }
   return expr_any(std::move(node));
 }
 std::any ASTBuilder::visitCompExpr(GazpreaParser::CompExprContext *ctx) {
@@ -621,21 +582,13 @@ std::any ASTBuilder::visitCompExpr(GazpreaParser::CompExprContext *ctx) {
   if (ctx->expr().size() >= 1) {
     auto anyLeft = visit(ctx->expr(0));
     if (anyLeft.has_value()) {
-      try {
-        left = std::any_cast<std::shared_ptr<ExprNode>>(anyLeft);
-      } catch (const std::bad_any_cast &) {
-        left = nullptr;
-      }
+      left = safe_any_cast_ptr<ExprNode>(anyLeft);
     }
   }
   if (ctx->expr().size() >= 2) {
     auto anyRight = visit(ctx->expr(1));
     if (anyRight.has_value()) {
-      try {
-        right = std::any_cast<std::shared_ptr<ExprNode>>(anyRight);
-      } catch (const std::bad_any_cast &) {
-        right = nullptr;
-      }
+      right = safe_any_cast_ptr<ExprNode>(anyRight);
     }
   }
   std::string opText;
@@ -648,7 +601,16 @@ std::any ASTBuilder::visitCompExpr(GazpreaParser::CompExprContext *ctx) {
   } else if (ctx->GTE()) {
     opText = ctx->GTE()->getText();
   }
+
   auto node = std::make_shared<CompExpr>(opText, left, right);
+    node->constant.reset();
+    if(left && left->constant && right && right->constant){
+      auto res = gazprea::computeBinaryComp(*left->constant, *right->constant, opText);
+      if(res){
+        node->constant = *res;
+        node->type = node->constant->type;
+      }
+    }
   return expr_any(std::move(node));
 }
 std::any ASTBuilder::visitAddExpr(GazpreaParser::AddExprContext *ctx) {
@@ -658,30 +620,32 @@ std::any ASTBuilder::visitAddExpr(GazpreaParser::AddExprContext *ctx) {
   if (ctx->expr().size() >= 1) {
     auto anyLeft = visit(ctx->expr(0));
     if (anyLeft.has_value()) {
-      try {
-        left = std::any_cast<std::shared_ptr<ExprNode>>(anyLeft);
-      } catch (const std::bad_any_cast &) {
-        left = nullptr;
-      }
+      left = safe_any_cast_ptr<ExprNode>(anyLeft);
     }
   }
   if (ctx->expr().size() >= 2) {
     auto anyRight = visit(ctx->expr(1));
     if (anyRight.has_value()) {
-      try {
-        right = std::any_cast<std::shared_ptr<ExprNode>>(anyRight);
-      } catch (const std::bad_any_cast &) {
-        right = nullptr;
-      }
+      right = safe_any_cast_ptr<ExprNode>(anyRight);
     }
   }
+  
   std::string opText;
   if (ctx->ADD()) {
     opText = ctx->ADD()->getText();
   } else if (ctx->MINUS()) {
     opText = ctx->MINUS()->getText();
   }
+  
   auto node = std::make_shared<AddExpr>(opText, left, right);
+  node->constant.reset();
+  if(left && left->constant && right && right->constant){
+    auto res = gazprea::computeBinaryNumeric(*left->constant, *right->constant, opText);
+    if(res){
+      node->constant = *res;
+      node->type = node->constant->type;
+    }
+  }
   return expr_any(std::move(node));
 }
 std::any ASTBuilder::visitMultExpr(GazpreaParser::MultExprContext *ctx) {
@@ -691,21 +655,13 @@ std::any ASTBuilder::visitMultExpr(GazpreaParser::MultExprContext *ctx) {
   if (ctx->expr().size() >= 1) {
     auto anyLeft = visit(ctx->expr(0));
     if (anyLeft.has_value()) {
-      try {
-        left = std::any_cast<std::shared_ptr<ExprNode>>(anyLeft);
-      } catch (const std::bad_any_cast &) {
-        left = nullptr;
-      }
+      left = safe_any_cast_ptr<ExprNode>(anyLeft);
     }
   }
   if (ctx->expr().size() >= 2) {
     auto anyRight = visit(ctx->expr(1));
     if (anyRight.has_value()) {
-      try {
-        right = std::any_cast<std::shared_ptr<ExprNode>>(anyRight);
-      } catch (const std::bad_any_cast &) {
-        right = nullptr;
-      }
+      right = safe_any_cast_ptr<ExprNode>(anyRight);
     }
   }
   std::string opText;
@@ -719,6 +675,15 @@ std::any ASTBuilder::visitMultExpr(GazpreaParser::MultExprContext *ctx) {
     opText = ctx->op->getText();
   }
   auto node = std::make_shared<MultExpr>(opText, left, right);
+
+  node->constant.reset();
+  if(left && left->constant && right && right->constant){
+    auto res = gazprea::computeBinaryNumeric(*left->constant, *right->constant, opText);
+    if(res){
+      node->constant = *res;
+      node->type = node->constant->type;
+    }
+  }
   return expr_any(std::move(node));
 }
 std::any ASTBuilder::visitEqExpr(GazpreaParser::EqExprContext *ctx) {
@@ -728,21 +693,13 @@ std::any ASTBuilder::visitEqExpr(GazpreaParser::EqExprContext *ctx) {
   if (ctx->expr().size() >= 1) {
     auto anyLeft = visit(ctx->expr(0));
     if (anyLeft.has_value()) {
-      try {
-        left = std::any_cast<std::shared_ptr<ExprNode>>(anyLeft);
-      } catch (const std::bad_any_cast &) {
-        left = nullptr;
-      }
+      left = safe_any_cast_ptr<ExprNode>(anyLeft);
     }
   }
   if (ctx->expr().size() >= 2) {
     auto anyRight = visit(ctx->expr(1));
     if (anyRight.has_value()) {
-      try {
-        right = std::any_cast<std::shared_ptr<ExprNode>>(anyRight);
-      } catch (const std::bad_any_cast &) {
-        right = nullptr;
-      }
+      right = safe_any_cast_ptr<ExprNode>(anyRight);
     }
   }
   std::string opText;
@@ -751,8 +708,17 @@ std::any ASTBuilder::visitEqExpr(GazpreaParser::EqExprContext *ctx) {
   } else if (ctx->NE()) {
     opText = ctx->NE()->getText();
   }
-  auto node = std::make_shared<AndExpr>(opText, left, right);
+  auto node = std::make_shared<EqExpr>(opText, left, right);
+  node->constant.reset();
+  if(left && left->constant && right && right->constant){
+    auto res = gazprea::computeBinaryComp(*left->constant, *right->constant, opText);
+    if(res){
+      node->constant = *res;
+      node->type = node->constant->type;
+    }
+  }
   return expr_any(std::move(node));
+
 }
 std::any ASTBuilder::visitAndExpr(GazpreaParser::AndExprContext *ctx) {
   std::shared_ptr<ExprNode> left = nullptr;
@@ -761,21 +727,13 @@ std::any ASTBuilder::visitAndExpr(GazpreaParser::AndExprContext *ctx) {
   if (ctx->expr().size() >= 1) {
     auto anyLeft = visit(ctx->expr(0));
     if (anyLeft.has_value()) {
-      try {
-        left = std::any_cast<std::shared_ptr<ExprNode>>(anyLeft);
-      } catch (const std::bad_any_cast &) {
-        left = nullptr;
-      }
+      left = safe_any_cast_ptr<ExprNode>(anyLeft);
     }
   }
   if (ctx->expr().size() >= 2) {
     auto anyRight = visit(ctx->expr(1));
     if (anyRight.has_value()) {
-      try {
-        right = std::any_cast<std::shared_ptr<ExprNode>>(anyRight);
-      } catch (const std::bad_any_cast &) {
-        right = nullptr;
-      }
+      right = safe_any_cast_ptr<ExprNode>(anyRight);
     }
   }
   std::string opText;
@@ -783,6 +741,14 @@ std::any ASTBuilder::visitAndExpr(GazpreaParser::AndExprContext *ctx) {
     opText = ctx->AND()->getText();
   }
   auto node = std::make_shared<AndExpr>(opText, left, right);
+  node->constant.reset();
+  if(left && left->constant && right && right->constant){
+    auto res = gazprea::computeBinaryComp(*left->constant, *right->constant, opText);
+    if(res){
+      node->constant = *res;
+      node->type = node->constant->type;
+    }
+  }
   return expr_any(std::move(node));
 }
 std::any ASTBuilder::visitOrExpr(GazpreaParser::OrExprContext *ctx) {
@@ -792,21 +758,13 @@ std::any ASTBuilder::visitOrExpr(GazpreaParser::OrExprContext *ctx) {
   if (ctx->expr().size() >= 1) {
     auto anyLeft = visit(ctx->expr(0));
     if (anyLeft.has_value()) {
-      try {
-        left = std::any_cast<std::shared_ptr<ExprNode>>(anyLeft);
-      } catch (const std::bad_any_cast &) {
-        left = nullptr;
-      }
+      left = safe_any_cast_ptr<ExprNode>(anyLeft);
     }
   }
   if (ctx->expr().size() >= 2) {
     auto anyRight = visit(ctx->expr(1));
     if (anyRight.has_value()) {
-      try {
-        right = std::any_cast<std::shared_ptr<ExprNode>>(anyRight);
-      } catch (const std::bad_any_cast &) {
-        right = nullptr;
-      }
+      right = safe_any_cast_ptr<ExprNode>(anyRight);
     }
   }
   std::string opText;
@@ -816,31 +774,52 @@ std::any ASTBuilder::visitOrExpr(GazpreaParser::OrExprContext *ctx) {
     opText = ctx->XOR()->getText();
   }
   auto node = std::make_shared<OrExpr>(opText, left, right);
+  // Clear any previous constant annotation
+  node->constant.reset();
+  // If both children were annotated as constants, try to compute a folded value
+  if (left && left->constant && right && right->constant) {
+    auto res = gazprea::computeBinaryComp(*left->constant, *right->constant, opText);
+    if (res) {
+      node->constant = *res;
+      node->type = node->constant->type;
+    }
+  }
   return expr_any(std::move(node));
 }
 std::any ASTBuilder::visitIntExpr(GazpreaParser::IntExprContext *ctx) {
   try {
-    std::string lit = ctx->INT()->getText();
-    size_t parsed = 0;
-    int64_t value64 = std::stoll(lit, &parsed, 10);
-    if (parsed != lit.size()) {
-      throw LiteralError(ctx->getStart()->getLine(),
-                         "integer literal exceeds 32 bits");
-    }
+    // Extract the integer literal text
+    std::string text = ctx->INT()->getText();
+
+    // Parse as 64-bit integer first to check for overflow
+    long long value64 = std::stoll(text, nullptr, 10);
+
+    // Ensure it fits within 32-bit signed integer range
     if (value64 < std::numeric_limits<int32_t>::min() ||
         value64 > std::numeric_limits<int32_t>::max()) {
       throw LiteralError(ctx->getStart()->getLine(),
                          "integer literal exceeds 32 bits");
     }
-    int value32 = static_cast<int>(value64);
+
+    // Convert safely to 32-bit integer
+    int32_t value32 = static_cast<int32_t>(value64);
+
+    // Create AST node
     auto node = std::make_shared<IntNode>(value32);
     node->type = CompleteType(BaseType::INTEGER);
+
+    // ConstantValue stores a CompleteType and a std::variant payload.
+    node->constant = ConstantValue(node->type, static_cast<int64_t>(value32));
+
+    // Wrap and return as std::any
     return expr_any(std::move(node));
+
   } catch (const std::out_of_range &) {
     throw LiteralError(ctx->getStart()->getLine(),
                        "integer literal out of bounds");
   } catch (const std::invalid_argument &) {
-    throw LiteralError(ctx->getStart()->getLine(), "invalid integer literal");
+    throw LiteralError(ctx->getStart()->getLine(),
+                       "invalid integer literal");
   }
 }
 std::any ASTBuilder::visitIdExpr(GazpreaParser::IdExprContext *ctx) {
@@ -921,19 +900,27 @@ std::any ASTBuilder::visitRealExpr(GazpreaParser::RealExprContext *ctx) {
   } catch (const std::invalid_argument &) {
     throw LiteralError(ctx->getStart()->getLine(), "invalid real literal");
   }
+
   auto node = std::make_shared<RealNode>(value);
+
+    // ConstantValue stores a CompleteType and a std::variant payload.
   node->type = CompleteType(BaseType::REAL);
+  node->constant = ConstantValue(node->type, static_cast<double>(value));
   return expr_any(std::move(node));
 }
 
 std::any ASTBuilder::visitTrueExpr(GazpreaParser::TrueExprContext *ctx) {
   auto node = std::make_shared<TrueNode>();
   node->type = CompleteType(BaseType::BOOL);
+  // Annotate with a compile-time constant true
+  node->constant = ConstantValue(node->type, true);
   return expr_any(std::move(node));
 }
 std::any ASTBuilder::visitFalseExpr(GazpreaParser::FalseExprContext *ctx) {
   auto node = std::make_shared<FalseNode>();
   node->type = CompleteType(BaseType::BOOL);
+  // Annotate with a compile-time constant false
+  node->constant = ConstantValue(node->type, false);
   return expr_any(std::move(node));
 }
 
@@ -942,7 +929,7 @@ ASTBuilder::visitTuple_literal(GazpreaParser::Tuple_literalContext *ctx) {
   std::vector<std::shared_ptr<ExprNode>> elements;
   for (auto exprCtx : ctx->expr()) {
     auto exprAny = visit(exprCtx);
-    auto expr = std::any_cast<std::shared_ptr<ExprNode>>(exprAny);
+    auto expr = safe_any_cast_ptr<ExprNode>(exprAny);
     if (expr)
       elements.push_back(expr);
   }
@@ -988,11 +975,7 @@ ASTBuilder::visitWhileLoopBlock(GazpreaParser::WhileLoopBlockContext *ctx) {
   if (ctx->expr()) {
     auto exprAny = visit(ctx->expr());
     if (exprAny.has_value()) {
-      try {
-        init = std::any_cast<std::shared_ptr<ExprNode>>(exprAny);
-      } catch (const std::bad_any_cast &) {
-        init = nullptr;
-      }
+      init = safe_any_cast_ptr<ExprNode>(exprAny);
     }
   }
   std::shared_ptr<BlockNode> block = nullptr;
@@ -1003,20 +986,12 @@ ASTBuilder::visitWhileLoopBlock(GazpreaParser::WhileLoopBlockContext *ctx) {
   if (ctx->block()) {
     auto blockAny = visit(ctx->block());
     if (blockAny.has_value()) {
-      try {
-        block = std::any_cast<std::shared_ptr<BlockNode>>(blockAny);
-      } catch (const std::bad_any_cast &) {
-        block = nullptr;
-      }
+      block = safe_any_cast_ptr<BlockNode>(blockAny);
     }
   } else if (ctx->stat()) {
     auto statAny = visit(ctx->stat());
     if (statAny.has_value()) {
-      try {
-        stat = std::any_cast<std::shared_ptr<StatNode>>(statAny);
-      } catch (const std::bad_any_cast &) {
-        stat = nullptr;
-      }
+      stat = safe_any_cast_ptr<StatNode>(statAny);
     }
     if (stat) { // turn stats to body (blockNode)
       std::vector<std::shared_ptr<DecNode>> emptyDecs;
@@ -1043,15 +1018,8 @@ std::any ASTBuilder::visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx) {
   // extract body if present
   if (ctx->block()) {
     auto anyBody = visit(ctx->block());
-    if (anyBody.has_value() &&
-        anyBody.type() == typeid(std::shared_ptr<BlockNode>)) {
-      body = std::any_cast<std::shared_ptr<BlockNode>>(anyBody);
-    } else {
-      try {
-        body = std::any_cast<std::shared_ptr<BlockNode>>(anyBody);
-      } catch (const std::bad_any_cast &) {
-        body = nullptr;
-      }
+    if (anyBody.has_value()) {
+      body = safe_any_cast_ptr<BlockNode>(anyBody);
     }
   }
 
@@ -1059,15 +1027,8 @@ std::any ASTBuilder::visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx) {
   if (ctx->expr()) {
     hasCond = true;
     auto anyCond = visit(ctx->expr());
-    if (anyCond.has_value() &&
-        anyCond.type() == typeid(std::shared_ptr<ExprNode>)) {
-      cond = std::any_cast<std::shared_ptr<ExprNode>>(anyCond);
-    } else {
-      try {
-        cond = std::any_cast<std::shared_ptr<ExprNode>>(anyCond);
-      } catch (const std::bad_any_cast &) {
-        cond = nullptr;
-      }
+    if (anyCond.has_value()) {
+      cond = safe_any_cast_ptr<ExprNode>(anyCond);
     }
   }
   // Construct LoopNode with body and optional condition, then set the kind
@@ -1079,6 +1040,90 @@ std::any ASTBuilder::visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx) {
   }
 
   return node_any(std::move(node));
+}
+std::any ASTBuilder::visitIf(gazprea::GazpreaParser::IfContext *ctx) {
+  // Extract condition expression
+  std::shared_ptr<ExprNode> cond = nullptr;
+  if (ctx->expr()) {
+    auto anyCond = visit(ctx->expr());
+    if (anyCond.has_value()) {
+      cond = safe_any_cast_ptr<ExprNode>(anyCond);
+    }
+  }
+
+  // The grammar allows either a block or a single statement for the then
+  // and optional else parts. Use the parse-tree positions to disambiguate
+  // which block/stat corresponds to the then vs else branch.
+  std::shared_ptr<BlockNode> thenBlock = nullptr;
+  std::shared_ptr<BlockNode> elseBlock = nullptr;
+  std::shared_ptr<StatNode> thenStat = nullptr;
+  std::shared_ptr<StatNode> elseStat = nullptr;
+
+  auto blocks = ctx->block(); // may be empty or contain up to two entries
+  auto stats = ctx->stat();   // may be empty or contain up to two entries
+
+  // Helper lambdas to visit and cast
+  auto visitBlockAt = [&](size_t i) -> std::shared_ptr<BlockNode> {
+    if (i >= blocks.size())
+      return nullptr;
+    auto anyB = visit(blocks[i]);
+    if (anyB.has_value())
+      return safe_any_cast_ptr<BlockNode>(anyB);
+    return nullptr;
+  };
+  auto visitStatAt = [&](size_t i) -> std::shared_ptr<StatNode> {
+    if (i >= stats.size())
+      return nullptr;
+    auto anyS = visit(stats[i]);
+    if (anyS.has_value())
+      return safe_any_cast_ptr<StatNode>(anyS);
+    return nullptr;
+  };
+
+  // Determine which alternative is the 'then' part by comparing start token
+  // indices of the first block/stat (if present).
+  bool thenIsBlock = false;
+  if (!blocks.empty() && stats.empty()) {
+    thenIsBlock = true;
+  } else if (blocks.empty() && !stats.empty()) {
+    thenIsBlock = false;
+  } else if (!blocks.empty() && !stats.empty()) {
+    auto bTok = blocks[0]->getStart()->getTokenIndex();
+    auto sTok = stats[0]->getStart()->getTokenIndex();
+    thenIsBlock = (bTok < sTok);
+  }
+
+  if (thenIsBlock) {
+    thenBlock = visitBlockAt(0);
+    // else may be a second block or the first/stat(0) depending on which
+    if (blocks.size() >= 2) {
+      elseBlock = visitBlockAt(1);
+    } else if (stats.size() >= 1) {
+      // if there is a stat and it appears after the then-block, it is the
+      // else branch
+      if (stats[0]->getStart()->getTokenIndex() > blocks[0]->getStart()->getTokenIndex())
+        elseStat = visitStatAt(0);
+    }
+  } else {
+    thenStat = visitStatAt(0);
+    if (stats.size() >= 2) {
+      elseStat = visitStatAt(1);
+    } else if (blocks.size() >= 1) {
+      if (blocks[0]->getStart()->getTokenIndex() > stats[0]->getStart()->getTokenIndex())
+        elseBlock = visitBlockAt(0);
+    }
+  }
+
+  // Construct IfNode using the appropriate constructor (block-style or
+  // single-statement style). Prefer block-style if thenBlock is present.
+  std::shared_ptr<IfNode> node = nullptr;
+  if (thenBlock) {
+    node = std::make_shared<IfNode>(cond, thenBlock, elseBlock);
+  } else {
+    node = std::make_shared<IfNode>(cond, thenStat, elseStat);
+  }
+
+  return stat_any(std::move(node));
 }
 
 } // namespace gazprea

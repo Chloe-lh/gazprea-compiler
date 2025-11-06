@@ -98,5 +98,6 @@ public:
       gazprea::GazpreaParser::WhileLoopBlockContext *ctx) override;
   std::any
   visitLoopDefault(gazprea::GazpreaParser::LoopDefaultContext *ctx) override;
+  std::any visitIf(gazprea::GazpreaParser::IfContext *ctx) override;
 };
 } // namespace gazprea
