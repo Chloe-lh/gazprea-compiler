@@ -12,6 +12,8 @@ After generating the MLIR, Backend will lower the dialects and output LLVM IR
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "CompileTimeExceptions.h"
 
 
@@ -170,6 +172,7 @@ void MLIRGen::visit(FileNode* node) {
 void MLIRGen::visit(FuncStatNode* node) { throw std::runtime_error("FuncStatNode not implemented"); }
 void MLIRGen::visit(FuncPrototypeNode* node) { throw std::runtime_error("FuncPrototypeNode not implemented"); }
 void MLIRGen::visit(FuncBlockNode* node) { throw std::runtime_error("FuncBlockNode not implemented"); }
+void MLIRGen::visit(FuncCallExpr* node) { throw std::runtime_error("FuncCallExpr not implemented"); }
 void MLIRGen::visit(ProcedureNode* node) { throw std::runtime_error("ProcedureNode not implemented"); }
 
 // Declarations
@@ -514,7 +517,6 @@ void MLIRGen::visit(BlockNode* node) {
 
 // Expressions / Operators
 void MLIRGen::visit(ParenExpr* node) { node->expr->accept(*this); }
-void MLIRGen::visit(FuncCallExpr* node) { throw std::runtime_error("FuncCallExpr not implemented");}
 void MLIRGen::visit(UnaryExpr* node) { throw std::runtime_error("UnaryExpr not implemented"); }
 void MLIRGen::visit(ExpExpr* node) { throw std::runtime_error("ExpExpr not implemented"); }
 void MLIRGen::visit(MultExpr* node) { throw std::runtime_error("MultExpr not implemented"); }
@@ -968,4 +970,340 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
     }
 
     return to;
+}
+
+
+void MLIRGen::visit(ParenExpr* node) {
+    node->expr->accept(*this);
+}
+
+void MLIRGen::visit(UnaryExpr* node) {
+    node->operand->accept(*this);
+    VarInfo operand = popValue();
+    mlir::Value operandVal = operand.value;
+
+    if(node->op == "-"){
+        auto zero = builder_.create<mlir::arith::ConstantOp>(
+            loc_, operandVal.getType(), builder_.getZeroAttr(operandVal.getType()));
+        operand.value = builder_.create<mlir::arith::SubIOp>(loc_, zero, operandVal);
+    }
+
+    operand.identifier = "";
+    pushValue(operand);
+}
+
+void MLIRGen::visit(ExpExpr* node) {
+    node->left->accept(*this);
+    VarInfo left = popValue();
+    mlir::Value lhs = left.value;
+    node->right->accept(*this);
+    VarInfo right = popValue();
+    mlir::Value rhs = right.value;
+
+    bool isInt = lhs.getType().isa<mlir::IntegerType>();
+
+    // Promote to float if needed
+    if (isInt) {
+        auto f32Type = builder_.getF32Type();
+        lhs = builder_.create<mlir::arith::SIToFPOp>(loc_, f32Type, lhs);
+        rhs = builder_.create<mlir::arith::SIToFPOp>(loc_, f32Type, rhs);
+    }
+
+    // Error check: 0 raised to negative power
+    auto zero = builder_.create<mlir::arith::ConstantOp>(
+            loc_, lhs.getType(), builder_.getZeroAttr(lhs.getType()));
+    
+    mlir::Value isZero = builder_.create<mlir::arith::CmpFOp>(
+            loc_, mlir::arith::CmpFPredicate::OEQ, lhs, zero);
+    
+    mlir::Value ltZero = builder_.create<mlir::arith::CmpFOp>(
+            loc_, mlir::arith::CmpFPredicate::OLT, rhs, zero);
+    
+    mlir::Value invalidExp = builder_.create<mlir::arith::AndIOp>(loc_, isZero, ltZero);
+
+    auto parentBlock = builder_.getBlock();
+    auto errorBlock = parentBlock->splitBlock(builder_.getInsertionPoint());
+    auto continueBlock = errorBlock->splitBlock(errorBlock->begin());
+    
+    builder_.create<mlir::cf::CondBranchOp>(loc_, invalidExp, errorBlock, mlir::ValueRange{}, continueBlock, mlir::ValueRange{});
+
+    builder_.setInsertionPointToStart(errorBlock);
+    auto errorMsg = builder_.create<mlir::arith::ConstantOp>(loc_, builder_.getStringAttr("Math Error: 0 cannot be raised to a negative power."));
+    builder_.create<mlir::func::CallOp>(loc_, "MathError", mlir::TypeRange{}, mlir::ValueRange{errorMsg});
+    
+    builder_.setInsertionPointToStart(continueBlock);
+
+    mlir::Value result = builder_.create<mlir::math::PowFOp>(loc_, lhs, rhs);
+
+    // If original operands were int, apply math.floor and cast back to int
+    if (isInt) {
+        mlir::Value floored = builder_.create<mlir::math::FloorOp>(loc_, result);
+        auto intType = builder_.getI32Type();
+        result = builder_.create<mlir::arith::FPToSIOp>(loc_, intType, floored);
+    }
+
+    //assume both operands are of same type
+    //the left operand object is pushed back to the stack with a new value
+    left.identifier = ""; 
+    left.value = result;
+    pushValue(left);
+}
+
+void MLIRGen::visit(MultExpr* node){
+    node->left->accept(*this);
+    VarInfo leftInfo = popValue();
+    mlir::Value left = leftInfo.value;
+    node->right->accept(*this);
+    VarInfo rightInfo = popValue();
+    mlir::Value right = rightInfo.value;
+
+    if(node->op == "/" || node->op == "%"){
+        auto zero = builder_.create<mlir::arith::ConstantOp>(
+            loc_, right.getType(), builder_.getZeroAttr(right.getType()));
+
+        // Compare right == 0
+        mlir::Value isZero;
+        if (right.getType().isa<mlir::IntegerType>()) {
+            isZero = builder_.create<mlir::arith::CmpIOp>(
+                loc_, mlir::arith::CmpIPredicate::eq, right, zero);
+        } else if (right.getType().isa<mlir::FloatType>()) {
+            isZero = builder_.create<mlir::arith::CmpFOp>(
+                loc_, mlir::arith::CmpFPredicate::OEQ, right, zero);
+        }
+
+        // Create block for error and block for normal division
+        auto parentBlock = builder_.getBlock();
+        auto errorBlock = parentBlock->splitBlock(builder_.getInsertionPoint());
+        auto continueBlock = errorBlock->splitBlock(errorBlock->begin());
+
+        // Conditional branch
+        builder_.create<mlir::cf::CondBranchOp>(loc_, isZero, errorBlock, mlir::ValueRange{}, continueBlock, mlir::ValueRange{});
+
+        // Error block: call runtime error function
+        builder_.setInsertionPointToStart(errorBlock);
+        auto errorMsg = builder_.create<mlir::arith::ConstantOp>(loc_, builder_.getStringAttr("Divide by zero error"));
+        builder_.create<mlir::func::CallOp>(loc_, "MathError", mlir::TypeRange{}, mlir::ValueRange{errorMsg});
+
+        // Continue block: do the division
+        builder_.setInsertionPointToStart(continueBlock);
+    }
+
+    mlir::Value result;
+    if(left.getType().isa<mlir::IntegerType>()) {
+        if (node->op == "*") {
+            result = builder_.create<mlir::arith::MulIOp>(loc_, left, right);
+        } else if (node->op == "/") {
+            result = builder_.create<mlir::arith::DivSIOp>(loc_, left, right);
+        } else if (node->op == "%") {
+            result = builder_.create<mlir::arith::RemSIOp>(loc_, left, right);
+        }
+    } else if(left.getType().isa<mlir::FloatType>()) {
+        if (node->op == "*") {
+            result = builder_.create<mlir::arith::MulFOp>(loc_, left, right);
+        } else if (node->op == "/") {
+            result = builder_.create<mlir::arith::DivFOp>(loc_, left, right);
+        }
+    } else {
+        throw std::runtime_error("MLIRGen Error: Unsupported type for multiplication.");
+    }
+
+    leftInfo.identifier = "";
+    leftInfo.value = result;
+    pushValue(leftInfo);
+}
+
+void MLIRGen::visit(AddExpr* node){
+    node->left->accept(*this);
+    VarInfo leftInfo = popValue();
+    mlir::Value left = leftInfo.value;
+    node->right->accept(*this);
+    VarInfo rightInfo = popValue();
+    mlir::Value right = rightInfo.value;
+
+    mlir::Value result;
+    if(left.getType().isa<mlir::IntegerType>()) {
+        if (node->op == "+") {
+            result = builder_.create<mlir::arith::AddIOp>(loc_, left, right);
+        } else if (node->op == "-") {
+            result = builder_.create<mlir::arith::SubIOp>(loc_, left, right);
+        }
+    } else if(left.getType().isa<mlir::FloatType>()) {
+        if (node->op == "+") {
+            result = builder_.create<mlir::arith::AddFOp>(loc_, left, right);
+        } else if (node->op == "-") {
+            result = builder_.create<mlir::arith::SubFOp>(loc_, left, right);
+        }
+    } else {
+        throw std::runtime_error("MLIRGen Error: Unsupported type for addition.");
+    }
+
+    leftInfo.identifier = "";
+    leftInfo.value = result;
+    pushValue(leftInfo);
+}
+
+void MLIRGen::visit(CompExpr* node) {
+    node->left->accept(*this);
+    VarInfo leftInfo = popValue();
+    mlir::Value left = leftInfo.value;
+    node->right->accept(*this);
+    VarInfo rightInfo = popValue();
+    mlir::Value right = rightInfo.value;
+
+    mlir::Value cmp;
+    if (left.getType().isa<mlir::IntegerType>()) {
+        mlir::arith::CmpIPredicate predicate;
+        if(node->op == "<"){
+            predicate = mlir::arith::CmpIPredicate::slt;
+        } else if(node->op == "<="){
+            predicate = mlir::arith::CmpIPredicate::sle;
+        } else if(node->op == ">"){
+            predicate = mlir::arith::CmpIPredicate::sgt;
+        } else if(node->op == ">="){
+            predicate = mlir::arith::CmpIPredicate::sge;
+        } else {
+            throw std::runtime_error("MLIRGen Error: Unsupported comparison operator for integers.");
+        }
+        cmp = builder_.create<mlir::arith::CmpIOp>(loc_, predicate, left, right);
+    } else if (left.getType().isa<mlir::FloatType>()) {
+        mlir::arith::CmpFPredicate predicate;
+        if(node->op == "<"){
+            predicate = mlir::arith::CmpFPredicate::OLT;
+        } else if(node->op == "<="){
+            predicate = mlir::arith::CmpFPredicate::OLE;
+        } else if(node->op == ">"){
+            predicate = mlir::arith::CmpFPredicate::OGT;
+        } else if(node->op == ">="){
+            predicate = mlir::arith::CmpFPredicate::OGE;
+        } else {
+            throw std::runtime_error("MLIRGen Error: Unsupported comparison operator for reals.");
+        }
+        cmp = builder_.create<mlir::arith::CmpFOp>(loc_, predicate, left, right);
+    } else {
+        throw std::runtime_error("MLIRGen Error: Unsupported type for comparison.");
+    }
+    leftInfo.identifier = "";
+    leftInfo.value = cmp;
+    pushValue(leftInfo);
+}
+
+
+void MLIRGen::visit(NotExpr* node) {
+    node->operand->accept(*this);
+    VarInfo operandInfo = popValue();
+    mlir::Value operand = operandInfo.value;
+
+    auto one = builder_.create<mlir::arith::ConstantOp>(
+        loc_, operand.getType(), builder_.getIntegerAttr(operand.getType(), 1));
+    auto notOp = builder_.create<mlir::arith::XOrIOp>(loc_, operand, one);
+    
+    operandInfo.identifier = "";
+    operandInfo.value = notOp;
+    pushValue(operandInfo);
+}
+
+// Helper functions for equality
+mlir::Value mlirScalarEquals(mlir::Value left, mlir::Value right, mlir::Location loc, mlir::OpBuilder& builder) {
+    mlir::Type type = left.getType();
+    if (type.isa<mlir::IntegerType>()) {
+        return builder.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::eq, left, right);
+    } else if (type.isa<mlir::FloatType>()) {
+        return builder.create<mlir::arith::CmpFOp>(loc, mlir::arith::CmpFPredicate::OEQ, left, right);
+    } else {
+        throw std::runtime_error("mlirScalarEquals: Unsupported type for equality");
+    }
+}
+
+mlir::Value mlirTupleEquals(VarInfo& leftInfo, VarInfo& rightInfo, mlir::Location loc, mlir::OpBuilder& builder) {
+    // Both leftInfo and rightInfo are VarInfo with mlirSubtypes
+    int numElements = leftInfo.mlirSubtypes.size();
+    mlir::Value result;
+
+    for (int i = 0; i < numElements; ++i) {
+        VarInfo& leftElemInfo = leftInfo.mlirSubtypes[i];
+        VarInfo& rightElemInfo = rightInfo.mlirSubtypes[i];
+
+        // Load the actual value from the memref
+        mlir::Value leftElem = builder.create<mlir::memref::LoadOp>(loc, leftElemInfo.value, mlir::ValueRange{});
+        mlir::Value rightElem = builder.create<mlir::memref::LoadOp>(loc, rightElemInfo.value, mlir::ValueRange{});
+
+        mlir::Type elemType = leftElem.getType();
+
+        mlir::Value elemEq;
+        if (elemType.isa<mlir::TupleType>()) {
+            elemEq = mlirTupleEquals(leftElemInfo, rightElemInfo, loc, builder); // recursive for nested tuples
+        } else {
+            elemEq = mlirScalarEquals(leftElem, rightElem, loc, builder);
+        }
+
+        if (i == 0) {
+            result = elemEq;
+        } else {
+            result = builder.create<mlir::arith::AndIOp>(loc, result, elemEq);
+        }
+    }
+    return result;
+}
+
+
+void MLIRGen::visit(EqExpr* node){
+    node->left->accept(*this);
+    VarInfo leftInfo = popValue();
+    mlir::Value left = leftInfo.value;
+    node->right->accept(*this);
+    VarInfo rightInfo = popValue();
+    mlir::Value right = rightInfo.value;
+
+    mlir::Type type = left.getType();
+    mlir::Value result;
+   
+    if (type.isa<mlir::TupleType>()) {
+        result = mlirTupleEquals(leftInfo, rightInfo, loc_, builder_);
+    } else {
+        result = mlirScalarEquals(left, right, loc_, builder_);
+    }
+
+    if (node->op == "!=") {
+        auto one = builder_.create<mlir::arith::ConstantOp>(loc_, result.getType(), builder_.getIntegerAttr(result.getType(), 1));
+        result = builder_.create<mlir::arith::XOrIOp>(loc_, result, one);
+    }
+
+    leftInfo.identifier = "";
+    leftInfo.value = result;
+    pushValue(leftInfo);
+}
+
+void MLIRGen::visit(AndExpr* node){
+    node->left->accept(*this);
+    VarInfo leftInfo = popValue();
+    mlir::Value left = leftInfo.value;
+    node->right->accept(*this);
+    VarInfo rightInfo = popValue();
+    mlir::Value right = rightInfo.value;
+
+    auto andOp = builder_.create<mlir::arith::AndIOp>(loc_, left, right);
+    
+    leftInfo.identifier = "";
+    leftInfo.value = andOp;
+    pushValue(leftInfo);
+}
+
+void MLIRGen::visit(OrExpr* node){
+    node->left->accept(*this);
+    VarInfo leftInfo = popValue();
+    mlir::Value left = leftInfo.value;
+    node->right->accept(*this);
+    VarInfo rightInfo = popValue();
+    mlir::Value right = rightInfo.value;
+
+    mlir::Value result;
+    if(node->op == "or") {
+        result = builder_.create<mlir::arith::OrIOp>(loc_, left, right);
+    } else if (node->op == "xor") {
+        result = builder_.create<mlir::arith::XOrIOp>(loc_, left, right);
+    }
+
+    leftInfo.identifier = "";
+    leftInfo.value = result;
+    pushValue(leftInfo);
 }

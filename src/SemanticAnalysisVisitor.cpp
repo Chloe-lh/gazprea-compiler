@@ -58,7 +58,9 @@ void SemanticAnalysisVisitor::visit(FuncStatNode* node) {
 
     // Enter function scope, bind parameters
     enterScopeFor(node, false, &node->returnType);
+    current_->setInFunctionTrue(); 
     for (const auto& v : params) {
+        if (!v.isConst) { throw AssignError(1, "Non-const arg given as function parameter");}
         current_->declareVar(v.identifier, v.type, true);
     }
 
@@ -88,6 +90,7 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
 
     bool isConst = true;
     if (node->qualifier == "var") {
+        if (current_->isInGlobal()) { throw GlobalError(1, "Cannot use var in global"); }
         isConst = false;
     } else if (node->qualifier == "const") {
     } else {
@@ -95,6 +98,7 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
     }
 
     // Declared type is carried as a CompleteType on the alias node
+    node->type_alias->accept(*this);
     CompleteType& varType = node->type_alias->type;
 
     // Ensure not already declared in scope
@@ -160,7 +164,9 @@ void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
 
     // Enter function scope, bind parameters
     enterScopeFor(node, false, &node->returnType);
+    current_->setInFunctionTrue(); 
     for (const auto& v : params) {
+        if (!v.isConst) { throw AssignError(1, "Non-const arg given as function parameter");}
         current_->declareVar(v.identifier, v.type, true);
     }
 
@@ -288,9 +294,22 @@ void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(TypeAliasDecNode* node) {
-    current_->declareAlias(node->alias, node->type);
+    if (!current_->isInGlobal()) {
+        throw StatementError(1, "Alias declaration in non-global scope '" + node->alias + "'.");
+    }
+    // Resolve aliased type. Support aliasing built-ins or another alias.
+    CompleteType aliased = node->type;
+    if (aliased.baseType == BaseType::UNKNOWN && !node->declTypeName.empty()) {
+        // Try resolving as another alias name
+        try {
+            aliased = *current_->resolveAlias(node->declTypeName);
+        } catch (...) {
+            // If not an alias, leave as UNKNOWN; builder should have set to built-in type
+        }
+    }
+    current_->declareAlias(node->alias, aliased);
 
-    // assume node has been initialized with correct type
+    // assume node has been initialized with correct type if not UNKNOWN
 }
 
 void SemanticAnalysisVisitor::visit(TypeAliasNode *node) {
@@ -302,11 +321,11 @@ void SemanticAnalysisVisitor::visit(TypeAliasNode *node) {
 }
 
 void SemanticAnalysisVisitor::visit(TupleTypeAliasNode *node) {
-    if (node->aliasName != "") {
-        node->type = *current_->resolveAlias(node->aliasName);
+    // This node represents a declaration: TYPEALIAS tuple_dec ID
+    if (!current_->isInGlobal()) {
+        throw StatementError(1, "Alias declaration in non-global scope '" + node->aliasName + "'.");
     }
-
-    // if no alias, assume node already initialized with correct type
+    current_->declareAlias(node->aliasName, node->type);
 }
 
 void SemanticAnalysisVisitor::visit(AssignStatNode* node) {
@@ -369,6 +388,10 @@ void SemanticAnalysisVisitor::visit(CallStatNode* node) {
     if (!node->call) {
         throw std::runtime_error("Semantic Analysis: FATAL: empty call statement");
     }
+    if (current_->isInFunction()) {
+        throw CallError(1, "Cannot call procedure inside a function.");
+    }
+
     std::vector<VarInfo> args;
     args.reserve(node->call->args.size());
     for (const auto& e : node->call->args) {
@@ -750,20 +773,25 @@ void SemanticAnalysisVisitor::visit(TupleAccessNode* node) {
 void SemanticAnalysisVisitor::visit(TypeCastNode* node) {
     // Evaluate operand first
     node->expr->accept(*this);
-    // Resolve target type: built-ins or alias. The AST stores the target as
-    // a CompleteType; if it's a concrete base type use it directly, otherwise
-    // attempt to resolve it as a named alias via the scope.
+    // Resolve target type: prefer explicit alias name when present; otherwise
+    // use the concrete base type provided by the AST.
     CompleteType target(BaseType::UNKNOWN);
-    CompleteType tname = node->targetType;
-    if (tname.baseType == BaseType::BOOL ||
-        tname.baseType == BaseType::CHARACTER ||
-        tname.baseType == BaseType::INTEGER ||
-        tname.baseType == BaseType::REAL) {
-        target = tname;
+    if (!node->targetAliasName.empty()) {
+        target = *current_->resolveAlias(node->targetAliasName);
     } else {
-        // Treat as alias name; use toString(tname) as the alias identifier.
-        std::string aliasName = toString(tname);
-        target = *current_->resolveAlias(aliasName);
+        CompleteType tname = node->targetType;
+        if (tname.baseType == BaseType::BOOL ||
+            tname.baseType == BaseType::CHARACTER ||
+            tname.baseType == BaseType::INTEGER ||
+            tname.baseType == BaseType::REAL ||
+            tname.baseType == BaseType::TUPLE ||
+            tname.baseType == BaseType::VECTOR ||
+            tname.baseType == BaseType::ARRAY ||
+            tname.baseType == BaseType::MATRIX ||
+            tname.baseType == BaseType::STRUCT ||
+            tname.baseType == BaseType::STRING) {
+            target = tname;
+        }
     }
     // Ensure cast is type-compatible using explicit cast rules
     if (!canCastType(node->expr->type, target)) {

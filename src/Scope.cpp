@@ -55,13 +55,14 @@ void Scope::declareProc(const std::string& identifier, const std::vector<VarInfo
 TODO add error line number to 2 errors below
 */
 void Scope::declareAlias(const std::string& identifier, const CompleteType& type) {
-    if (!isGlobal) {
+    if (!inGlobal) {
         GlobalError err = GlobalError(1, "Semantic Analysis: Cannot declare alias '" + identifier + "' in non-global scope."); 
         throw err;
     }
 
     if (globalTypeAliases_.find(identifier) != globalTypeAliases_.end()) {
         AliasingError err = AliasingError(1, "Semantic Analysis: Re-declaring existing alias '" + identifier + ".");
+        throw err;
     }
 
     globalTypeAliases_.emplace(identifier, type);
@@ -141,15 +142,19 @@ bool Scope::isDeclarationAllowed() {
 }
 
 void Scope::setGlobalTrue() {
-    this->isGlobal = true;
+    this->inGlobal = true;
 }
 
 bool Scope::isInLoop() { return this->inLoop; }
-bool Scope::isInFunction() { return this->returnType != nullptr; }
+bool Scope::isInFunction() { return this->inFunction; }
+bool Scope::isInGlobal() { return this->inGlobal; }
+void Scope::setInFunctionTrue() { this->inFunction = true; }
 const CompleteType* Scope::getReturnType() { return this->returnType; }
 
 Scope* Scope::createChild(const bool inLoop, const CompleteType* returnType) {
     children_.push_back(std::make_unique<Scope>(this, inLoop, returnType));
+    // Maintain 'inFunction' value to child scopes to prevent calls, etc. in pure functions
+    children_.back()->inFunction = this->inFunction;
     return children_.back().get();
 }
 
@@ -176,4 +181,3 @@ std::string Scope::printScope() const {
     result += ">>\n";
     return result;
 } 
-
