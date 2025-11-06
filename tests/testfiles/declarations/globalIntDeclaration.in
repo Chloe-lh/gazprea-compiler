@@ -1,5 +1,5 @@
-//CHECK_FILE:mainDeclaration.out
-
+//CHECK_FILE:globalIntDeclaration.out
+const integer i = 3;
 
 procedure main() returns integer {
     
