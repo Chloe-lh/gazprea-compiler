@@ -45,7 +45,7 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope)
     };
     createGlobalStringIfMissing("%d\0", "intFormat");
     createGlobalStringIfMissing("%c\0", "charFormat");
-    createGlobalStringIfMissing("%f\0", "floatFormat");
+    createGlobalStringIfMissing("%.2f\0", "floatFormat");
     createGlobalStringIfMissing("\n\0", "newline");
 }
 
@@ -228,6 +228,9 @@ mlir::Attribute MLIRGen::extractConstantValue(std::shared_ptr<ExprNode> expr, Co
     if (auto intNode = std::dynamic_pointer_cast<IntNode>(expr)) {
         if (targetType.baseType == BaseType::INTEGER) {
             return builder_.getIntegerAttr(builder_.getI32Type(), intNode->value);
+        } else if (targetType.baseType == BaseType::REAL) {
+            // Integer can be promoted to real at compile time
+            return builder_.getFloatAttr(builder_.getF32Type(), static_cast<float>(intNode->value));
         }
     } else if (auto realNode = std::dynamic_pointer_cast<RealNode>(expr)) {
         if (targetType.baseType == BaseType::REAL) {
