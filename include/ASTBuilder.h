@@ -79,6 +79,7 @@ public:
   std::any visitIdExpr(gazprea::GazpreaParser::IdExprContext *ctx) override;
   std::any visitCharExpr(gazprea::GazpreaParser::CharExprContext *ctx) override;
   std::any visitRealExpr(gazprea::GazpreaParser::RealExprContext *ctx) override;
+  std::any visitStringExpr(gazprea::GazpreaParser::StringExprContext *ctx) override;
   std::any visitTrueExpr(gazprea::GazpreaParser::TrueExprContext *ctx) override;
   std::any
   visitFalseExpr(gazprea::GazpreaParser::FalseExprContext *ctx) override;

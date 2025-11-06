@@ -60,6 +60,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         void visit(TupleTypeCastNode* node) override;
         void visit(FuncCallExpr* node) override;
         void visit(RealNode* node) override;
+        void visit(StringNode* node) override;
 
 
 

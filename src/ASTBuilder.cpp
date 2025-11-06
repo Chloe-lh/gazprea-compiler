@@ -328,8 +328,10 @@ std::any ASTBuilder::visitQualifier(GazpreaParser::QualifierContext *ctx) {
 std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
   if (ctx->BOOLEAN())
     return CompleteType(BaseType::BOOL);
-  if (ctx->ID())
+  if (ctx->STRING())
     return CompleteType(BaseType::STRING);
+  if (ctx->ID())
+    return CompleteType(BaseType::UNKNOWN);
   if (ctx->INTEGER())
     return CompleteType(BaseType::INTEGER);
   if (ctx->REAL())
@@ -922,6 +924,39 @@ std::any ASTBuilder::visitCharExpr(GazpreaParser::CharExprContext *ctx) {
   }
   auto node = std::make_shared<CharNode>(value);
   node->type = CompleteType(BaseType::CHARACTER);
+  return expr_any(std::move(node));
+}
+std::any ASTBuilder::visitStringExpr(GazpreaParser::StringExprContext *ctx) {
+  std::string text = ctx->STRING_LIT()->getText();
+  // Strip the surrounding quotes and unescape minimal sequences handled in CHAR
+  std::string out;
+  out.reserve(text.size());
+  // remove leading and trailing quotes if present
+  size_t i = 0, n = text.size();
+  if (n >= 2 && text.front() == '"' && text.back() == '"') {
+    i = 1; n -= 1;
+  }
+  while (i < n) {
+    char c = text[i++];
+    if (c == '\\' && i < n) {
+      char e = text[i++];
+      switch (e) {
+        case '0': out.push_back('\0'); break;
+        case 'a': out.push_back('\a'); break;
+        case 'b': out.push_back('\b'); break;
+        case 't': out.push_back('\t'); break;
+        case 'n': out.push_back('\n'); break;
+        case 'r': out.push_back('\r'); break;
+        case '"': out.push_back('"'); break;
+        case '\'': out.push_back('\''); break;
+        case '\\': out.push_back('\\'); break;
+        default: out.push_back(e); break;
+      }
+    } else {
+      out.push_back(c);
+    }
+  }
+  auto node = std::make_shared<StringNode>(out);
   return expr_any(std::move(node));
 }
 

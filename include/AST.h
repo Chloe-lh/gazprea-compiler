@@ -435,3 +435,10 @@ public:
   explicit RealNode(double value);
   void accept(ASTVisitor &visitor) override;
 };
+
+class StringNode : public LiteralExprNode {
+public:
+  std::string value;
+  explicit StringNode(std::string v);
+  void accept(ASTVisitor &visitor) override;
+};
