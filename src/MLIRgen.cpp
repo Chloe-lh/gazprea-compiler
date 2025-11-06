@@ -280,60 +280,68 @@ void MLIRGen::initializeGlobalInMain(const std::string& varName, std::shared_ptr
 }
 
 void MLIRGen::visit(TypedDecNode* node) {
-    // Get the variable's type from the type alias
-    CompleteType varType = node->type_alias->type;
-    
-    // Check if variable is already declared in the current scope
-    // We check the symbols map directly to avoid throwing if the variable doesn't exist
-    const auto& symbols = currScope_->symbols();
-    if (symbols.find(node->name) != symbols.end()) {
-        throw SymbolError(1, "Variable '" + node->name + "' already declared.");
+    // Resolve variable declared by semantic analysis
+    VarInfo* declaredVar = currScope_->resolveVar(node->name);
+
+    // defensive sync for qualifier flag
+    if (node->qualifier == "const") {
+        declaredVar->isConst = true;
+    } else if (node->qualifier == "var") {
+        declaredVar->isConst = false;
     }
-    
-    // Determine if this is a constant
-    bool isConst = (node->qualifier == "const" || node->qualifier.empty());
-    
-    // Try to extract compile-time constant value from initializer
-    mlir::Attribute initAttr = nullptr;
+
+    // Ensure storage exists regardless of initializer
+    if (!declaredVar->value) {
+        allocaVar(declaredVar);
+    }
+
+    // Handle optional initializer + promotion
     if (node->init) {
-        initAttr = extractConstantValue(node->init, varType);
-    }
-    
-    // Create global variable with initializer (if compile-time constant)
-    createGlobalVariable(
-        node->name,
-        varType,
-        isConst,
-        initAttr  // nullptr if not a compile-time constant
-    );
-    
-    // Store in scope
-    currScope_->declareVar(node->name, varType, isConst);
-    
-    // If initialization expression is not a compile-time constant, defer to main()
-    if (node->init && !initAttr) {
-        deferredInits_.push_back({node->name, node->init});
+        node->init->accept(*this);
+        VarInfo literal = popValue();
+        assignTo(&literal, declaredVar);
     }
 }
 
+/* Functionally the same as TypedDecNode except initializer is required */
 void MLIRGen::visit(InferredDecNode* node) {
+    if (!node->init) {
+        throw std::runtime_error("FATAL: Inferred declaration without initializer.");
+    }
+    node->init->accept(*this); // Resolve init value
 
-    // 1. Analyze the initializer to determine type
-    // 2. Create global with that type
-    // 3. Defer initialization to main()
+    VarInfo literal = popValue();
+    VarInfo* declaredVar = currScope_->resolveVar(node->name);
+
+
+    // Semantic analysis should have handled this - this is just in casse
+    if (node->qualifier == "const") {
+        declaredVar->isConst = true;
+    } else if (node->qualifier == "var") {
+        declaredVar->isConst = false;
+    } else {
+        throw StatementError(1, "Cannot infer variable '" + node->name + "' without qualifier."); // TODO: line number
+    }
     
-    // For now, this is a limitation - we need type inference at module level
-    throw std::runtime_error("InferredDecNode as global not yet fully implemented - need type inference");
+    assignTo(&literal, declaredVar);
 }
 
-void MLIRGen::visit(TupleTypedDecNode* node) {
-    // Tuples as globals are more complex - for now, throw an error
-    // Proper implementation would create a struct type and handle element-wise initialization
-    throw std::runtime_error("TupleTypedDecNode as global not yet fully implemented");
+void MLIRGen::visit(TupleTypedDecNode* node) { throw std::runtime_error("not implemented"); }
+
+/* Resolve aliases using currScope_->resolveAlias */
+void MLIRGen::visit(TypeAliasDecNode* node) {
+    /* Nothing to do - already declared during semantic analysis. */
 }
-void MLIRGen::visit(TypeAliasDecNode* node) { throw std::runtime_error("TypeAliasDecNode not implemented"); }
-void MLIRGen::visit(TypeAliasNode* node) { throw std::runtime_error("TypeAliasNode not implemented"); }
-void MLIRGen::visit(TupleTypeAliasNode* node) { throw std::runtime_error("TupleTypeAliasNode not implemented"); }
+
+/* Resolve aliases using currScope_->resolveAlias */
+void MLIRGen::visit(TypeAliasNode* node) {
+    /* Nothing to do - already declared during semantic analysis. */
+}
+
+/* Resolve aliases using currScope_->resolveAlias */
+void MLIRGen::visit(TupleTypeAliasNode* node) {
+    /* Nothing to do - already declared during semantic analysis. */
+}
 
 // Statements
 void MLIRGen::visit(AssignStatNode* node) { throw std::runtime_error("AssignStatNode not implemented"); }
