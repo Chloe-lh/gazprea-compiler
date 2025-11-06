@@ -75,8 +75,17 @@ public:
     void visit(TupleLiteralNode* node) override;
 
     // helpers
+    // ---------------
     void allocaLiteral(VarInfo* varInfo);
+    // Allocate storage for a variable (memref) at the appropriate entry block
+    void allocaVar(VarInfo* varInfo);
+    // Assign with implicit promotion (scalar and tuple-aware)
+    void assignTo(VarInfo* literal, VarInfo* variable);
+    // Explicit cast (used for as<type>(expr) and binops coercions)
     VarInfo castType(VarInfo* from, CompleteType* to);
+    // Implicit promotion helper (currently supports int -> real; no-op if same type)
+    VarInfo promoteType(VarInfo* from, CompleteType* to);
+
     mlir::Type getLLVMType(CompleteType type);
     mlir::Value createGlobalVariable(const std::string& name, CompleteType type, bool isConst, mlir::Attribute initValue = nullptr);
     mlir::Attribute extractConstantValue(std::shared_ptr<ExprNode> expr, CompleteType targetType);
