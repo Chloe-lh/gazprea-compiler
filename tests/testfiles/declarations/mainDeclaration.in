@@ -1,0 +1,2 @@
+//CHECK_FILE:mainDeclaration.out
+integer i = 0;

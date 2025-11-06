@@ -1,2 +1,0 @@
-//CHECK_FILE:integerDeclaration.out
-integer i = 0;
