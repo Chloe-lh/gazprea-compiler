@@ -30,7 +30,7 @@ void SemanticAnalysisVisitor::visit(FileNode* node) {
 
     // Ensure main exists
     if (!seenMain_) {
-        throw MainError(1, "Semantic Analysis: procedure main() not defined.");
+        throw GlobalError(1, "Semantic Analysis: procedure main() not defined.");
     }
 }
 
