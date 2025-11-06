@@ -326,7 +326,22 @@ void MLIRGen::visit(InferredDecNode* node) {
     assignTo(&literal, declaredVar);
 }
 
-void MLIRGen::visit(TupleTypedDecNode* node) { throw std::runtime_error("not implemented"); }
+void MLIRGen::visit(TupleTypedDecNode* node) {
+    // Resolve variable declared by semantic analysis
+    VarInfo* declaredVar = currScope_->resolveVar(node->name);
+
+    // Ensure storage for tuple elements exists
+    if (declaredVar->mlirSubtypes.empty()) {
+        allocaVar(declaredVar);
+    }
+
+    // Handle optional initializer
+    if (node->init) {
+        node->init->accept(*this);
+        VarInfo literal = popValue();
+        assignTo(&literal, declaredVar);
+    }
+}
 
 /* Resolve aliases using currScope_->resolveAlias */
 void MLIRGen::visit(TypeAliasDecNode* node) {
@@ -688,9 +703,34 @@ void MLIRGen::visit(TupleLiteralNode* node) {
 }
 
 void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable) {
-    if (literal->type.baseType == BaseType::TUPLE || variable->type.baseType == BaseType::TUPLE) throw std::runtime_error("FATAL: tuple assignment not implemented in helper");
+    // Tuple assignment: element-wise store with implicit scalar promotions
+    if (variable->type.baseType == BaseType::TUPLE) {
+        if (literal->type.baseType != BaseType::TUPLE) {
+            throw AssignError(1, "Cannot assign non-tuple to tuple variable '");
+        }
+        // Ensure destination tuple storage exists
+        if (variable->mlirSubtypes.empty()) {
+            allocaVar(variable);
+        }
+        // Ensure literal has alloca'd elements
+        if (literal->mlirSubtypes.empty()) {
+            throw std::runtime_error("FATAL: Assigning to '" + variable->identifier + "' with tuple that has no mlirSubtypes.");
+        }
+        if (literal->type.subTypes.size() != variable->type.subTypes.size()) {
+            throw AssignError(1, "Tuple arity mismatch in assignment.");
+        }
+        for (size_t i = 0; i < variable->mlirSubtypes.size(); ++i) {
+            VarInfo srcElem = literal->mlirSubtypes[i];
+            VarInfo& dstElem = variable->mlirSubtypes[i];
+            // Promote if needed (supports int->real, no-op otherwise)
+            VarInfo promoted = promoteType(&srcElem, &dstElem.type);
+            mlir::Value loaded = builder_.create<mlir::memref::LoadOp>(loc_, promoted.value, mlir::ValueRange{});
+            builder_.create<mlir::memref::StoreOp>(loc_, loaded, dstElem.value, mlir::ValueRange{});
+        }
+        return;
+    }
 
-
+    // Scalar assignment
     // ensure var has a memref allocated
     if (!variable->value) {
         allocaVar(variable);
