@@ -11,6 +11,7 @@ After generating the MLIR, Backend will lower the dialects and output LLVM IR
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "CompileTimeExceptions.h"
 
 
@@ -478,6 +479,37 @@ void MLIRGen::visit(MultExpr* node){
     node->right->accept(*this);
     VarInfo rightInfo = popValue();
     mlir::Value right = rightInfo.value;
+
+    if(node->op == "/" || node->op == "%"){
+        auto zero = builder_.create<mlir::arith::ConstantOp>(
+            loc_, right.getType(), builder_.getZeroAttr(right.getType()));
+
+        // Compare right == 0
+        mlir::Value isZero;
+        if (right.getType().isa<mlir::IntegerType>()) {
+            isZero = builder_.create<mlir::arith::CmpIOp>(
+                loc_, mlir::arith::CmpIPredicate::eq, right, zero);
+        } else if (right.getType().isa<mlir::FloatType>()) {
+            isZero = builder_.create<mlir::arith::CmpFOp>(
+                loc_, mlir::arith::CmpFPredicate::OEQ, right, zero);
+        }
+
+        // Create block for error and block for normal division
+        auto parentBlock = builder_.getBlock();
+        auto errorBlock = parentBlock->splitBlock(builder_.getInsertionPoint());
+        auto continueBlock = errorBlock->splitBlock(errorBlock->begin());
+
+        // Conditional branch
+        builder_.create<mlir::cf::CondBranchOp>(loc_, isZero, errorBlock, mlir::ValueRange{}, continueBlock, mlir::ValueRange{});
+
+        // Error block: call runtime error function
+        builder_.setInsertionPointToStart(errorBlock);
+        auto errorMsg = builder_.create<mlir::arith::ConstantOp>(loc_, builder_.getStringAttr("Divide by zero error"));
+        builder_.create<mlir::func::CallOp>(loc_, "MathError", mlir::TypeRange{}, mlir::ValueRange{errorMsg});
+
+        // Continue block: do the division
+        builder_.setInsertionPointToStart(continueBlock);
+    }
 
     mlir::Value result;
     if(left.getType().isa<mlir::IntegerType>()) {
