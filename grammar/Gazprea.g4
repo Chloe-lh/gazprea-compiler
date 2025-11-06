@@ -10,7 +10,7 @@ func
     | FUNCTION ID PARENLEFT (type ID? (COMMA type ID?)*)? PARENRIGHT RETURNS tuple_dec END  #FunctionPrototypeTupleReturn
     ;
 
-procedure: PROCEDURE ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT block;
+procedure: PROCEDURE ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT (RETURNS type)? block;
 
 dec
     : qualifier? type ID (EQ expr)? END          #ExplicitTypedDec
@@ -191,6 +191,5 @@ ID: [a-zA-Z_][a-zA-Z0-9_]*;
 SL_COMMENT: '//'.*? ('\n'|EOF) -> skip; 
 ML_COMMENT: '/*' .*? '*/' -> skip; //cannot be nested
 WS : [ \t\r\n]+ -> skip ;
-
 
 
