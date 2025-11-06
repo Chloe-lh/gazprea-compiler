@@ -22,13 +22,13 @@ template <typename T> static inline std::any node_any(std::shared_ptr<T> n) {
 }
 // Helpers that canonicalize the std::any payload for different AST families.
 template <typename T> static inline std::any expr_any(std::shared_ptr<T> n) {
-  return std::static_pointer_cast<ExprNode>(std::move(n));
+  return std::any(std::static_pointer_cast<ExprNode>(std::move(n)));
 }
 template <typename T> static inline std::any stat_any(std::shared_ptr<T> n) {
-  return std::static_pointer_cast<StatNode>(std::move(n));
+  return std::any(std::static_pointer_cast<StatNode>(std::move(n)));
 }
 template <typename T> static inline std::any dec_any(std::shared_ptr<T> n) {
-  return std::static_pointer_cast<DecNode>(std::move(n));
+  return std::any(std::static_pointer_cast<DecNode>(std::move(n)));
 }
 
 // Small helper for safely extracting shared_ptr<T> from a std::any produced
@@ -49,7 +49,31 @@ std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
   for (auto child : ctx->children) {
     auto anyNode = visit(child);
     if (anyNode.has_value()) {
-      auto node = std::any_cast<std::shared_ptr<ASTNode>>(anyNode);
+      std::shared_ptr<ASTNode> node = nullptr;
+      // Try casting to ASTNode first
+      try {
+        node = std::any_cast<std::shared_ptr<ASTNode>>(anyNode);
+      } catch (const std::bad_any_cast &) {
+        // Try casting to StatNode and upcast
+        try {
+          auto statNode = std::any_cast<std::shared_ptr<StatNode>>(anyNode);
+          node = std::static_pointer_cast<ASTNode>(statNode);
+        } catch (const std::bad_any_cast &) {
+          // Try casting to DecNode and upcast
+          try {
+            auto decNode = std::any_cast<std::shared_ptr<DecNode>>(anyNode);
+            node = std::static_pointer_cast<ASTNode>(decNode);
+          } catch (const std::bad_any_cast &) {
+            // Try casting to ExprNode and upcast (unlikely but possible)
+            try {
+              auto exprNode = std::any_cast<std::shared_ptr<ExprNode>>(anyNode);
+              node = std::static_pointer_cast<ASTNode>(exprNode);
+            } catch (const std::bad_any_cast &) {
+              // Skip invalid node
+            }
+          }
+        }
+      }
       if (node)
         nodes.push_back(node);
     }
@@ -57,6 +81,7 @@ std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
   auto node = std::make_shared<FileNode>(std::move(nodes));
   return node_any(std::move(node));
 }
+
 std::any ASTBuilder::visitBlock(GazpreaParser::BlockContext *ctx) {
   std::vector<std::shared_ptr<DecNode>> decs;
   std::vector<std::shared_ptr<StatNode>> stats;
@@ -415,14 +440,10 @@ std::any ASTBuilder::visitOutputStat(GazpreaParser::OutputStatContext *ctx) {
   if (ctx->expr()) {
     auto anyExpr = visit(ctx->expr());
     if (anyExpr.has_value()) {
-      if (anyExpr.type() == typeid(std::shared_ptr<ExprNode>)) {
+      try {
         expr = std::any_cast<std::shared_ptr<ExprNode>>(anyExpr);
-      } else {
-        try {
-          expr = std::any_cast<std::shared_ptr<ExprNode>>(anyExpr);
-        } catch (const std::bad_any_cast &) {
-          expr = nullptr;
-        }
+      } catch (const std::bad_any_cast &) {
+        expr = nullptr;
       }
     }
   }
