@@ -516,104 +516,6 @@ void MLIRGen::visit(BlockNode* node) {
 }
 
 // Expressions / Operators
-void MLIRGen::visit(ParenExpr* node) { node->expr->accept(*this); }
-void MLIRGen::visit(UnaryExpr* node) { throw std::runtime_error("UnaryExpr not implemented"); }
-void MLIRGen::visit(ExpExpr* node) { throw std::runtime_error("ExpExpr not implemented"); }
-void MLIRGen::visit(MultExpr* node) { throw std::runtime_error("MultExpr not implemented"); }
-void MLIRGen::visit(AddExpr* node) { throw std::runtime_error("AddExpr not implemented"); }
-void MLIRGen::visit(CompExpr* node) {
-    
-    // Visit left and right operands
-    node->left->accept(*this);
-    node->right->accept(*this);
-    
-    // Pop operands (right first, then left)
-    VarInfo rightVarInfo = popValue();
-    VarInfo leftVarInfo = popValue();
-    
-    // Determine the promoted type for comparison
-    CompleteType promotedType = promote(leftVarInfo.type, rightVarInfo.type);
-    if (promotedType.baseType == BaseType::UNKNOWN) {
-        promotedType = promote(rightVarInfo.type, leftVarInfo.type);
-    }
-    if (promotedType.baseType == BaseType::UNKNOWN) {
-        throw std::runtime_error("CompExpr: cannot promote types for comparison");
-    }
-    
-    // Cast both operands to the promoted type
-    VarInfo leftPromoted = castType(&leftVarInfo, &promotedType);
-    VarInfo rightPromoted = castType(&rightVarInfo, &promotedType);
-    
-    // Load the values
-    mlir::Value leftVal = builder_.create<mlir::memref::LoadOp>(
-        loc_, leftPromoted.value, mlir::ValueRange{}
-    );
-    mlir::Value rightVal = builder_.create<mlir::memref::LoadOp>(
-        loc_, rightPromoted.value, mlir::ValueRange{}
-    );
-    
-    // Create comparison operation based on operator and type
-    mlir::Value cmpResult;
-    CompleteType boolType = CompleteType(BaseType::BOOL);
-    VarInfo resultVarInfo = VarInfo(boolType);
-    allocaLiteral(&resultVarInfo);
-    
-    if (promotedType.baseType == BaseType::INTEGER) {
-        // Integer comparison
-        mlir::arith::CmpIPredicate predicate;
-        if (node->op == "<") {
-            predicate = mlir::arith::CmpIPredicate::slt;
-        } else if (node->op == ">") {
-            predicate = mlir::arith::CmpIPredicate::sgt;
-        } else if (node->op == "<=") {
-            predicate = mlir::arith::CmpIPredicate::sle;
-        } else if (node->op == ">=") {
-            predicate = mlir::arith::CmpIPredicate::sge;
-        } else if (node->op == "==") {
-            predicate = mlir::arith::CmpIPredicate::eq;
-        } else if (node->op == "!=") {
-            predicate = mlir::arith::CmpIPredicate::ne;
-        } else {
-            throw std::runtime_error("CompExpr: unknown operator '" + node->op + "'");
-        }
-        cmpResult = builder_.create<mlir::arith::CmpIOp>(
-            loc_, predicate, leftVal, rightVal
-        );
-    } else if (promotedType.baseType == BaseType::REAL) {
-        // Floating point comparison
-        mlir::arith::CmpFPredicate predicate;
-        if (node->op == "<") {
-            predicate = mlir::arith::CmpFPredicate::OLT;
-        } else if (node->op == ">") {
-            predicate = mlir::arith::CmpFPredicate::OGT;
-        } else if (node->op == "<=") {
-            predicate = mlir::arith::CmpFPredicate::OLE;
-        } else if (node->op == ">=") {
-            predicate = mlir::arith::CmpFPredicate::OGE;
-        } else if (node->op == "==") {
-            predicate = mlir::arith::CmpFPredicate::OEQ;
-        } else if (node->op == "!=") {
-            predicate = mlir::arith::CmpFPredicate::ONE;
-        } else {
-            throw std::runtime_error("CompExpr: unknown operator '" + node->op + "'");
-        }
-        cmpResult = builder_.create<mlir::arith::CmpFOp>(
-            loc_, predicate, leftVal, rightVal
-        );
-    } else {
-        throw std::runtime_error("CompExpr: comparison not supported for type");
-    }
-    
-    // Store the comparison result
-    builder_.create<mlir::memref::StoreOp>(loc_, cmpResult, resultVarInfo.value, mlir::ValueRange{});
-    
-    // Push result onto stack
-    pushValue(resultVarInfo);
-}
-void MLIRGen::visit(NotExpr* node) { throw std::runtime_error("NotExpr not implemented"); }
-void MLIRGen::visit(EqExpr* node) { throw std::runtime_error("EqExpr not implemented"); }
-void MLIRGen::visit(AndExpr* node) { throw std::runtime_error("AndExpr not implemented"); }
-void MLIRGen::visit(OrExpr* node) { throw std::runtime_error("OrExpr not implemented"); }
 void MLIRGen::visit(TupleAccessNode* node) { throw std::runtime_error("TupleAccessNode not implemented"); }
 void MLIRGen::visit(TupleTypeCastNode* node) { throw std::runtime_error("TupleTypeCastNode not implemented"); }
 
@@ -1143,48 +1045,93 @@ void MLIRGen::visit(AddExpr* node){
 }
 
 void MLIRGen::visit(CompExpr* node) {
+    
+    // Visit left and right operands
     node->left->accept(*this);
-    VarInfo leftInfo = popValue();
-    mlir::Value left = leftInfo.value;
     node->right->accept(*this);
-    VarInfo rightInfo = popValue();
-    mlir::Value right = rightInfo.value;
-
-    mlir::Value cmp;
-    if (left.getType().isa<mlir::IntegerType>()) {
-        mlir::arith::CmpIPredicate predicate;
-        if(node->op == "<"){
-            predicate = mlir::arith::CmpIPredicate::slt;
-        } else if(node->op == "<="){
-            predicate = mlir::arith::CmpIPredicate::sle;
-        } else if(node->op == ">"){
-            predicate = mlir::arith::CmpIPredicate::sgt;
-        } else if(node->op == ">="){
-            predicate = mlir::arith::CmpIPredicate::sge;
-        } else {
-            throw std::runtime_error("MLIRGen Error: Unsupported comparison operator for integers.");
-        }
-        cmp = builder_.create<mlir::arith::CmpIOp>(loc_, predicate, left, right);
-    } else if (left.getType().isa<mlir::FloatType>()) {
-        mlir::arith::CmpFPredicate predicate;
-        if(node->op == "<"){
-            predicate = mlir::arith::CmpFPredicate::OLT;
-        } else if(node->op == "<="){
-            predicate = mlir::arith::CmpFPredicate::OLE;
-        } else if(node->op == ">"){
-            predicate = mlir::arith::CmpFPredicate::OGT;
-        } else if(node->op == ">="){
-            predicate = mlir::arith::CmpFPredicate::OGE;
-        } else {
-            throw std::runtime_error("MLIRGen Error: Unsupported comparison operator for reals.");
-        }
-        cmp = builder_.create<mlir::arith::CmpFOp>(loc_, predicate, left, right);
-    } else {
-        throw std::runtime_error("MLIRGen Error: Unsupported type for comparison.");
+    
+    // Pop operands (right first, then left)
+    VarInfo rightVarInfo = popValue();
+    VarInfo leftVarInfo = popValue();
+    
+    // Determine the promoted type for comparison
+    CompleteType promotedType = promote(leftVarInfo.type, rightVarInfo.type);
+    if (promotedType.baseType == BaseType::UNKNOWN) {
+        promotedType = promote(rightVarInfo.type, leftVarInfo.type);
     }
-    leftInfo.identifier = "";
-    leftInfo.value = cmp;
-    pushValue(leftInfo);
+    if (promotedType.baseType == BaseType::UNKNOWN) {
+        throw std::runtime_error("CompExpr: cannot promote types for comparison");
+    }
+    
+    // Cast both operands to the promoted type
+    VarInfo leftPromoted = castType(&leftVarInfo, &promotedType);
+    VarInfo rightPromoted = castType(&rightVarInfo, &promotedType);
+    
+    // Load the values
+    mlir::Value leftVal = builder_.create<mlir::memref::LoadOp>(
+        loc_, leftPromoted.value, mlir::ValueRange{}
+    );
+    mlir::Value rightVal = builder_.create<mlir::memref::LoadOp>(
+        loc_, rightPromoted.value, mlir::ValueRange{}
+    );
+    
+    // Create comparison operation based on operator and type
+    mlir::Value cmpResult;
+    CompleteType boolType = CompleteType(BaseType::BOOL);
+    VarInfo resultVarInfo = VarInfo(boolType);
+    allocaLiteral(&resultVarInfo);
+    
+    if (promotedType.baseType == BaseType::INTEGER) {
+        // Integer comparison
+        mlir::arith::CmpIPredicate predicate;
+        if (node->op == "<") {
+            predicate = mlir::arith::CmpIPredicate::slt;
+        } else if (node->op == ">") {
+            predicate = mlir::arith::CmpIPredicate::sgt;
+        } else if (node->op == "<=") {
+            predicate = mlir::arith::CmpIPredicate::sle;
+        } else if (node->op == ">=") {
+            predicate = mlir::arith::CmpIPredicate::sge;
+        } else if (node->op == "==") {
+            predicate = mlir::arith::CmpIPredicate::eq;
+        } else if (node->op == "!=") {
+            predicate = mlir::arith::CmpIPredicate::ne;
+        } else {
+            throw std::runtime_error("CompExpr: unknown operator '" + node->op + "'");
+        }
+        cmpResult = builder_.create<mlir::arith::CmpIOp>(
+            loc_, predicate, leftVal, rightVal
+        );
+    } else if (promotedType.baseType == BaseType::REAL) {
+        // Floating point comparison
+        mlir::arith::CmpFPredicate predicate;
+        if (node->op == "<") {
+            predicate = mlir::arith::CmpFPredicate::OLT;
+        } else if (node->op == ">") {
+            predicate = mlir::arith::CmpFPredicate::OGT;
+        } else if (node->op == "<=") {
+            predicate = mlir::arith::CmpFPredicate::OLE;
+        } else if (node->op == ">=") {
+            predicate = mlir::arith::CmpFPredicate::OGE;
+        } else if (node->op == "==") {
+            predicate = mlir::arith::CmpFPredicate::OEQ;
+        } else if (node->op == "!=") {
+            predicate = mlir::arith::CmpFPredicate::ONE;
+        } else {
+            throw std::runtime_error("CompExpr: unknown operator '" + node->op + "'");
+        }
+        cmpResult = builder_.create<mlir::arith::CmpFOp>(
+            loc_, predicate, leftVal, rightVal
+        );
+    } else {
+        throw std::runtime_error("CompExpr: comparison not supported for type");
+    }
+    
+    // Store the comparison result
+    builder_.create<mlir::memref::StoreOp>(loc_, cmpResult, resultVarInfo.value, mlir::ValueRange{});
+    
+    // Push result onto stack
+    pushValue(resultVarInfo);
 }
 
 

@@ -1071,18 +1071,9 @@ std::any ASTBuilder::visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx) {
 
   return node_any(std::move(node));
 }
-std::any ASTBuilder::visitIf(gazprea::GazpreaParser::IfContext *ctx) {
-  // Extract condition expression
-  std::shared_ptr<ExprNode> cond = nullptr;
-  if (ctx->expr()) {
-    auto anyCond = visit(ctx->expr());
-    if (anyCond.has_value()) {
-      cond = safe_any_cast_ptr<ExprNode>(anyCond);
-    }
-  }
 
 // if: IF PARENLEFT expr PARENRIGHT (block|stat) (ELSE (block|stat))?;
-std::any ASTBuilder::visitIfStat(GazpreaParser::IfStatContext *ctx) {
+std::any ASTBuilder::visitIfStat(gazprea::GazpreaParser::IfStatContext *ctx) {
   auto ifCtx = ctx->if_stat();
   if (!ifCtx) {
     return nullptr;
