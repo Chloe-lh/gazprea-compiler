@@ -201,7 +201,7 @@ void SemanticAnalysisVisitor::visit(ProcedureNode* node) {
             throw MainError(1, "Semantic Analysis: procedure main() must not take parameters.");
         }
         if (node->returnType.baseType != BaseType::INTEGER) {
-            throw MainError(1, "Semantic Analysis: procedure main() must return integer.");
+            throw MainError(1, "Incorrect return type for main procedure");
         }
     }
 

@@ -481,7 +481,7 @@ std::any ASTBuilder::visitFunctionBlockTupleReturn(
   std::make_shared<FuncBlockNode>(funcName, varParams, returnType, body);
   return node_any(std::move(node));
 }
-// PROCEDURE ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT block;
+// PROCEDURE ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT (RETURNS type)? block;
 std::any ASTBuilder::visitProcedure(GazpreaParser::ProcedureContext *ctx) {
   std::string funcName = ctx->ID(0)->getText();
   // Extract params and convert to VarInfo vector (parameters are const by
@@ -492,10 +492,22 @@ std::any ASTBuilder::visitProcedure(GazpreaParser::ProcedureContext *ctx) {
       builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
   std::shared_ptr<BlockNode> body = nullptr;
 
-  // Procedures ordinarily have no return value; use UNKNOWN as a placeholder
-  // return type here. If the grammar later supports annotated procedure
-  // returns, update builder_utils and ASTBuilder accordingly.
+  // Handle procedure optional return type
   CompleteType returnType = CompleteType(BaseType::UNKNOWN);
+  if (ctx->RETURNS()) {
+    // The returns type will be the last 'type' occurrence in this context
+    auto typeVec = ctx->type();
+    if (!typeVec.empty()) {
+      auto anyRet = visit(typeVec.back());
+      if (anyRet.has_value() && anyRet.type() == typeid(CompleteType)) {
+        try {
+          returnType = std::any_cast<CompleteType>(anyRet);
+        } catch (const std::bad_any_cast &) {
+          returnType = CompleteType(BaseType::UNKNOWN);
+        }
+      }
+    }
+  }
 
   if (ctx->block()) { // procedure has a block body
     auto anyBody = visit(ctx->block());
