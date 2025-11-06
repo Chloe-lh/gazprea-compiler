@@ -48,6 +48,7 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope)
     createGlobalStringIfMissing("%d\0", "intFormat");
     createGlobalStringIfMissing("%c\0", "charFormat");
     createGlobalStringIfMissing("%.2f\0", "floatFormat");
+    createGlobalStringIfMissing("%s\0", "strFormat");
     createGlobalStringIfMissing("\n\0", "newline");
 }
 
@@ -337,6 +338,30 @@ void MLIRGen::visit(OutputStatNode* node) {
         return;
     }
     
+    // Handle string literals
+    if (auto strNode = std::dynamic_pointer_cast<StringNode>(node->expr)) {
+        auto printfFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("printf");
+        auto formatString = module_.lookupSymbol<mlir::LLVM::GlobalOp>("strFormat");
+        if (!printfFunc || !formatString) {
+            throw std::runtime_error("MLIRGen::OutputStat: missing printf or strFormat.");
+        }
+        // Create/find a global for the string literal
+        std::string symName = std::string("strlit_") + std::to_string(std::hash<std::string>{}(strNode->value));
+        auto existing = module_.lookupSymbol<mlir::LLVM::GlobalOp>(symName);
+        if (!existing) {
+            mlir::Type charTy = builder_.getI8Type();
+            mlir::StringRef sref(strNode->value.c_str(), strNode->value.size() + 1);
+            auto arrTy = mlir::LLVM::LLVMArrayType::get(charTy, sref.size());
+            builder_.create<mlir::LLVM::GlobalOp>(loc_, arrTy, /*constant=*/true,
+                mlir::LLVM::Linkage::Internal, symName, builder_.getStringAttr(sref), 0);
+            existing = module_.lookupSymbol<mlir::LLVM::GlobalOp>(symName);
+        }
+        auto fmtPtr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, formatString);
+        auto strPtr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, existing);
+        builder_.create<mlir::LLVM::CallOp>(loc_, printfFunc, mlir::ValueRange{fmtPtr, strPtr});
+        return;
+    }
+
     // Evaluate the expression to get the value to print
     node->expr->accept(*this);
     VarInfo exprVarInfo = popValue();
@@ -357,6 +382,9 @@ void MLIRGen::visit(OutputStatNode* node) {
             break;
         case BaseType::CHARACTER:
             formatStrName = "charFormat";
+            break;
+        case BaseType::STRING:
+            formatStrName = "strFormat";
             break;
         default:
             throw std::runtime_error("MLIRGen::OutputStat: Unsupported type for printing.");
@@ -393,6 +421,9 @@ void MLIRGen::visit(OutputStatNode* node) {
             break;
         case BaseType::INTEGER:
             // No extension needed for integer
+            break;
+        case BaseType::STRING:
+            // For non-literal strings we'd expect a pointer; assume loadedValue is already a ptr
             break;
         default:
             break;
@@ -633,6 +664,10 @@ void MLIRGen::visit(RealNode* node) {
     builder_.create<mlir::memref::StoreOp>(loc_, constReal, varInfo.value, mlir::ValueRange{});
 
     pushValue(varInfo);
+}
+
+void MLIRGen::visit(StringNode* node) {
+    throw std::runtime_error("String expressions not supported outside of output statements yet.");
 }
 
 void MLIRGen::visit(TupleLiteralNode* node) {

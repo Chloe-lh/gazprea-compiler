@@ -252,6 +252,10 @@ void ASTPrinter::visit(RealNode *node) {
   printTreeLine("RealNode", std::to_string(node->value));
 }
 
+void ASTPrinter::visit(StringNode *node) {
+  printTreeLine("StringNode", '"' + node->value + '"');
+}
+
 void ASTPrinter::visit(IdNode *node) { printTreeLine("IdNode", node->id); }
 
 void ASTPrinter::visit(TypedDecNode *node) {

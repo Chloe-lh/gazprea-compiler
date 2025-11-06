@@ -735,6 +735,10 @@ void SemanticAnalysisVisitor::visit(RealNode* node) {
     node->type = BaseType::REAL;
 }
 
+void SemanticAnalysisVisitor::visit(StringNode* node) {
+    node->type = BaseType::STRING;
+}
+
 void SemanticAnalysisVisitor::visit(IdNode* node) {
     VarInfo varInfo = *current_->resolveVar(node->id); // handles no-declr
     node->type = varInfo.type;

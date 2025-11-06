@@ -68,6 +68,7 @@ public:
   void visit(TypeCastNode *node) override;
   void visit(TupleTypeCastNode *node) override;
   void visit(RealNode *node) override;
+  void visit(StringNode *node) override;
 
 private:
   std::ostream &out;
