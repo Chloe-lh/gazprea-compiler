@@ -266,7 +266,7 @@ ASTBuilder::visitInferredTypeDec(GazpreaParser::InferredTypeDecContext *ctx) {
       expr = safe_any_cast_ptr<ExprNode>(exprAny);
     }
   }
-  auto node = std::make_shared<InferredDecNode>(qualifier, id, expr);
+  auto node = std::make_shared<InferredDecNode>(id, qualifier, expr);
   return node_any(std::move(node));
 }
 std::any
