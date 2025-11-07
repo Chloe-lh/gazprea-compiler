@@ -1,5 +1,9 @@
-real x = 4.1;
-integer y = 4;
-if (x > y) y -> std_output;
-else x -> std_output;
 //CHECK_FILE:else.out
+
+procedure main() returns integer {
+    real x = 5.0;
+    integer y = 4;
+    if (x < y) y -> std_output;
+    else x -> std_output;
+    return 0;
+}

@@ -1,7 +1,12 @@
-integer x = 5;
-if (x < 6) {
-    x -> std_output;
-}
-integer y = 5;
-if (y < 6) y -> std_output;
 //CHECK_FILE:if.out
+
+procedure main() returns integer {
+    integer x = 5;
+    integer y = 5;
+    if (x < 6) {
+        x -> std_output;
+    }
+    
+    if (y < 6) y -> std_output;
+    return 0;
+}
