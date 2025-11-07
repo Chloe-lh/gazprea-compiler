@@ -257,15 +257,19 @@ void MLIRGen::visit(OutputStatNode* node) {
         if (!printfFunc || !formatString) {
             throw std::runtime_error("MLIRGen::OutputStat: missing printf or strFormat.");
         }
-        // Create/find a global for the string literal
+        // Create/find a global for the string literal in curr scope
         std::string symName = std::string("strlit_") + std::to_string(std::hash<std::string>{}(strNode->value));
         auto existing = module_.lookupSymbol<mlir::LLVM::GlobalOp>(symName);
         if (!existing) {
+            auto* moduleBuilder = backend_.getBuilder().get();
+            auto savedIP = moduleBuilder->saveInsertionPoint();
+            moduleBuilder->setInsertionPointToStart(module_.getBody());
             mlir::Type charTy = builder_.getI8Type();
             mlir::StringRef sref(strNode->value.c_str(), strNode->value.size() + 1);
             auto arrTy = mlir::LLVM::LLVMArrayType::get(charTy, sref.size());
-            builder_.create<mlir::LLVM::GlobalOp>(loc_, arrTy, /*constant=*/true,
+            moduleBuilder->create<mlir::LLVM::GlobalOp>(loc_, arrTy, /*constant=*/true,
                 mlir::LLVM::Linkage::Internal, symName, builder_.getStringAttr(sref), 0);
+            moduleBuilder->restoreInsertionPoint(savedIP);
             existing = module_.lookupSymbol<mlir::LLVM::GlobalOp>(symName);
         }
         auto fmtPtr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, formatString);
