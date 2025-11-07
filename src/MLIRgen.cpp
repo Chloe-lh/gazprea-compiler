@@ -76,98 +76,45 @@ void MLIRGen::pushValue(VarInfo& value) {
 }
 
 void MLIRGen::visit(FileNode* node) {
-    // Start from the semantic root, then descend into the top-level global scope
+    // Initialize to semantic global scope (first child of root)
     currScope_ = root_;
     if (currScope_ && !currScope_->children().empty()) {
         currScope_ = currScope_->children().front().get();
     }
 
-    // Separate nodes by type: declarations, functions/procedures, and statements
-    std::vector<std::shared_ptr<ASTNode>> declarations;
-    std::vector<std::shared_ptr<ASTNode>> functions;
-    std::vector<std::shared_ptr<ASTNode>> statements;
-    
-    for (auto& child : node->stats) {
-        // Determine the type of node
-        if (std::dynamic_pointer_cast<DecNode>(child)) {
-            declarations.push_back(child);
-        } else if (std::dynamic_pointer_cast<FuncStatNode>(child) ||
-                   std::dynamic_pointer_cast<FuncBlockNode>(child) ||
-                   std::dynamic_pointer_cast<FuncPrototypeNode>(child) ||
-                   std::dynamic_pointer_cast<ProcedureNode>(child)) {
-            functions.push_back(child);
-        } else if (std::dynamic_pointer_cast<StatNode>(child)) {
-            statements.push_back(child);
-        } else if (std::dynamic_pointer_cast<TypeAliasDecNode>(child)) {
-            // Type aliases are also declarations
-            declarations.push_back(child);
-        }
-    }
-
-    // Set insertion point to module level for creating globals
+    // First pass: emit real const globals with constant initializers
     auto* moduleBuilder = backend_.getBuilder().get();
-    auto savedInsertionPoint = moduleBuilder->saveInsertionPoint();
+    auto savedIP = moduleBuilder->saveInsertionPoint();
     moduleBuilder->setInsertionPointToStart(module_.getBody());
-    
-    for (auto& decl : declarations) {
-        decl->accept(*this);
-    }
-    
-    // Process functions/procedures (emit as separate functions)
-    // Functions will set their own insertion points
-    for (auto& func : functions) {
-        func->accept(*this);
-    }
-    
-    // Process statements - wrap in main() function
-    // Create main if there are statements OR deferred initializations
-    if (!statements.empty() || !deferredInits_.empty()) {
-        // Restore builder to module level to create main function
-        moduleBuilder->restoreInsertionPoint(savedInsertionPoint);
-        moduleBuilder->setInsertionPointToStart(module_.getBody());
-        
-        mlir::FunctionType mainType = builder_.getFunctionType({}, {builder_.getI32Type()});
-        auto mainFunc = builder_.create<mlir::func::FuncOp>(loc_, "main", mainType);
-        mlir::Block* entryBlock = mainFunc.addEntryBlock();
-        
-        // The allocaBuilder points to the very beginning of the function.
-        // All memref.alloca operations MUST be generated here.
-        allocaBuilder_ = mlir::OpBuilder(entryBlock, entryBlock->begin());
 
-        // The main builder starts generating code inside the main function's entry block.
-        builder_.setInsertionPointToStart(entryBlock);
-
-        // Process deferred global variable initializations first
-        // This ensures globals are initialized before they're used in statements
-        for (auto& deferredInit : deferredInits_) {
-            initializeGlobalInMain(deferredInit.varName, deferredInit.initExpr);
+    for (auto& n : node->stats) {
+        auto tdecl = std::dynamic_pointer_cast<TypedDecNode>(n);
+        if (!tdecl) continue;
+        // Globals must be const and have an initializer
+        if (tdecl->qualifier != "const" || !tdecl->init) {
+            continue; // semantics should enforce, skip silently here
         }
-        
-        // Clear the deferred initializations list
-        deferredInits_.clear();
-
-        for (auto& stat : statements) {
-            stat->accept(*this);
+        // Build constant attribute
+        CompleteType gtype = tdecl->type_alias ? tdecl->type_alias->type : CompleteType(BaseType::UNKNOWN);
+        mlir::Attribute initAttr = extractConstantValue(tdecl->init, gtype);
+        if (!initAttr) {
+            throw std::runtime_error("Global initializer must be a compile-time constant for '" + tdecl->name + "'.");
         }
-
-        // Add a `return 0` at the end of main.
-        // Ensure return is the last operation - find the last operation and insert after it
-        if (!entryBlock->empty()) {
-            // Remove any existing terminator
-            mlir::Operation& lastOp = entryBlock->back();
-            if (lastOp.hasTrait<mlir::OpTrait::IsTerminator>()) {
-                lastOp.erase();
-            }
-            // Insert return after the last operation
-            builder_.setInsertionPointAfter(&entryBlock->back());
-        }
-        mlir::Value zero = builder_.create<mlir::arith::ConstantOp>(
-            loc_, builder_.getI32Type(), builder_.getI32IntegerAttr(0));
-        builder_.create<mlir::func::ReturnOp>(loc_, zero);
+        // Create the LLVM global
+        (void) createGlobalVariable(tdecl->name, gtype, /*isConst=*/true, initAttr);
     }
-    
-    // Restore the original insertion point
-    moduleBuilder->restoreInsertionPoint(savedInsertionPoint);
+
+    moduleBuilder->restoreInsertionPoint(savedIP);
+
+    // Second pass: lower procedures/functions
+    for (auto& n : node->stats) {
+        if (std::dynamic_pointer_cast<ProcedureNode>(n) ||
+            std::dynamic_pointer_cast<FuncStatNode>(n) ||
+            std::dynamic_pointer_cast<FuncBlockNode>(n) ||
+            std::dynamic_pointer_cast<FuncPrototypeNode>(n)) {
+            n->accept(*this);
+        }
+    }
 }
 
 
@@ -178,30 +125,108 @@ void MLIRGen::visit(FuncStatNode* node) { throw std::runtime_error("FuncStatNode
 void MLIRGen::visit(FuncPrototypeNode* node) { throw std::runtime_error("FuncPrototypeNode not implemented"); }
 void MLIRGen::visit(FuncBlockNode* node) { throw std::runtime_error("FuncBlockNode not implemented"); }
 void MLIRGen::visit(FuncCallExpr* node) { throw std::runtime_error("FuncCallExpr not implemented"); }
-void MLIRGen::visit(ProcedureNode* node) { throw std::runtime_error("ProcedureNode not implemented"); }
+void MLIRGen::visit(ProcedureNode* node) {
+    // Build function type for the procedure (scalars only for now)
+    std::vector<mlir::Type> argTys;
+    argTys.reserve(node->params.size());
+    for (const auto& p : node->params) argTys.push_back(getLLVMType(p.type));
 
-// Declarations
+    std::vector<mlir::Type> resTys;
+    if (node->returnType.baseType != BaseType::UNKNOWN) resTys.push_back(getLLVMType(node->returnType));
 
-void MLIRGen::initializeGlobalInMain(const std::string& varName, std::shared_ptr<ExprNode> initExpr) {
-    // Look up the global variable
-    auto globalOp = module_.lookupSymbol<mlir::LLVM::GlobalOp>(varName);
-    if (!globalOp) {
-        throw SymbolError(1, "Global variable '" + varName + "' not found for initialization.");
+    auto ftype = builder_.getFunctionType(argTys, resTys);
+    auto func = builder_.create<mlir::func::FuncOp>(loc_, node->name, ftype);
+    mlir::Block* entry = func.addEntryBlock();
+
+    // Set allocas to the top of the entry block
+    allocaBuilder_ = mlir::OpBuilder(entry, entry->begin());
+    builder_.setInsertionPointToStart(entry);
+
+    // Switch to the procedure's semantic scope: try to find child scope with params
+    Scope* saved = currScope_;
+    Scope* procScope = nullptr;
+    if (currScope_ && !currScope_->children().empty()) {
+        if (!node->params.empty()) {
+            for (const auto& ch : currScope_->children()) {
+                const auto& syms = ch->symbols();
+                bool ok = true;
+                for (const auto& p : node->params) {
+                    if (syms.find(p.identifier) == syms.end()) { ok = false; break; }
+                }
+                if (ok) { procScope = ch.get(); break; }
+            }
+        }
+        if (!procScope) procScope = currScope_->children().front().get();
     }
-    
-    // Get the address of the global
-    mlir::Value globalAddr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
-    
-    // Evaluate the initialization expression
-    initExpr->accept(*this);
-    VarInfo initVarInfo = popValue();
-    
-    // Load the value from the memref
-    mlir::Value initValue = builder_.create<mlir::memref::LoadOp>(
-        loc_, initVarInfo.value, mlir::ValueRange{});
-    
-    // Store the value into the global using LLVM::StoreOp
-    builder_.create<mlir::LLVM::StoreOp>(loc_, initValue, globalAddr);
+    if (procScope) currScope_ = procScope;
+
+    // Bind parameters: allocate local storage for each and store block arguments
+    for (size_t i = 0; i < node->params.size(); ++i) {
+        const auto& p = node->params[i];
+        VarInfo* vi = currScope_ ? currScope_->resolveVar(p.identifier) : nullptr;
+        if (!vi) throw std::runtime_error("Codegen: missing parameter '" + p.identifier + "' in scope");
+        if (!vi->value) allocaVar(vi);
+        builder_.create<mlir::memref::StoreOp>(loc_, entry->getArgument(i), vi->value, mlir::ValueRange{});
+    }
+
+    // Lower body
+    if (node->body) node->body->accept(*this);
+
+    // Ensure terminator
+    if (entry->empty() || !entry->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+        if (resTys.empty()) {
+            builder_.setInsertionPointToEnd(entry);
+            builder_.create<mlir::func::ReturnOp>(loc_);
+        } else {
+            throw std::runtime_error("Codegen: missing return in non-void procedure");
+        }
+    }
+
+    currScope_ = saved;
+}
+
+// Declarations / Globals helpers
+mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
+    // TODO: support tuples
+    switch (type.baseType) {
+        case BaseType::BOOL: return builder_.getI1Type();
+        case BaseType::CHARACTER: return builder_.getI8Type();
+        case BaseType::INTEGER: return builder_.getI32Type();
+        case BaseType::REAL: return builder_.getF32Type();
+        default:
+            throw std::runtime_error("Unsupported global type: " + toString(type));
+    }
+}
+
+mlir::Attribute MLIRGen::extractConstantValue(std::shared_ptr<ExprNode> expr, const CompleteType& targetType) {
+    if (!expr) return nullptr;
+    if (auto tn = std::dynamic_pointer_cast<TrueNode>(expr)) {
+        return builder_.getIntegerAttr(builder_.getI1Type(), 1);
+    }
+    if (auto fn = std::dynamic_pointer_cast<FalseNode>(expr)) {
+        return builder_.getIntegerAttr(builder_.getI1Type(), 0);
+    }
+    if (auto cn = std::dynamic_pointer_cast<CharNode>(expr)) {
+        return builder_.getIntegerAttr(builder_.getI8Type(), static_cast<int>(cn->value));
+    }
+    if (auto in = std::dynamic_pointer_cast<IntNode>(expr)) {
+        return builder_.getIntegerAttr(builder_.getI32Type(), in->value);
+    }
+    if (auto rn = std::dynamic_pointer_cast<RealNode>(expr)) {
+        return builder_.getFloatAttr(builder_.getF32Type(), rn->value);
+    }
+    return nullptr;
+}
+
+mlir::Value MLIRGen::createGlobalVariable(const std::string& name, const CompleteType& type, bool isConst, mlir::Attribute initValue) {
+    mlir::Type elemTy = getLLVMType(type);
+    auto* moduleBuilder = backend_.getBuilder().get();
+    auto savedIP = moduleBuilder->saveInsertionPoint();
+    moduleBuilder->setInsertionPointToStart(module_.getBody());
+    moduleBuilder->create<mlir::LLVM::GlobalOp>(
+        loc_, elemTy, isConst, mlir::LLVM::Linkage::Internal, name, initValue, 0);
+    moduleBuilder->restoreInsertionPoint(savedIP);
+    return nullptr;
 }
 
 void MLIRGen::visit(TypedDecNode* node) {
@@ -310,15 +335,19 @@ void MLIRGen::visit(OutputStatNode* node) {
         if (!printfFunc || !formatString) {
             throw std::runtime_error("MLIRGen::OutputStat: missing printf or strFormat.");
         }
-        // Create/find a global for the string literal
+        // Create/find a global for the string literal in curr scope
         std::string symName = std::string("strlit_") + std::to_string(std::hash<std::string>{}(strNode->value));
         auto existing = module_.lookupSymbol<mlir::LLVM::GlobalOp>(symName);
         if (!existing) {
+            auto* moduleBuilder = backend_.getBuilder().get();
+            auto savedIP = moduleBuilder->saveInsertionPoint();
+            moduleBuilder->setInsertionPointToStart(module_.getBody());
             mlir::Type charTy = builder_.getI8Type();
             mlir::StringRef sref(strNode->value.c_str(), strNode->value.size() + 1);
             auto arrTy = mlir::LLVM::LLVMArrayType::get(charTy, sref.size());
-            builder_.create<mlir::LLVM::GlobalOp>(loc_, arrTy, /*constant=*/true,
+            moduleBuilder->create<mlir::LLVM::GlobalOp>(loc_, arrTy, /*constant=*/true,
                 mlir::LLVM::Linkage::Internal, symName, builder_.getStringAttr(sref), 0);
+            moduleBuilder->restoreInsertionPoint(savedIP);
             existing = module_.lookupSymbol<mlir::LLVM::GlobalOp>(symName);
         }
         auto fmtPtr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, formatString);
@@ -406,7 +435,21 @@ void MLIRGen::visit(OutputStatNode* node) {
 void MLIRGen::visit(InputStatNode* node) { throw std::runtime_error("InputStatNode not implemented"); }
 void MLIRGen::visit(BreakStatNode* node) { throw std::runtime_error("BreakStatNode not implemented"); }
 void MLIRGen::visit(ContinueStatNode* node) { throw std::runtime_error("ContinueStatNode not implemented"); }
-void MLIRGen::visit(ReturnStatNode* node) { throw std::runtime_error("ReturnStatNode not implemented"); }
+void MLIRGen::visit(ReturnStatNode* node) {
+    const CompleteType* retTy = currScope_ ? currScope_->getReturnType() : nullptr;
+    if (!retTy || retTy->baseType == BaseType::UNKNOWN) {
+        builder_.create<mlir::func::ReturnOp>(loc_);
+        return;
+    }
+    if (!node->expr) {
+        throw std::runtime_error("Codegen: missing return value for non-void procedure/function");
+    }
+    node->expr->accept(*this);
+    VarInfo v = popValue();
+    VarInfo promoted = promoteType(&v, const_cast<CompleteType*>(retTy));
+    mlir::Value loaded = builder_.create<mlir::memref::LoadOp>(loc_, promoted.value, mlir::ValueRange{});
+    builder_.create<mlir::func::ReturnOp>(loc_, loaded);
+}
 void MLIRGen::visit(CallStatNode* node) { throw std::runtime_error("CallStatNode not implemented"); }
 void MLIRGen::visit(IfNode* node) {
     
@@ -501,7 +544,17 @@ void MLIRGen::visit(IfNode* node) {
 }
 void MLIRGen::visit(LoopNode* node) { throw std::runtime_error("LoopNode not implemented"); }
 void MLIRGen::visit(BlockNode* node) { 
-    throw std::runtime_error("BlockNode not implemented"); 
+    // Enter the corresponding semantic child scope if present
+    Scope* saved = currScope_;
+    if (currScope_ && !currScope_->children().empty()) {
+        // for now: pick the first child; semantics created a fresh scope for this block
+        currScope_ = currScope_->children().front().get();
+    }
+
+    for (const auto& d : node->decs) if (d) d->accept(*this);
+    for (const auto& s : node->stats) if (s) s->accept(*this);
+
+    currScope_ = saved;
 }
 
 // Expressions / Operators
