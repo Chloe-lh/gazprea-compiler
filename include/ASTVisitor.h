@@ -61,4 +61,5 @@ public:
   virtual void visit(TypeCastNode *node) = 0;
   virtual void visit(TupleTypeCastNode *node) = 0;
   virtual void visit(RealNode *node) = 0;
+  virtual void visit(StringNode *node) = 0;
 };

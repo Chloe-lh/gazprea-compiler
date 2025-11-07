@@ -1,0 +1,11 @@
+//CHECK_FILE:globalIntDeclaration.out
+const integer i = 3;
+
+procedure main() returns integer {
+    
+    "hello world" -> std_output;
+
+    return 0;
+}
+
+

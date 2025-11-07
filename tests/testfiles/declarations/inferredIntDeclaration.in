@@ -1,0 +1,11 @@
+//CHECK_FILE:inferredIntDeclaration.out
+
+
+procedure main() returns integer {
+    const i = 3;
+    "hello world" -> std_output;
+
+    return 0;
+}
+
+

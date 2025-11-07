@@ -38,8 +38,29 @@ template <typename T> static inline std::any dec_any(std::shared_ptr<T> n) {
 template <typename T> static inline std::shared_ptr<T>
 safe_any_cast_ptr(const std::any &a) {
   try {
-    if (a.has_value() && a.type() == typeid(std::shared_ptr<T>))
+    if (!a.has_value())
+      return nullptr;
+    // Exact type match
+    if (a.type() == typeid(std::shared_ptr<T>))
       return std::any_cast<std::shared_ptr<T>>(a);
+    // Upcast case: value stored as std::shared_ptr<ASTNode>
+    if (a.type() == typeid(std::shared_ptr<ASTNode>)) {
+      auto base = std::any_cast<std::shared_ptr<ASTNode>>(a);
+      return std::dynamic_pointer_cast<T>(base);
+    }
+    // Common families also derive from ASTNode; try those too
+    if (a.type() == typeid(std::shared_ptr<ExprNode>)) {
+      auto base = std::any_cast<std::shared_ptr<ExprNode>>(a);
+      return std::dynamic_pointer_cast<T>(base);
+    }
+    if (a.type() == typeid(std::shared_ptr<StatNode>)) {
+      auto base = std::any_cast<std::shared_ptr<StatNode>>(a);
+      return std::dynamic_pointer_cast<T>(base);
+    }
+    if (a.type() == typeid(std::shared_ptr<DecNode>)) {
+      auto base = std::any_cast<std::shared_ptr<DecNode>>(a);
+      return std::dynamic_pointer_cast<T>(base);
+    }
   } catch (const std::bad_any_cast &) {
     // fall through
   }
@@ -328,8 +349,10 @@ std::any ASTBuilder::visitQualifier(GazpreaParser::QualifierContext *ctx) {
 std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
   if (ctx->BOOLEAN())
     return CompleteType(BaseType::BOOL);
-  if (ctx->ID())
+  if (ctx->STRING())
     return CompleteType(BaseType::STRING);
+  if (ctx->ID())
+    return CompleteType(BaseType::UNKNOWN);
   if (ctx->INTEGER())
     return CompleteType(BaseType::INTEGER);
   if (ctx->REAL())
@@ -481,7 +504,7 @@ std::any ASTBuilder::visitFunctionBlockTupleReturn(
   std::make_shared<FuncBlockNode>(funcName, varParams, returnType, body);
   return node_any(std::move(node));
 }
-// PROCEDURE ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT block;
+// PROCEDURE ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT (RETURNS type)? block;
 std::any ASTBuilder::visitProcedure(GazpreaParser::ProcedureContext *ctx) {
   std::string funcName = ctx->ID(0)->getText();
   // Extract params and convert to VarInfo vector (parameters are const by
@@ -492,10 +515,22 @@ std::any ASTBuilder::visitProcedure(GazpreaParser::ProcedureContext *ctx) {
       builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
   std::shared_ptr<BlockNode> body = nullptr;
 
-  // Procedures ordinarily have no return value; use UNKNOWN as a placeholder
-  // return type here. If the grammar later supports annotated procedure
-  // returns, update builder_utils and ASTBuilder accordingly.
+  // Handle procedure optional return type
   CompleteType returnType = CompleteType(BaseType::UNKNOWN);
+  if (ctx->RETURNS()) {
+    // The returns type will be the last 'type' occurrence in this context
+    auto typeVec = ctx->type();
+    if (!typeVec.empty()) {
+      auto anyRet = visit(typeVec.back());
+      if (anyRet.has_value() && anyRet.type() == typeid(CompleteType)) {
+        try {
+          returnType = std::any_cast<CompleteType>(anyRet);
+        } catch (const std::bad_any_cast &) {
+          returnType = CompleteType(BaseType::UNKNOWN);
+        }
+      }
+    }
+  }
 
   if (ctx->block()) { // procedure has a block body
     auto anyBody = visit(ctx->block());
@@ -910,6 +945,39 @@ std::any ASTBuilder::visitCharExpr(GazpreaParser::CharExprContext *ctx) {
   }
   auto node = std::make_shared<CharNode>(value);
   node->type = CompleteType(BaseType::CHARACTER);
+  return expr_any(std::move(node));
+}
+std::any ASTBuilder::visitStringExpr(GazpreaParser::StringExprContext *ctx) {
+  std::string text = ctx->STRING_LIT()->getText();
+  // Strip the surrounding quotes and unescape minimal sequences handled in CHAR
+  std::string out;
+  out.reserve(text.size());
+  // remove leading and trailing quotes if present
+  size_t i = 0, n = text.size();
+  if (n >= 2 && text.front() == '"' && text.back() == '"') {
+    i = 1; n -= 1;
+  }
+  while (i < n) {
+    char c = text[i++];
+    if (c == '\\' && i < n) {
+      char e = text[i++];
+      switch (e) {
+        case '0': out.push_back('\0'); break;
+        case 'a': out.push_back('\a'); break;
+        case 'b': out.push_back('\b'); break;
+        case 't': out.push_back('\t'); break;
+        case 'n': out.push_back('\n'); break;
+        case 'r': out.push_back('\r'); break;
+        case '"': out.push_back('"'); break;
+        case '\'': out.push_back('\''); break;
+        case '\\': out.push_back('\\'); break;
+        default: out.push_back(e); break;
+      }
+    } else {
+      out.push_back(c);
+    }
+  }
+  auto node = std::make_shared<StringNode>(out);
   return expr_any(std::move(node));
 }
 

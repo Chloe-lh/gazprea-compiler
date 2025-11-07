@@ -10,7 +10,7 @@ func
     | FUNCTION ID PARENLEFT (type ID? (COMMA type ID?)*)? PARENRIGHT RETURNS tuple_dec END  #FunctionPrototypeTupleReturn
     ;
 
-procedure: PROCEDURE ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT block;
+procedure: PROCEDURE ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT (RETURNS type)? block;
 
 dec
     : qualifier? type ID (EQ expr)? END          #ExplicitTypedDec
@@ -35,6 +35,7 @@ type //this should include basic types
     | CHARACTER
     | INTEGER
     | REAL
+    | STRING
     | ID
     ;
 
@@ -48,6 +49,7 @@ expr
     : tuple_access                                      #TupleAccessExpr
     | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr
     | PARENLEFT expr PARENRIGHT                         #ParenExpr
+    | STRING_LIT                                       #StringExpr
     | <assoc=right> (ADD|MINUS) expr                    #UnaryExpr
     | <assoc=right> expr EXP expr                       #ExpExpr
     | expr op=(MULT|DIV|REM) expr                       #MultExpr
@@ -93,6 +95,7 @@ real
     ;
 
 CHAR: '\'' (ESC_SEQ | ~[\\']) '\'';
+STRING_LIT: '"' (ESC_SEQ | ~('\\'|'"'))* '"';
 
 fragment ESC_SEQ:
       '\\0'  // Null
@@ -191,6 +194,5 @@ ID: [a-zA-Z_][a-zA-Z0-9_]*;
 SL_COMMENT: '//'.*? ('\n'|EOF) -> skip; 
 ML_COMMENT: '/*' .*? '*/' -> skip; //cannot be nested
 WS : [ \t\r\n]+ -> skip ;
-
 
 

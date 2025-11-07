@@ -27,6 +27,11 @@ void SemanticAnalysisVisitor::visit(FileNode* node) {
     }
 
     exitScope();
+
+    // Ensure main exists
+    if (!seenMain_) {
+        throw GlobalError(1, "Semantic Analysis: procedure main() not defined.");
+    }
 }
 
 /* TODO insert line number for error
@@ -196,7 +201,7 @@ void SemanticAnalysisVisitor::visit(ProcedureNode* node) {
             throw MainError(1, "Semantic Analysis: procedure main() must not take parameters.");
         }
         if (node->returnType.baseType != BaseType::INTEGER) {
-            throw MainError(1, "Semantic Analysis: procedure main() must return integer.");
+            throw MainError(1, "Incorrect return type for main procedure");
         }
     }
 
@@ -367,7 +372,8 @@ void SemanticAnalysisVisitor::visit(ContinueStatNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(ReturnStatNode* node) {
-    if (!current_->isInFunction()) {
+    // Allow return inside func/proc, determined by non-null expected return type on the scope
+    if (current_->getReturnType() == nullptr) {
         throw StatementError(1, "Cannot use 'return' outside of function."); // TODO add line num
     }
 
@@ -728,6 +734,10 @@ void SemanticAnalysisVisitor::visit(IntNode* node) {
 
 void SemanticAnalysisVisitor::visit(RealNode* node) {
     node->type = BaseType::REAL;
+}
+
+void SemanticAnalysisVisitor::visit(StringNode* node) {
+    node->type = BaseType::STRING;
 }
 
 void SemanticAnalysisVisitor::visit(IdNode* node) {

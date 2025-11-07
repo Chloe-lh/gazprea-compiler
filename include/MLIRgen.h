@@ -72,6 +72,7 @@ public:
     void visit(CharNode* node) override;
     void visit(IntNode* node) override;
     void visit(RealNode* node) override;
+    void visit(StringNode* node) override;
     void visit(TupleLiteralNode* node) override;
 
     // helpers
