@@ -544,8 +544,17 @@ void MLIRGen::visit(IfNode* node) {
 }
 void MLIRGen::visit(LoopNode* node) { throw std::runtime_error("LoopNode not implemented"); }
 void MLIRGen::visit(BlockNode* node) { 
+    // Enter the corresponding semantic child scope if present
+    Scope* saved = currScope_;
+    if (currScope_ && !currScope_->children().empty()) {
+        // for now: pick the first child; semantics created a fresh scope for this block
+        currScope_ = currScope_->children().front().get();
+    }
+
     for (const auto& d : node->decs) if (d) d->accept(*this);
     for (const auto& s : node->stats) if (s) s->accept(*this);
+
+    currScope_ = saved;
 }
 
 // Expressions / Operators
