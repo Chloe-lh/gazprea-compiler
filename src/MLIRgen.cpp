@@ -76,98 +76,45 @@ void MLIRGen::pushValue(VarInfo& value) {
 }
 
 void MLIRGen::visit(FileNode* node) {
-    // Start from the semantic root, then descend into the top-level global scope
+    // Initialize to semantic global scope (first child of root)
     currScope_ = root_;
     if (currScope_ && !currScope_->children().empty()) {
         currScope_ = currScope_->children().front().get();
     }
 
-    // Separate nodes by type: declarations, functions/procedures, and statements
-    std::vector<std::shared_ptr<ASTNode>> declarations;
-    std::vector<std::shared_ptr<ASTNode>> functions;
-    std::vector<std::shared_ptr<ASTNode>> statements;
-    
-    for (auto& child : node->stats) {
-        // Determine the type of node
-        if (std::dynamic_pointer_cast<DecNode>(child)) {
-            declarations.push_back(child);
-        } else if (std::dynamic_pointer_cast<FuncStatNode>(child) ||
-                   std::dynamic_pointer_cast<FuncBlockNode>(child) ||
-                   std::dynamic_pointer_cast<FuncPrototypeNode>(child) ||
-                   std::dynamic_pointer_cast<ProcedureNode>(child)) {
-            functions.push_back(child);
-        } else if (std::dynamic_pointer_cast<StatNode>(child)) {
-            statements.push_back(child);
-        } else if (std::dynamic_pointer_cast<TypeAliasDecNode>(child)) {
-            // Type aliases are also declarations
-            declarations.push_back(child);
-        }
-    }
-
-    // Set insertion point to module level for creating globals
+    // First pass: emit real const globals with constant initializers
     auto* moduleBuilder = backend_.getBuilder().get();
-    auto savedInsertionPoint = moduleBuilder->saveInsertionPoint();
+    auto savedIP = moduleBuilder->saveInsertionPoint();
     moduleBuilder->setInsertionPointToStart(module_.getBody());
-    
-    for (auto& decl : declarations) {
-        decl->accept(*this);
-    }
-    
-    // Process functions/procedures (emit as separate functions)
-    // Functions will set their own insertion points
-    for (auto& func : functions) {
-        func->accept(*this);
-    }
-    
-    // Process statements - wrap in main() function
-    // Create main if there are statements OR deferred initializations
-    if (!statements.empty() || !deferredInits_.empty()) {
-        // Restore builder to module level to create main function
-        moduleBuilder->restoreInsertionPoint(savedInsertionPoint);
-        moduleBuilder->setInsertionPointToStart(module_.getBody());
-        
-        mlir::FunctionType mainType = builder_.getFunctionType({}, {builder_.getI32Type()});
-        auto mainFunc = builder_.create<mlir::func::FuncOp>(loc_, "main", mainType);
-        mlir::Block* entryBlock = mainFunc.addEntryBlock();
-        
-        // The allocaBuilder points to the very beginning of the function.
-        // All memref.alloca operations MUST be generated here.
-        allocaBuilder_ = mlir::OpBuilder(entryBlock, entryBlock->begin());
 
-        // The main builder starts generating code inside the main function's entry block.
-        builder_.setInsertionPointToStart(entryBlock);
-
-        // Process deferred global variable initializations first
-        // This ensures globals are initialized before they're used in statements
-        for (auto& deferredInit : deferredInits_) {
-            initializeGlobalInMain(deferredInit.varName, deferredInit.initExpr);
+    for (auto& n : node->stats) {
+        auto tdecl = std::dynamic_pointer_cast<TypedDecNode>(n);
+        if (!tdecl) continue;
+        // Globals must be const and have an initializer
+        if (tdecl->qualifier != "const" || !tdecl->init) {
+            continue; // semantics should enforce, skip silently here
         }
-        
-        // Clear the deferred initializations list
-        deferredInits_.clear();
-
-        for (auto& stat : statements) {
-            stat->accept(*this);
+        // Build constant attribute
+        CompleteType gtype = tdecl->type_alias ? tdecl->type_alias->type : CompleteType(BaseType::UNKNOWN);
+        mlir::Attribute initAttr = extractConstantValue(tdecl->init, gtype);
+        if (!initAttr) {
+            throw std::runtime_error("Global initializer must be a compile-time constant for '" + tdecl->name + "'.");
         }
-
-        // Add a `return 0` at the end of main.
-        // Ensure return is the last operation - find the last operation and insert after it
-        if (!entryBlock->empty()) {
-            // Remove any existing terminator
-            mlir::Operation& lastOp = entryBlock->back();
-            if (lastOp.hasTrait<mlir::OpTrait::IsTerminator>()) {
-                lastOp.erase();
-            }
-            // Insert return after the last operation
-            builder_.setInsertionPointAfter(&entryBlock->back());
-        }
-        mlir::Value zero = builder_.create<mlir::arith::ConstantOp>(
-            loc_, builder_.getI32Type(), builder_.getI32IntegerAttr(0));
-        builder_.create<mlir::func::ReturnOp>(loc_, zero);
+        // Create the LLVM global
+        (void) createGlobalVariable(tdecl->name, gtype, /*isConst=*/true, initAttr);
     }
-    
-    // Restore the original insertion point
-    moduleBuilder->restoreInsertionPoint(savedInsertionPoint);
+
+    moduleBuilder->restoreInsertionPoint(savedIP);
+
+    // Second pass: lower procedures/functions
+    for (auto& n : node->stats) {
+        if (std::dynamic_pointer_cast<ProcedureNode>(n) ||
+            std::dynamic_pointer_cast<FuncStatNode>(n) ||
+            std::dynamic_pointer_cast<FuncBlockNode>(n) ||
+            std::dynamic_pointer_cast<FuncPrototypeNode>(n)) {
+            n->accept(*this);
+        }
+    }
 }
 
 
