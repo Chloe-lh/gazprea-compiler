@@ -1,0 +1,17 @@
+//CHECK_FILE:ifBlock.out
+
+procedure main() returns integer {
+    integer x = 5;
+    if (x < 6) {
+        if (x < 4)
+            x -> std_output;
+        4 -> std_output;
+        if (x < 6) {
+            x -> std_output;
+        }
+    }
+    else {
+        6 -> std_output;
+    }
+    return 0;
+}

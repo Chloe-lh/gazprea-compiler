@@ -1196,8 +1196,16 @@ std::any ASTBuilder::visitIfStat(gazprea::GazpreaParser::IfStatContext *ctx) {
   std::shared_ptr<IfNode> node;
   if (thenBlock) {
     node = std::make_shared<IfNode>(cond, thenBlock, elseBlock);
+    // If else branch is a stat (not a block), set it manually
+    if (elseStat) {
+      node->elseStat = elseStat;
+    }
   } else {
     node = std::make_shared<IfNode>(cond, thenStat, elseStat);
+    // If else branch is a block (not a stat), set it manually
+    if (elseBlock) {
+      node->elseBlock = elseBlock;
+    }
   }
   return node_any(std::move(node));
 }

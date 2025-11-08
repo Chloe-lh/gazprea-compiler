@@ -8,6 +8,7 @@
 class SemanticAnalysisVisitor: public ASTVisitor {
     public:
         Scope* getRootScope();
+        const std::unordered_map<const ASTNode*, Scope*>& getScopeMap() const;
 
         void visit(FileNode* node) override;
 
@@ -78,4 +79,5 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         void enterScopeFor(const ASTNode* ownerCtx, const bool inLoop, const CompleteType* returnType);
         void exitScope();
         bool guaranteesReturn(const BlockNode* block) const;
+
 };

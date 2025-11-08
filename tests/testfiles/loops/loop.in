@@ -1,0 +1,15 @@
+//CHECK_FILE:loop.out
+
+procedure main() returns integer {
+    var integer x = 1;
+    loop while (x < 5) {
+        x -> std_output;
+        x = x + 1;
+    }
+    loop {
+        integer y = 2;
+        y -> std_output;
+        break;
+    }
+    return 0;
+}

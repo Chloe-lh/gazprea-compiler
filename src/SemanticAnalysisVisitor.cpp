@@ -975,3 +975,7 @@ bool SemanticAnalysisVisitor::guaranteesReturn(const BlockNode* block) const {
     }
     return false;
 }
+
+const std::unordered_map<const ASTNode*, Scope*>& SemanticAnalysisVisitor::getScopeMap() const {
+    return scopeByCtx_;
+}

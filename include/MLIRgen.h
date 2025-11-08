@@ -19,7 +19,7 @@
 class MLIRGen : public ASTVisitor {
 public:
     explicit MLIRGen(BackEnd& backend);
-    explicit MLIRGen(BackEnd& backend, Scope* rootScope);
+    explicit MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<const ASTNode*, Scope*>* scopeMap);
 
     void visit(FileNode* node) override;
 
@@ -135,5 +135,14 @@ private:
     // Storing named values + types
     Scope* root_;
     Scope* currScope_;
+    const std::unordered_map<const ASTNode*, Scope*>* scopeMap_;
+    
+    // Loop control flow tracking
+    struct LoopContext {
+        mlir::Block* exitBlock;      // Block after the loop (for break)
+        mlir::Block* continueBlock;  // Block for continue (before region of scf.while)
+        mlir::Value breakFlag;       // Memref to break flag (false = break)
+    };
+    std::vector<LoopContext> loopContexts_;
     
 };

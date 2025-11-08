@@ -13,3 +13,7 @@ build/
 
 # Ignore macOS files
 .DS_STORE
+
+# test stuff
+tests/maks-testfiles/
+tests/fake-output/

@@ -45,6 +45,12 @@ int main(int argc, char **argv) {
   auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(astAny);
   ast = std::dynamic_pointer_cast<FileNode>(astNode);
 
+  // Print the AST
+  std::cout << "--- Abstract Syntax Tree ---" << std::endl;
+  gazprea::ASTPrinter printer(std::cout, true);
+  ast->accept(printer);
+  std::cout << "--------------------------\n" << std::endl;
+
   // HOW TO USE A VISITOR
   // Make the visitor
   // MyVisitor visitor;
@@ -54,6 +60,7 @@ int main(int argc, char **argv) {
   SemanticAnalysisVisitor semVisitor;
   ast->accept(semVisitor);
   Scope* rootScope = semVisitor.getRootScope();
+  const auto* scopeMap = &semVisitor.getScopeMap();
 
   // Run constant folding pass (uses semantic info from previous pass)
   ConstantFoldingVisitor cfv;
@@ -64,7 +71,7 @@ int main(int argc, char **argv) {
   BackEnd backend;
   
   // backend.emitModule(); demo module
-  MLIRGen mlirGen(backend, rootScope);
+  MLIRGen mlirGen(backend, rootScope, scopeMap);
   ast->accept(mlirGen);
  
   backend.lowerDialects();
