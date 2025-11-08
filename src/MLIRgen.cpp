@@ -585,8 +585,13 @@ void MLIRGen::visit(ContinueStatNode* node) {
     if (loopContexts_.empty()) {
         throw std::runtime_error("ContinueStatNode: continue statement outside of loop");
     }
-    // Yield immediately to continue to the next iteration (skip rest of body)
-    builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{});
+    // Set the continue flag to false to skip remaining statements in the loop body.
+    // The flag will be reset to true at the start of the next iteration.
+    auto& loopCtx = loopContexts_.back();
+    mlir::Type i1Type = builder_.getI1Type();
+    auto falseAttr = builder_.getIntegerAttr(i1Type, 0);
+    auto falseConst = builder_.create<mlir::arith::ConstantOp>(loc_, i1Type, falseAttr);
+    builder_.create<mlir::memref::StoreOp>(loc_, falseConst.getResult(), loopCtx.continueFlag, mlir::ValueRange{});
 }
 void MLIRGen::visit(ReturnStatNode* node) {
     const CompleteType* retTy = currScope_ ? currScope_->getReturnType() : nullptr;
@@ -699,6 +704,11 @@ void MLIRGen::visit(LoopNode* node) {
     auto trueConst = builder_.create<mlir::arith::ConstantOp>(loc_, i1Type, trueAttr);
     builder_.create<mlir::memref::StoreOp>(loc_, trueConst.getResult(), breakFlagVar.value, mlir::ValueRange{});
     
+    // Create a continue flag (true = execute body, false = skip to next iteration)
+    VarInfo continueFlagVar = VarInfo(boolType);
+    allocaVar(&continueFlagVar);
+    builder_.create<mlir::memref::StoreOp>(loc_, trueConst.getResult(), continueFlagVar.value, mlir::ValueRange{});
+    
     // Create scf.while operation (empty initially)
     auto whileOp = builder_.create<mlir::scf::WhileOp>(loc_, mlir::TypeRange{}, mlir::ValueRange{});
     
@@ -744,43 +754,39 @@ void MLIRGen::visit(LoopNode* node) {
         auto savedIP = builder_.saveInsertionPoint();
         builder_.setInsertionPointToStart(afterBlock);
         
-        // Reset break flag to true at the start of each iteration
+        // Reset continue flag to true at the start of each iteration
         auto trueConstAfter = builder_.create<mlir::arith::ConstantOp>(loc_, i1Type, trueAttr);
-        builder_.create<mlir::memref::StoreOp>(loc_, trueConstAfter.getResult(), breakFlagVar.value, mlir::ValueRange{});
-        
+        builder_.create<mlir::memref::StoreOp>(loc_, trueConstAfter.getResult(), continueFlagVar.value, mlir::ValueRange{});
+
         // Push loop context for break/continue
         LoopContext loopCtx;
-        loopCtx.exitBlock = nullptr; // Not used with scf.while (break just yields)
-        loopCtx.continueBlock = nullptr; // Not used with scf.while (continue just yields)
+        loopCtx.exitBlock = nullptr;
+        loopCtx.continueBlock = nullptr;
         loopCtx.breakFlag = breakFlagVar.value;
+        loopCtx.continueFlag = continueFlagVar.value;
         loopContexts_.push_back(loopCtx);
         
-        // Visit the loop body
-        node->body->accept(*this);
+        // Visit the loop body.
+        if (node->body) {
+            node->body->accept(*this);
+        }
         
         // Pop loop context
         loopContexts_.pop_back();
-        
-        // Only add yield if there's no existing terminator (break/continue might have added one)
+
+        // The 'after' region of the while loop also needs a terminator.
         if (afterBlock->empty() || !afterBlock->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-            // Yield to continue the loop
-            if (!afterBlock->empty()) {
-                builder_.setInsertionPointAfter(&afterBlock->back());
-        } else {
-                builder_.setInsertionPointToStart(afterBlock);
-            }
-            builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{});
+            builder_.create<mlir::scf::YieldOp>(loc_);
         }
         
         builder_.restoreInsertionPoint(savedIP);
     }
     
     // Restore insertion point to after the loop was created
-    // This ensures the next statement (like return) is visited after the loop
     builder_.restoreInsertionPoint(savedIPAfterLoop);
 }
 
-void MLIRGen::visit(BlockNode* node) { 
+void MLIRGen::visit(BlockNode* node) {
     // Enter the corresponding semantic child scope if present
     Scope* saved = currScope_;
     if (scopeMap_) {
@@ -790,44 +796,58 @@ void MLIRGen::visit(BlockNode* node) {
         }
     }
 
-    for (const auto& d : node->decs) if (d) d->accept(*this);
-    
-    // Process statements, wrapping remaining ones in conditional if we're in a loop
     bool inLoop = !loopContexts_.empty();
-    for (size_t i = 0; i < node->stats.size(); ++i) {
-        if (node->stats[i]) {
-            node->stats[i]->accept(*this);
-            
-            // If we're in a loop and there are more statements, 
-            // wrap them in an scf.if that only executes if break flag is TRUE (continue)
-            if (inLoop && i + 1 < node->stats.size()) {
+
+    // Process declarations, wrapping each in a conditional if we're in a loop
+    for (const auto& d : node->decs) {
+        if (d) {
+            if (inLoop) {
                 auto& loopCtx = loopContexts_.back();
                 mlir::Value breakFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.breakFlag, mlir::ValueRange{});
+                mlir::Value continueFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.continueFlag, mlir::ValueRange{});
+                mlir::Value shouldExecute = builder_.create<mlir::arith::AndIOp>(loc_, breakFlagVal, continueFlagVal);
                 
-                // Create if: execute remaining statements only if flag is TRUE (not broken)
-                auto breakCheckOp = builder_.create<mlir::scf::IfOp>(loc_, breakFlagVal, false);
+                auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, shouldExecute, false);
+                builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
                 
-                // The "then" branch: execute remaining statements
-                auto& continueBlock = breakCheckOp.getThenRegion().front();
-                builder_.setInsertionPointToStart(&continueBlock);
+                d->accept(*this);
                 
-                // Process remaining statements inside this conditional
-                for (size_t j = i + 1; j < node->stats.size(); ++j) {
-                    if (node->stats[j]) {
-                        node->stats[j]->accept(*this);
-                    }
-                }
-                
-                // Add yield only if there isn't already a terminator
-                if (continueBlock.empty() || !continueBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-                    if (!continueBlock.empty()) {
-                        builder_.setInsertionPointAfter(&continueBlock.back());
-                    }
+                if (ifOp.getThenRegion().front().empty() || !ifOp.getThenRegion().front().back().hasTrait<mlir::OpTrait::IsTerminator>()) {
                     builder_.create<mlir::scf::YieldOp>(loc_);
                 }
                 
-                // We've processed all remaining statements, so break out
-                break;
+                builder_.setInsertionPointAfter(ifOp);
+            } else {
+                d->accept(*this);
+            }
+        }
+    }
+    
+    // After processing declarations, prevent further declarations in this block
+    currScope_->disableDeclarations();
+    
+    // Process statements, wrapping each in a conditional if we're in a loop
+    for (const auto& s : node->stats) {
+        if (s) {
+            if (inLoop) {
+                auto& loopCtx = loopContexts_.back();
+                mlir::Value breakFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.breakFlag, mlir::ValueRange{});
+                mlir::Value continueFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.continueFlag, mlir::ValueRange{});
+                mlir::Value shouldExecute = builder_.create<mlir::arith::AndIOp>(loc_, breakFlagVal, continueFlagVal);
+                
+                auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, shouldExecute, false);
+                builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
+                
+                s->accept(*this);
+                
+                if (ifOp.getThenRegion().front().empty() || !ifOp.getThenRegion().front().back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+                    // FIX 3: Use :: instead of . for namespace resolution
+                    builder_.create<mlir::scf::YieldOp>(loc_);
+                }
+                
+                builder_.setInsertionPointAfter(ifOp);
+            } else {
+                s->accept(*this);
             }
         }
     }

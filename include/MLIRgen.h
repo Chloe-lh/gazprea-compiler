@@ -24,11 +24,11 @@ public:
     void visit(FileNode* node) override;
 
     // Functions
-    void visit(FuncStatNode* node) override; 
+    void visit(FuncStatNode* node) override;
     void visit(FuncPrototypeNode* node) override;
     void visit(FuncBlockNode* node) override;
     void visit(ProcedureNode* node) override;
-    
+
     // Declarations
     void visit(TypedDecNode* node) override;
     void visit(InferredDecNode* node) override;
@@ -44,7 +44,7 @@ public:
     void visit(BreakStatNode* node)     override;
     void visit(ContinueStatNode* node)  override;
     void visit(ReturnStatNode* node)    override;
-    void visit(CallStatNode* node)      override; 
+    void visit(CallStatNode* node)      override;
     void visit(IfNode* node)            override;
     void visit(LoopNode* node)          override;
     void visit(BlockNode* node)         override;
@@ -84,8 +84,8 @@ public:
     void allocaVar(VarInfo* varInfo);
     VarInfo castType(VarInfo* from, CompleteType* to);
     VarInfo promoteType(VarInfo* from, CompleteType* to);
-    
-    // Globals helpers 
+
+    // Globals helpers
     mlir::Type getLLVMType(const CompleteType& type);
     mlir::Attribute extractConstantValue(std::shared_ptr<ExprNode> expr, const CompleteType& targetType);
     mlir::Value createGlobalVariable(const std::string& name, const CompleteType& type, bool isConst, mlir::Attribute initValue = nullptr);
@@ -100,8 +100,8 @@ public:
     // success and false if no constant or unsupported constant type.
     bool tryEmitConstantForNode(ExprNode* node);
     mlir::func::FuncOp createFunctionDeclaration(const std::string &name,
-                                                const std::vector<VarInfo> &params,
-                                                const CompleteType &returnType);
+                                                 const std::vector<VarInfo> &params,
+                                                 const CompleteType &returnType);
     mlir::func::FuncOp beginFunctionDefinition(const std::string &name,
                                               const std::vector<VarInfo> &params,
                                               const CompleteType &returnType,
@@ -136,13 +136,14 @@ private:
     Scope* root_;
     Scope* currScope_;
     const std::unordered_map<const ASTNode*, Scope*>* scopeMap_;
-    
+
     // Loop control flow tracking
     struct LoopContext {
         mlir::Block* exitBlock;      // Block after the loop (for break)
         mlir::Block* continueBlock;  // Block for continue (before region of scf.while)
         mlir::Value breakFlag;       // Memref to break flag (false = break)
+        mlir::Value continueFlag;    // Memref to continue flag (false = skip remaining statements)
     };
     std::vector<LoopContext> loopContexts_;
-    
+
 };
