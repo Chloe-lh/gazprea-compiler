@@ -10,7 +10,10 @@
 #include <unordered_map>
 #include <vector>
 
-#include <mlir/IR/Value.h>
+// MLIR types. BackEnd.h already includes the necessary MLIR headers; keep
+// this include here to satisfy translation units that include MLIRgen.h
+// directly.
+#include "mlir/IR/Value.h"
 
 // MLIRGen traverses the AST and emits MLIR operations
 class MLIRGen : public ASTVisitor {
@@ -86,6 +89,33 @@ public:
     mlir::Type getLLVMType(const CompleteType& type);
     mlir::Attribute extractConstantValue(std::shared_ptr<ExprNode> expr, const CompleteType& targetType);
     mlir::Value createGlobalVariable(const std::string& name, const CompleteType& type, bool isConst, mlir::Attribute initValue = nullptr);
+
+    // Helpers to honour compile-time constants produced by ConstantFolding.
+    // If the constant can be represented as a literal memref, create it and
+    // return a VarInfo ready to be pushed on the value stack.
+    // Throws on unsupported types; callers should handle errors.
+    VarInfo createLiteralFromConstant(const ConstantValue &cv, const CompleteType &type);
+    // if `node` has a compile-time constant, emit the
+    // corresponding literal and push it on the value stack; returns true on
+    // success and false if no constant or unsupported constant type.
+    bool tryEmitConstantForNode(ExprNode* node);
+    mlir::func::FuncOp createFunctionDeclaration(const std::string &name,
+                                                const std::vector<VarInfo> &params,
+                                                const CompleteType &returnType);
+    mlir::func::FuncOp beginFunctionDefinition(const std::string &name,
+                                              const std::vector<VarInfo> &params,
+                                              const CompleteType &returnType,
+                                              Scope*& savedScope);
+    // Bind parameters (store entry block args into each VarInfo's memref storage)
+    void bindFunctionParameters(mlir::func::FuncOp func, const std::vector<VarInfo> &params);
+    // use constant folding
+    void bindFunctionParametersWithConstants(mlir::func::FuncOp func, const std::vector<VarInfo> &params);
+    void lowerFunctionOrProcedureBody(const std::vector<VarInfo> &params, std::shared_ptr<BlockNode> body, const CompleteType &returnType, Scope* savedScope) ;
+    mlir::func::FuncOp beginFunctionDefinitionWithConstants(
+        const std::string &name,
+        const std::vector<VarInfo> &params,
+        const CompleteType &returnType,
+        Scope* &savedScope);
 
 
 private:

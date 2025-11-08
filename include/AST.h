@@ -112,7 +112,7 @@ public:
 class FuncPrototypeNode : public FuncNode {
 public:
   FuncPrototypeNode(const std::string &name,
-                    const std::vector<VarInfo> &parameters,
+                    const std::vector<VarInfo> &parameters, //args technically
                     CompleteType returnType);
   void accept(ASTVisitor &visitor) override;
 };
@@ -218,7 +218,6 @@ public:
 class TypeAliasDecNode : public DecNode {
 public:
   std::string alias;
-
   TypeAliasDecNode(const std::string &alias, const CompleteType &type);
   void accept(ASTVisitor &visitor) override;
 };
@@ -239,6 +238,7 @@ public:
                std::shared_ptr<TypeAliasNode> type_alias,
                const std::string &qualifier = "",
                std::shared_ptr<ExprNode> init = nullptr);
+  std::optional<ConstantValue> constant;
   void accept(ASTVisitor &visitor) override;
 };
 class InferredDecNode : public DecNode {

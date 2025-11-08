@@ -1,0 +1,8 @@
+//CHECK_FILE:ne.out
+
+procedure main() returns integer {
+    integer a = 2;
+    integer b = 3;
+    a != b -> std_output;
+    return 0;
+}

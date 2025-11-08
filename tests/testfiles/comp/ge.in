@@ -1,0 +1,8 @@
+//CHECK_FILE:ge.out
+
+procedure main() returns integer {
+    integer a = 3;
+    integer b = 3;
+    a >= b -> std_output;
+    return 0;
+}

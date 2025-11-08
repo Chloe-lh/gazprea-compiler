@@ -1,0 +1,8 @@
+//CHECK_FILE:mixed_real.out
+
+procedure main() returns integer {
+    real a = 2.5;
+    integer b = 2;
+    a > b -> std_output;
+    return 0;
+}
