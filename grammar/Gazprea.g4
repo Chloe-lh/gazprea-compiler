@@ -82,7 +82,12 @@ if_stat: IF PARENLEFT expr PARENRIGHT (block|stat) (ELSE (block|stat))?;
 loop_stat
     : LOOP (block|stat) (WHILE PARENLEFT expr PARENRIGHT END)? #LoopDefault
     | LOOP (WHILE PARENLEFT expr PARENRIGHT) (block|stat) #WhileLoopBlock
+    | LOOP ID IN (rangeExpr | arrayLiteral) (block|stat) #ForLoopBlock
     ;
+
+rangeExpr: expr RANGE expr;
+
+arrayLiteral: SQLEFT expr (COMMA expr)* SQRIGHT;
 
 
 qualifier: VAR //mutable
@@ -146,6 +151,7 @@ PARENLEFT: '(';
 PARENRIGHT: ')';
 SQLEFT: '[';
 SQRIGHT: ']';
+RANGE: '..';
 
 // keywords
 AND: 'and';
@@ -163,7 +169,6 @@ FALSE: 'false';
 FORMAT: 'format';
 FUNCTION: 'function';
 IF: 'if';
-IN: 'in';
 INTEGER: 'integer';
 LENGTH: 'length';
 LOOP: 'loop';
