@@ -5,6 +5,7 @@ procedure main() returns integer {
 
     // Print the starting number
     n -> std_output;
+    '\n' -> std_output;
 
     loop while (n != 1) {
         // Check if n is even or odd
