@@ -1,0 +1,23 @@
+//CHECK_FILE:divByVar.out
+
+procedure main() returns integer {
+    var integer dividend = 10;
+    var integer divisor = 2;
+    var integer result = 0;
+
+    // The core of the test: a division by a non-constant ('divisor')
+    // that is nested inside an 'if' statement.
+    if (dividend > 5) {
+        // When MLIRGen visits this expression, it will be inside the 'then' region of an scf.if.
+        // The division-by-zero check for a variable divisor uses cf.cond_br, which splits the block.
+        // This splitting violates the single-block requirement of the scf.if's region,
+        // leading to the MLIR error you saw before.
+        result = dividend / divisor;
+        result -> std_output;
+    } else {
+        // This branch is not taken, but is good practice to include.
+        0 -> std_output;
+    }
+
+    return 0;
+}

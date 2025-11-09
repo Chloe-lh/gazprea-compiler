@@ -46,6 +46,13 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<co
                                     builder_.getStringAttr(strRef), 0);
         }
     };
+    // Declaration for MathError function
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("MathError")) {
+        auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+        auto voidTy = mlir::LLVM::LLVMVoidType::get(&context_);
+        auto mathErrorType = mlir::LLVM::LLVMFunctionType::get(voidTy, ptrTy, false);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "MathError", mathErrorType);
+    }
     createGlobalStringIfMissing("%d\0", "intFormat");
     createGlobalStringIfMissing("%c\0", "charFormat");
     createGlobalStringIfMissing("%.2f\0", "floatFormat");
@@ -1402,57 +1409,72 @@ void MLIRGen::visit(UnaryExpr* node) {
 
 void MLIRGen::visit(ExpExpr* node) {
     if (tryEmitConstantForNode(node)) return;
+
     node->left->accept(*this);
     VarInfo left = popValue();
-    mlir::Value lhs = left.value;
+    mlir::Value lhs = builder_.create<mlir::memref::LoadOp>(loc_, left.value, mlir::ValueRange{});
+
     node->right->accept(*this);
     VarInfo right = popValue();
-    mlir::Value rhs = right.value;
+    mlir::Value rhs = builder_.create<mlir::memref::LoadOp>(loc_, right.value, mlir::ValueRange{});
 
     bool isInt = lhs.getType().isa<mlir::IntegerType>();
 
     // Promote to float if needed
-    if (isInt) {
-        auto f32Type = builder_.getF32Type();
+    auto f32Type = builder_.getF32Type();
+    if (lhs.getType().isa<mlir::IntegerType>()) {
         lhs = builder_.create<mlir::arith::SIToFPOp>(loc_, f32Type, lhs);
+    }
+    if (rhs.getType().isa<mlir::IntegerType>()) {
         rhs = builder_.create<mlir::arith::SIToFPOp>(loc_, f32Type, rhs);
     }
 
-    // Error check: 0 raised to negative power
-    auto zero = builder_.create<mlir::arith::ConstantOp>(
-            loc_, lhs.getType(), builder_.getZeroAttr(lhs.getType()));
-    
-    mlir::Value isZero = builder_.create<mlir::arith::CmpFOp>(
-            loc_, mlir::arith::CmpFPredicate::OEQ, lhs, zero);
-    
-    mlir::Value ltZero = builder_.create<mlir::arith::CmpFOp>(
-            loc_, mlir::arith::CmpFPredicate::OLT, rhs, zero);
-    
-    mlir::Value invalidExp = builder_.create<mlir::arith::AndIOp>(loc_, isZero, ltZero);
+    auto zero = builder_.create<mlir::arith::ConstantOp>(loc_, lhs.getType(), builder_.getZeroAttr(lhs.getType()));
+    mlir::Value isBaseZero = builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OEQ, lhs, zero);
+    mlir::Value isExpNegative = builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OLT, rhs, zero);
+    mlir::Value invalidExp = builder_.create<mlir::arith::AndIOp>(loc_, isBaseZero, isExpNegative);
 
-    auto parentBlock = builder_.getBlock();
-    auto errorBlock = parentBlock->splitBlock(builder_.getInsertionPoint());
-    auto continueBlock = errorBlock->splitBlock(errorBlock->begin());
-    
-    builder_.create<mlir::cf::CondBranchOp>(loc_, invalidExp, errorBlock, mlir::ValueRange{}, continueBlock, mlir::ValueRange{});
+    auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, lhs.getType(), invalidExp, true);
 
-    builder_.setInsertionPointToStart(errorBlock);
-    auto errorMsg = builder_.create<mlir::arith::ConstantOp>(loc_, builder_.getStringAttr("Math Error: 0 cannot be raised to a negative power."));
-    builder_.create<mlir::func::CallOp>(loc_, "MathError", mlir::TypeRange{}, mlir::ValueRange{errorMsg});
-    
-    builder_.setInsertionPointToStart(continueBlock);
+    // Then region: error
+    builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
+    {
+        auto mathErrorFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("MathError");
+        if (mathErrorFunc) {
+            std::string errorMsgStr = "Math Error: 0 cannot be raised to a negative power.";
+            std::string errorMsgName = "pow_zero_err_str";
+             if (!module_.lookupSymbol<mlir::LLVM::GlobalOp>(errorMsgName)) {
+                  mlir::OpBuilder moduleBuilder(module_.getBodyRegion());
+                  mlir::Type charType = builder_.getI8Type();
+                  auto strRef = mlir::StringRef(errorMsgStr.c_str(), errorMsgStr.length() + 1);
+                  auto strType = mlir::LLVM::LLVMArrayType::get(charType, strRef.size());
+                  moduleBuilder.create<mlir::LLVM::GlobalOp>(loc_, strType, true,
+                                          mlir::LLVM::Linkage::Internal, errorMsgName,
+                                          builder_.getStringAttr(strRef), 0);
+             }
+             auto globalErrorMsg = module_.lookupSymbol<mlir::LLVM::GlobalOp>(errorMsgName);
+             mlir::Value errorMsgPtr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalErrorMsg);
+             builder_.create<mlir::LLVM::CallOp>(loc_, mathErrorFunc, mlir::ValueRange{errorMsgPtr});
+        }
+        builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{zero});
+    }
 
-    mlir::Value result = builder_.create<mlir::math::PowFOp>(loc_, lhs, rhs);
+    // Else region: valid exponentiation
+    builder_.setInsertionPointToStart(&ifOp.getElseRegion().front());
+    {
+        mlir::Value powResult = builder_.create<mlir::math::PowFOp>(loc_, lhs, rhs);
+        builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{powResult});
+    }
 
-    // If original operands were int, apply math.floor and cast back to int
+    mlir::Value result = ifOp.getResult(0);
+    builder_.setInsertionPointAfter(ifOp);
+
     if (isInt) {
         mlir::Value floored = builder_.create<mlir::math::FloorOp>(loc_, result);
         auto intType = builder_.getI32Type();
         result = builder_.create<mlir::arith::FPToSIOp>(loc_, intType, floored);
     }
 
-    // Assume both operands are of same type. Create a memref-backed VarInfo
-    // to hold the scalar result so later passes can rely on memref semantics.
     VarInfo outVar(left.type);
     allocaLiteral(&outVar);
     builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
@@ -1468,7 +1490,6 @@ void MLIRGen::visit(MultExpr* node){
     node->right->accept(*this);
     VarInfo rightInfo = popValue();
 
-    // Helper to load scalar values from memrefs
     auto loadIfMemref = [&](mlir::Value v) -> mlir::Value {
         if (v.getType().isa<mlir::MemRefType>()) {
             return builder_.create<mlir::memref::LoadOp>(loc_, v, mlir::ValueRange{});
@@ -1476,58 +1497,72 @@ void MLIRGen::visit(MultExpr* node){
         return v;
     };
 
-    // CORRECTLY load the scalar values from their memory references
     mlir::Value left = loadIfMemref(leftInfo.value);
     mlir::Value right = loadIfMemref(rightInfo.value);
 
-    // Only generate the runtime division-by-zero check if the divisor
-    // is NOT a compile-time constant.
-    if (!node->right->constant.has_value() && (node->op == "/" || node->op == "%")) {
-        auto zero = builder_.create<mlir::arith::ConstantOp>(
-            loc_, right.getType(), builder_.getZeroAttr(right.getType()));
+    mlir::Value result;
 
+    if (node->op == "/" || node->op == "%") {
+        auto zero = builder_.create<mlir::arith::ConstantOp>(loc_, right.getType(), builder_.getZeroAttr(right.getType()));
         mlir::Value isZero;
         if (right.getType().isa<mlir::IntegerType>()) {
-            isZero = builder_.create<mlir::arith::CmpIOp>(
-                loc_, mlir::arith::CmpIPredicate::eq, right, zero);
-        } else if (right.getType().isa<mlir::FloatType>()) {
-            isZero = builder_.create<mlir::arith::CmpFOp>(
-                loc_, mlir::arith::CmpFPredicate::OEQ, right, zero);
+            isZero = builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::eq, right, zero);
+        } else { // FloatType
+            isZero = builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OEQ, right, zero);
         }
 
-        auto parentBlock = builder_.getBlock();
-        auto errorBlock = parentBlock->splitBlock(builder_.getInsertionPoint());
-        auto continueBlock = errorBlock->splitBlock(errorBlock->begin());
+        auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, left.getType(), isZero, /*hasElse=*/true);
 
-        builder_.create<mlir::cf::CondBranchOp>(loc_, isZero, errorBlock, mlir::ValueRange{}, continueBlock, mlir::ValueRange{});
+        // --- THEN Region (divisor is zero) ---
+        builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
+        {
+            auto mathErrorFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("MathError");
+            if (mathErrorFunc) {
+                 std::string errorMsgStr = "Divide by zero error";
+                 std::string errorMsgName = "div_by_zero_err_str";
+                 mlir::Value errorMsgPtr;
+                 if (!module_.lookupSymbol<mlir::LLVM::GlobalOp>(errorMsgName)) {
+                      mlir::OpBuilder moduleBuilder(module_.getBodyRegion());
+                      mlir::Type charType = builder_.getI8Type();
+                      auto strRef = mlir::StringRef(errorMsgStr.c_str(), errorMsgStr.length() + 1);
+                      auto strType = mlir::LLVM::LLVMArrayType::get(charType, strRef.size());
+                      moduleBuilder.create<mlir::LLVM::GlobalOp>(loc_, strType, true,
+                                              mlir::LLVM::Linkage::Internal, errorMsgName,
+                                              builder_.getStringAttr(strRef), 0);
+                 }
+                 auto globalErrorMsg = module_.lookupSymbol<mlir::LLVM::GlobalOp>(errorMsgName);
+                 errorMsgPtr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalErrorMsg);
+                 builder_.create<mlir::LLVM::CallOp>(loc_, mathErrorFunc, mlir::ValueRange{errorMsgPtr});
+            }
+            builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{zero});
+        }
 
-        builder_.setInsertionPointToStart(errorBlock);
-        auto errorMsg = builder_.create<mlir::arith::ConstantOp>(loc_, builder_.getStringAttr("Divide by zero error"));
-        builder_.create<mlir::func::CallOp>(loc_, "MathError", mlir::TypeRange{}, mlir::ValueRange{errorMsg});
-        builder_.setInsertionPointToStart(continueBlock);
-    }
+        // --- ELSE Region (divisor is not zero) ---
+        builder_.setInsertionPointToStart(&ifOp.getElseRegion().front());
+        {
+            mlir::Value divResult;
+            if (left.getType().isa<mlir::IntegerType>()) {
+                if (node->op == "/") divResult = builder_.create<mlir::arith::DivSIOp>(loc_, left, right);
+                else divResult = builder_.create<mlir::arith::RemSIOp>(loc_, left, right);
+            } else { // FloatType
+                divResult = builder_.create<mlir::arith::DivFOp>(loc_, left, right);
+            }
+            builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{divResult});
+        }
+        
+        result = ifOp.getResult(0);
+        builder_.setInsertionPointAfter(ifOp);
 
-    mlir::Value result;
-    // This type check will now succeed because `left` and `right` are scalars (e.g., i32)
-    if(left.getType().isa<mlir::IntegerType>()) {
-        if (node->op == "*") {
+    } else { // Multiplication
+        if(left.getType().isa<mlir::IntegerType>()) {
             result = builder_.create<mlir::arith::MulIOp>(loc_, left, right);
-        } else if (node->op == "/") {
-            result = builder_.create<mlir::arith::DivSIOp>(loc_, left, right);
-        } else if (node->op == "%") {
-            result = builder_.create<mlir::arith::RemSIOp>(loc_, left, right);
-        }
-    } else if(left.getType().isa<mlir::FloatType>()) {
-        if (node->op == "*") {
+        } else if(left.getType().isa<mlir::FloatType>()) {
             result = builder_.create<mlir::arith::MulFOp>(loc_, left, right);
-        } else if (node->op == "/") {
-            result = builder_.create<mlir::arith::DivFOp>(loc_, left, right);
+        } else {
+            throw std::runtime_error("MLIRGen Error: Unsupported type for multiplication.");
         }
-    } else {
-        throw std::runtime_error("MLIRGen Error: Unsupported type for multiplication.");
     }
 
-    // Wrap scalar result into a memref-backed VarInfo
     VarInfo outVar(leftInfo.type);
     allocaLiteral(&outVar);
     builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});

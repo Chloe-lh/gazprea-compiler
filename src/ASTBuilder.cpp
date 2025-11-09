@@ -438,6 +438,7 @@ std::any ASTBuilder::visitInputStat(GazpreaParser::InputStatContext *ctx) {
   auto node = std::make_shared<InputStatNode>(id);
   return stat_any(std::move(node));
 }
+
 std::any ASTBuilder::visitOutputStat(GazpreaParser::OutputStatContext *ctx) {
   std::shared_ptr<ExprNode> expr = nullptr;
   if (ctx->expr()) {
