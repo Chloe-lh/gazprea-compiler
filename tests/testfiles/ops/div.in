@@ -1,0 +1,8 @@
+//CHECK_FILE:div.out
+
+procedure main() returns integer {
+    integer a = 7;
+    integer b = 2;
+    a / b -> std_output;
+    return 0;
+}

@@ -9,6 +9,7 @@ set(
     "${CMAKE_CURRENT_SOURCE_DIR}/ConstantHelpers.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIRgen.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/SemanticAnalysisVisitor.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ConstantFolding.cpp"
     "${CMAKE_SOURCE_DIR}/src/ASTBuilderUtils.cpp"
     "${CMAKE_SOURCE_DIR}/src/Scope.cpp"
     "${CMAKE_SOURCE_DIR}/src/Types.cpp"

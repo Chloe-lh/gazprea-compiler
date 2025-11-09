@@ -70,9 +70,116 @@ VarInfo MLIRGen::popValue() {
     v_stack_.pop_back();
     return v;
 }
-
 void MLIRGen::pushValue(VarInfo& value) {
     v_stack_.push_back(value);
+}
+
+mlir::func::FuncOp MLIRGen::beginFunctionDefinition(const std::string &name,
+                                                    const std::vector<VarInfo> &params,
+                                                    const CompleteType &returnType,
+                                                    Scope*& savedScope) {
+    // Create or get declaration
+    auto func = createFunctionDeclaration(name, params, returnType);
+
+    // If function has no blocks, add entry block now
+    mlir::Block* entry = nullptr;
+    if (func.getBlocks().empty()) {
+        entry = func.addEntryBlock();
+    } else {
+        entry = &func.front();
+    }
+
+    // Set allocas to the top of the entry block
+    allocaBuilder_ = mlir::OpBuilder(entry, entry->begin());
+    builder_.setInsertionPointToStart(entry);
+
+    // Switch semantic scope: find child scope matching parameter names
+    savedScope = currScope_;
+    Scope* funcScope = nullptr;
+    if (currScope_ && !currScope_->children().empty()) {
+        if (!params.empty()) {
+            for (const auto &ch : currScope_->children()) {
+                const auto &syms = ch->symbols();
+                bool ok = true;
+                for (const auto &p : params) {
+                    if (syms.find(p.identifier) == syms.end()) { ok = false; break; }
+                }
+                if (ok) { funcScope = ch.get(); break; }
+            }
+        }
+        if (!funcScope && !currScope_->children().empty()) funcScope = currScope_->children().front().get();
+    }
+    if (funcScope) currScope_ = funcScope;
+
+    return func;
+}
+mlir::func::FuncOp MLIRGen::beginFunctionDefinitionWithConstants(
+    const std::string &name,
+    const std::vector<VarInfo> &params,
+    const CompleteType &returnType,
+    Scope* &savedScope)
+{
+    auto func = beginFunctionDefinition(name, params, returnType, savedScope);
+
+    // Bind parameters: use constant values if available
+    bindFunctionParametersWithConstants(func, params);
+
+    return func;
+}
+
+mlir::func::FuncOp MLIRGen::createFunctionDeclaration(const std::string &name,
+                                                     const std::vector<VarInfo> &params,
+                                                     const CompleteType &returnType) {
+    // Build function type
+    std::vector<mlir::Type> argTys;
+    argTys.reserve(params.size());
+    for (const auto &p : params) argTys.push_back(getLLVMType(p.type));
+
+    std::vector<mlir::Type> resTys;
+    if (returnType.baseType != BaseType::UNKNOWN) resTys.push_back(getLLVMType(returnType));
+
+    auto ftype = builder_.getFunctionType(argTys, resTys);
+
+    // If a declaration doesn't already exist, create one
+    if (auto existing = module_.lookupSymbol<mlir::func::FuncOp>(name)) {
+        return existing;
+    }
+    return builder_.create<mlir::func::FuncOp>(loc_, name, ftype);
+}
+
+void MLIRGen::bindFunctionParametersWithConstants(mlir::func::FuncOp func, const std::vector<VarInfo> &params) {
+    if (func.getBlocks().empty()) return;
+    mlir::Block &entry = func.front();
+
+    for (size_t i = 0; i < params.size(); ++i) {
+        const auto &p = params[i];
+        VarInfo* vi = currScope_ ? currScope_->resolveVar(p.identifier) : nullptr;
+        if (!vi) throw std::runtime_error("Codegen: missing parameter '" + p.identifier + "' in scope");
+        // Ensure parameter has an allocated memref to store the incoming
+        // entry-block argument. Constant folding stores are represented on
+        // the AST (ExprNode::constant), not on VarInfo, so do not attempt
+        // to read a 'constant' field here.
+        if (!vi->value) allocaVar(vi);
+        builder_.create<mlir::memref::StoreOp>(loc_, entry.getArgument(i), vi->value, mlir::ValueRange{});
+    }
+}
+
+void MLIRGen::lowerFunctionOrProcedureBody(const std::vector<VarInfo> &params,
+                                           std::shared_ptr<BlockNode> body,
+                                           const CompleteType &returnType,
+                                           Scope* savedScope)
+{
+    if (body) body->accept(*this);
+
+    auto &entry = builder_.getBlock()->getParent()->front(); // function entry block
+    if (entry.empty() || !entry.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+        if (returnType.baseType == BaseType::UNKNOWN)
+            builder_.create<mlir::func::ReturnOp>(loc_);
+        else
+            throw std::runtime_error("missing return in non-void function");
+    }
+
+    currScope_ = savedScope;
 }
 
 void MLIRGen::visit(FileNode* node) {
@@ -117,72 +224,40 @@ void MLIRGen::visit(FileNode* node) {
     }
 }
 
+// functions
+void MLIRGen::visit(FuncStatNode* node) {
+    Scope* savedScope = nullptr;
+    beginFunctionDefinitionWithConstants(node->name, node->parameters, node->returnType, savedScope);
+    lowerFunctionOrProcedureBody(node->parameters, node->body, node->returnType, savedScope);
+}
 
+void MLIRGen::visit(FuncBlockNode* node) {
+    Scope* savedScope = nullptr;
+    beginFunctionDefinitionWithConstants(node->name, node->parameters, node->returnType, savedScope);
+    lowerFunctionOrProcedureBody(node->parameters, node->body, node->returnType, savedScope);
+}
 
-
-// Functions
-void MLIRGen::visit(FuncStatNode* node) { throw std::runtime_error("FuncStatNode not implemented"); }
-void MLIRGen::visit(FuncPrototypeNode* node) { throw std::runtime_error("FuncPrototypeNode not implemented"); }
-void MLIRGen::visit(FuncBlockNode* node) { throw std::runtime_error("FuncBlockNode not implemented"); }
-void MLIRGen::visit(FuncCallExpr* node) { throw std::runtime_error("FuncCallExpr not implemented"); }
-void MLIRGen::visit(ProcedureNode* node) {
-    // Build function type for the procedure (scalars only for now)
-    std::vector<mlir::Type> argTys;
-    argTys.reserve(node->params.size());
-    for (const auto& p : node->params) argTys.push_back(getLLVMType(p.type));
-
-    std::vector<mlir::Type> resTys;
-    if (node->returnType.baseType != BaseType::UNKNOWN) resTys.push_back(getLLVMType(node->returnType));
+void MLIRGen::visit(FuncPrototypeNode* node) {
+    std::vector<mlir::Type> argTys, resTys;
+    argTys.reserve(node->parameters.size());
+    for (const auto& p : node->parameters) argTys.push_back(getLLVMType(p.type));
+    if (node->returnType.baseType != BaseType::UNKNOWN)
+        resTys.push_back(getLLVMType(node->returnType));
 
     auto ftype = builder_.getFunctionType(argTys, resTys);
-    auto func = builder_.create<mlir::func::FuncOp>(loc_, node->name, ftype);
-    mlir::Block* entry = func.addEntryBlock();
-
-    // Set allocas to the top of the entry block
-    allocaBuilder_ = mlir::OpBuilder(entry, entry->begin());
-    builder_.setInsertionPointToStart(entry);
-
-    // Switch to the procedure's semantic scope: try to find child scope with params
-    Scope* saved = currScope_;
-    Scope* procScope = nullptr;
-    if (currScope_ && !currScope_->children().empty()) {
-        if (!node->params.empty()) {
-            for (const auto& ch : currScope_->children()) {
-                const auto& syms = ch->symbols();
-                bool ok = true;
-                for (const auto& p : node->params) {
-                    if (syms.find(p.identifier) == syms.end()) { ok = false; break; }
-                }
-                if (ok) { procScope = ch.get(); break; }
-            }
-        }
-        if (!procScope) procScope = currScope_->children().front().get();
+    if (!module_.lookupSymbol<mlir::func::FuncOp>(node->name)) {
+        builder_.create<mlir::func::FuncOp>(loc_, node->name, ftype);
     }
-    if (procScope) currScope_ = procScope;
+}
 
-    // Bind parameters: allocate local storage for each and store block arguments
-    for (size_t i = 0; i < node->params.size(); ++i) {
-        const auto& p = node->params[i];
-        VarInfo* vi = currScope_ ? currScope_->resolveVar(p.identifier) : nullptr;
-        if (!vi) throw std::runtime_error("Codegen: missing parameter '" + p.identifier + "' in scope");
-        if (!vi->value) allocaVar(vi);
-        builder_.create<mlir::memref::StoreOp>(loc_, entry->getArgument(i), vi->value, mlir::ValueRange{});
-    }
+void MLIRGen::visit(FuncCallExpr* node) {
+    // TODO: handle function calls
+}
 
-    // Lower body
-    if (node->body) node->body->accept(*this);
-
-    // Ensure terminator
-    if (entry->empty() || !entry->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-        if (resTys.empty()) {
-            builder_.setInsertionPointToEnd(entry);
-            builder_.create<mlir::func::ReturnOp>(loc_);
-        } else {
-            throw std::runtime_error("Codegen: missing return in non-void procedure");
-        }
-    }
-
-    currScope_ = saved;
+void MLIRGen::visit(ProcedureNode* node) {
+    Scope* savedScope = nullptr;
+    beginFunctionDefinitionWithConstants(node->name, node->params, node->returnType, savedScope);
+    lowerFunctionOrProcedureBody(node->params, node->body, node->returnType, savedScope);
 }
 
 // Declarations / Globals helpers
@@ -228,6 +303,7 @@ mlir::Value MLIRGen::createGlobalVariable(const std::string& name, const Complet
     moduleBuilder->restoreInsertionPoint(savedIP);
     return nullptr;
 }
+
 
 void MLIRGen::visit(TypedDecNode* node) {
     // Resolve variable declared by semantic analysis
@@ -360,9 +436,25 @@ void MLIRGen::visit(OutputStatNode* node) {
     node->expr->accept(*this);
     VarInfo exprVarInfo = popValue();
 
-    // Load the value from its memref
-    mlir::Value loadedValue = builder_.create<mlir::memref::LoadOp>(
-        loc_, exprVarInfo.value, mlir::ValueRange{});
+    // Debug: print the MLIR type of the value we're about to load (helps
+    // diagnose invalid cast errors when building memref::LoadOp).
+    {
+        std::string ty_s;
+        llvm::raw_string_ostream rso(ty_s);
+        exprVarInfo.value.getType().print(rso);
+        rso.flush();
+        std::cerr << "DEBUG: OutputStat operand type: " << ty_s << "\n";
+    }
+
+    // Load the value from its memref if needed. Some visitors may push
+    // scalar mlir::Value directly (non-memref), so accept both forms.
+    mlir::Value loadedValue;
+    if (exprVarInfo.value.getType().isa<mlir::MemRefType>()) {
+        loadedValue = builder_.create<mlir::memref::LoadOp>(
+            loc_, exprVarInfo.value, mlir::ValueRange{});
+    } else {
+        loadedValue = exprVarInfo.value;
+    }
 
     // Determine format string name and get format string/printf upfront
     const char* formatStrName = nullptr;
@@ -558,6 +650,7 @@ void MLIRGen::visit(BlockNode* node) {
 }
 
 // Expressions / Operators
+// 
 void MLIRGen::visit(TupleAccessNode* node) { throw std::runtime_error("TupleAccessNode not implemented"); }
 void MLIRGen::visit(TupleTypeCastNode* node) { throw std::runtime_error("TupleTypeCastNode not implemented"); }
 
@@ -761,6 +854,63 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable) {
 void MLIRGen::allocaLiteral(VarInfo* varInfo) {
     varInfo->isConst = true;
     allocaVar(varInfo);
+}
+
+// Create a VarInfo that contains an allocated memref with the compile-time
+// constant stored. Supports scalar types (int, real, bool, char). Throws on
+// unsupported types.
+VarInfo MLIRGen::createLiteralFromConstant(const ConstantValue &cv, const CompleteType &type) {
+    VarInfo lit(type);
+    // allocate a literal container (memref) and mark it const
+    allocaLiteral(&lit);
+
+    switch (cv.type.baseType) {
+        case BaseType::INTEGER: {
+            auto i32 = builder_.getI32Type();
+            int64_t v = std::get<int64_t>(cv.value);
+            auto c = builder_.create<mlir::arith::ConstantOp>(loc_, i32, builder_.getIntegerAttr(i32, static_cast<int64_t>(v)));
+            builder_.create<mlir::memref::StoreOp>(loc_, c, lit.value, mlir::ValueRange{});
+            break;
+        }
+        case BaseType::REAL: {
+            auto f32 = builder_.getF32Type();
+            double dv = std::get<double>(cv.value);
+            auto c = builder_.create<mlir::arith::ConstantOp>(loc_, f32, builder_.getFloatAttr(f32, static_cast<float>(dv)));
+            builder_.create<mlir::memref::StoreOp>(loc_, c, lit.value, mlir::ValueRange{});
+            break;
+        }
+        case BaseType::BOOL: {
+            auto i1 = builder_.getI1Type();
+            bool bv = std::get<bool>(cv.value);
+            auto c = builder_.create<mlir::arith::ConstantOp>(loc_, i1, builder_.getIntegerAttr(i1, bv ? 1 : 0));
+            builder_.create<mlir::memref::StoreOp>(loc_, c, lit.value, mlir::ValueRange{});
+            break;
+        }
+        case BaseType::CHARACTER: {
+            auto i8 = builder_.getI8Type();
+            char ch = std::get<char>(cv.value);
+            auto c = builder_.create<mlir::arith::ConstantOp>(loc_, i8, builder_.getIntegerAttr(i8, static_cast<int>(ch)));
+            builder_.create<mlir::memref::StoreOp>(loc_, c, lit.value, mlir::ValueRange{});
+            break;
+        }
+        default:
+            throw std::runtime_error("createLiteralFromConstant: unsupported constant type");
+    }
+
+    return lit;
+}
+
+bool MLIRGen::tryEmitConstantForNode(ExprNode* node) {
+    if (!node) return false;
+    if (!node->constant.has_value()) return false;
+    try {
+        VarInfo lit = createLiteralFromConstant(node->constant.value(), node->type);
+        pushValue(lit);
+        return true;
+    } catch (...) {
+        // unsupported constant type or codegen error; fall back to normal lowering
+        return false;
+    }
 }
 
 void MLIRGen::allocaVar(VarInfo* varInfo) {
@@ -999,21 +1149,38 @@ void MLIRGen::visit(ParenExpr* node) {
 }
 
 void MLIRGen::visit(UnaryExpr* node) {
+    if (tryEmitConstantForNode(node)) return;
     node->operand->accept(*this);
     VarInfo operand = popValue();
-    mlir::Value operandVal = operand.value;
-
-    if(node->op == "-"){
-        auto zero = builder_.create<mlir::arith::ConstantOp>(
-            loc_, operandVal.getType(), builder_.getZeroAttr(operandVal.getType()));
-        operand.value = builder_.create<mlir::arith::SubIOp>(loc_, zero, operandVal);
+    // Ensure we operate on a scalar: load from memref if needed
+    mlir::Value operandVal;
+    if (operand.value.getType().isa<mlir::MemRefType>()) {
+        operandVal = builder_.create<mlir::memref::LoadOp>(loc_, operand.value, mlir::ValueRange{});
+    } else {
+        operandVal = operand.value;
     }
 
+    if (node->op == "-") {
+        auto zero = builder_.create<mlir::arith::ConstantOp>(
+            loc_, operandVal.getType(), builder_.getZeroAttr(operandVal.getType()));
+        auto result = builder_.create<mlir::arith::SubIOp>(loc_, zero, operandVal);
+
+        // Store scalar result into a memref-backed VarInfo and push
+        VarInfo outVar(operand.type);
+        allocaLiteral(&outVar);
+        builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
+        outVar.identifier = "";
+        pushValue(outVar);
+        return;
+    }
+
+    // No-op: push original operand through
     operand.identifier = "";
     pushValue(operand);
 }
 
 void MLIRGen::visit(ExpExpr* node) {
+    if (tryEmitConstantForNode(node)) return;
     node->left->accept(*this);
     VarInfo left = popValue();
     mlir::Value lhs = left.value;
@@ -1063,14 +1230,18 @@ void MLIRGen::visit(ExpExpr* node) {
         result = builder_.create<mlir::arith::FPToSIOp>(loc_, intType, floored);
     }
 
-    //assume both operands are of same type
-    //the left operand object is pushed back to the stack with a new value
-    left.identifier = ""; 
-    left.value = result;
-    pushValue(left);
+    // Assume both operands are of same type. Create a memref-backed VarInfo
+    // to hold the scalar result so later passes can rely on memref semantics.
+    VarInfo outVar(left.type);
+    allocaLiteral(&outVar);
+    builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
+    outVar.identifier = "";
+    pushValue(outVar);
 }
 
 void MLIRGen::visit(MultExpr* node){
+    if (tryEmitConstantForNode(node)) return;
+
     node->left->accept(*this);
     VarInfo leftInfo = popValue();
     mlir::Value left = leftInfo.value;
@@ -1128,12 +1299,19 @@ void MLIRGen::visit(MultExpr* node){
         throw std::runtime_error("MLIRGen Error: Unsupported type for multiplication.");
     }
 
-    leftInfo.identifier = "";
-    leftInfo.value = result;
-    pushValue(leftInfo);
+    // Wrap scalar result into a memref-backed VarInfo
+    VarInfo outVar(leftInfo.type);
+    allocaLiteral(&outVar);
+    builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
+    outVar.identifier = "";
+    pushValue(outVar);
 }
 
 void MLIRGen::visit(AddExpr* node){
+    // If the node has a compile-time constant, emit it directly and push.
+    if (tryEmitConstantForNode(node)) return;
+
+    // Evaluate left then right (visitors push values onto the stack)
     node->left->accept(*this);
     VarInfo leftInfo = popValue();
     mlir::Value left = leftInfo.value;
@@ -1141,29 +1319,53 @@ void MLIRGen::visit(AddExpr* node){
     VarInfo rightInfo = popValue();
     mlir::Value right = rightInfo.value;
 
-    mlir::Value result;
-    if(left.getType().isa<mlir::IntegerType>()) {
-        if (node->op == "+") {
-            result = builder_.create<mlir::arith::AddIOp>(loc_, left, right);
-        } else if (node->op == "-") {
-            result = builder_.create<mlir::arith::SubIOp>(loc_, left, right);
+    // Debug: print operand types (helps diagnose invalid casts)
+    {
+        std::string lt_s, rt_s;
+        llvm::raw_string_ostream lso(lt_s), rso(rt_s);
+        left.getType().print(lso); lso.flush();
+        right.getType().print(rso); rso.flush();
+        std::cerr << "DEBUG: AddExpr operand types: left=" << lt_s << " right=" << rt_s << "\n";
+    }
+
+    // helper: load if this value is a memref
+    auto loadIfMemref = [&](mlir::Value v) -> mlir::Value {
+        if (v.getType().isa<mlir::MemRefType>()) {
+            return builder_.create<mlir::memref::LoadOp>(loc_, v, mlir::ValueRange{});
         }
-    } else if(left.getType().isa<mlir::FloatType>()) {
+        return v;
+    };
+
+    mlir::Value leftLoaded  = loadIfMemref(left);
+    mlir::Value rightLoaded = loadIfMemref(right);
+
+    mlir::Value result;
+    if (leftLoaded.getType().isa<mlir::IntegerType>()) {
         if (node->op == "+") {
-            result = builder_.create<mlir::arith::AddFOp>(loc_, left, right);
+            result = builder_.create<mlir::arith::AddIOp>(loc_, leftLoaded, rightLoaded);
         } else if (node->op == "-") {
-            result = builder_.create<mlir::arith::SubFOp>(loc_, left, right);
+            result = builder_.create<mlir::arith::SubIOp>(loc_, leftLoaded, rightLoaded);
+        }
+    } else if (leftLoaded.getType().isa<mlir::FloatType>()) {
+        if (node->op == "+") {
+            result = builder_.create<mlir::arith::AddFOp>(loc_, leftLoaded, rightLoaded);
+        } else if (node->op == "-") {
+            result = builder_.create<mlir::arith::SubFOp>(loc_, leftLoaded, rightLoaded);
         }
     } else {
         throw std::runtime_error("MLIRGen Error: Unsupported type for addition.");
     }
 
-    leftInfo.identifier = "";
-    leftInfo.value = result;
-    pushValue(leftInfo);
+    // Wrap scalar result into a memref-backed VarInfo
+    VarInfo outVar(leftInfo.type);
+    allocaLiteral(&outVar);
+    builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
+    outVar.identifier = "";
+    pushValue(outVar);
 }
 
 void MLIRGen::visit(CompExpr* node) {
+    if (tryEmitConstantForNode(node)) return;
     
     // Visit left and right operands
     node->left->accept(*this);
@@ -1255,17 +1457,25 @@ void MLIRGen::visit(CompExpr* node) {
 
 
 void MLIRGen::visit(NotExpr* node) {
+    if (tryEmitConstantForNode(node)) return;
     node->operand->accept(*this);
     VarInfo operandInfo = popValue();
+    // Load scalar if value is a memref
     mlir::Value operand = operandInfo.value;
+    if (operand.getType().isa<mlir::MemRefType>()) {
+        operand = builder_.create<mlir::memref::LoadOp>(loc_, operandInfo.value, mlir::ValueRange{});
+    }
 
     auto one = builder_.create<mlir::arith::ConstantOp>(
         loc_, operand.getType(), builder_.getIntegerAttr(operand.getType(), 1));
     auto notOp = builder_.create<mlir::arith::XOrIOp>(loc_, operand, one);
-    
-    operandInfo.identifier = "";
-    operandInfo.value = notOp;
-    pushValue(operandInfo);
+
+    // Store result into memref-backed VarInfo and push
+    VarInfo outVar(operandInfo.type);
+    allocaLiteral(&outVar);
+    builder_.create<mlir::memref::StoreOp>(loc_, notOp, outVar.value, mlir::ValueRange{});
+    outVar.identifier = "";
+    pushValue(outVar);
 }
 
 // Helper functions for equality
@@ -1313,6 +1523,7 @@ mlir::Value mlirTupleEquals(VarInfo& leftInfo, VarInfo& rightInfo, mlir::Locatio
 
 
 void MLIRGen::visit(EqExpr* node){
+    if (tryEmitConstantForNode(node)) return;
     node->left->accept(*this);
     VarInfo leftInfo = popValue();
     mlir::Value left = leftInfo.value;
@@ -1320,9 +1531,19 @@ void MLIRGen::visit(EqExpr* node){
     VarInfo rightInfo = popValue();
     mlir::Value right = rightInfo.value;
 
+    // If left/right are memref descriptors, load the contained scalar so the
+    // equality helpers compare raw scalar types (integers/floats) rather than
+    // memref descriptors.
+    if (left.getType().isa<mlir::MemRefType>()) {
+        left = builder_.create<mlir::memref::LoadOp>(loc_, leftInfo.value, mlir::ValueRange{});
+    }
+    if (right.getType().isa<mlir::MemRefType>()) {
+        right = builder_.create<mlir::memref::LoadOp>(loc_, rightInfo.value, mlir::ValueRange{});
+    }
+
     mlir::Type type = left.getType();
     mlir::Value result;
-   
+
     if (type.isa<mlir::TupleType>()) {
         result = mlirTupleEquals(leftInfo, rightInfo, loc_, builder_);
     } else {
@@ -1334,12 +1555,16 @@ void MLIRGen::visit(EqExpr* node){
         result = builder_.create<mlir::arith::XOrIOp>(loc_, result, one);
     }
 
-    leftInfo.identifier = "";
-    leftInfo.value = result;
-    pushValue(leftInfo);
+    // Store the comparison result into a memref-backed VarInfo and push
+    VarInfo outVar(leftInfo.type);
+    allocaLiteral(&outVar);
+    builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
+    outVar.identifier = "";
+    pushValue(outVar);
 }
 
 void MLIRGen::visit(AndExpr* node){
+    if (tryEmitConstantForNode(node)) return;
     node->left->accept(*this);
     VarInfo leftInfo = popValue();
     mlir::Value left = leftInfo.value;
@@ -1349,12 +1574,16 @@ void MLIRGen::visit(AndExpr* node){
 
     auto andOp = builder_.create<mlir::arith::AndIOp>(loc_, left, right);
     
-    leftInfo.identifier = "";
-    leftInfo.value = andOp;
-    pushValue(leftInfo);
+    // Wrap boolean result into memref-backed VarInfo
+    VarInfo outVar(leftInfo.type);
+    allocaLiteral(&outVar);
+    builder_.create<mlir::memref::StoreOp>(loc_, andOp, outVar.value, mlir::ValueRange{});
+    outVar.identifier = "";
+    pushValue(outVar);
 }
 
 void MLIRGen::visit(OrExpr* node){
+    if (tryEmitConstantForNode(node)) return;
     node->left->accept(*this);
     VarInfo leftInfo = popValue();
     mlir::Value left = leftInfo.value;
@@ -1369,7 +1598,10 @@ void MLIRGen::visit(OrExpr* node){
         result = builder_.create<mlir::arith::XOrIOp>(loc_, left, right);
     }
 
-    leftInfo.identifier = "";
-    leftInfo.value = result;
-    pushValue(leftInfo);
+    // Wrap result into memref-backed VarInfo
+    VarInfo outVar(leftInfo.type);
+    allocaLiteral(&outVar);
+    builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
+    outVar.identifier = "";
+    pushValue(outVar);
 }

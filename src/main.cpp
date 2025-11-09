@@ -12,6 +12,7 @@
 #include "ASTPrinter.h"
 #include "ErrorListener.h"
 #include "SemanticAnalysisVisitor.h"
+#include "ConstantFolding.h"
 #include "MLIRgen.h"
 
 #include <iostream>
@@ -54,18 +55,21 @@ int main(int argc, char **argv) {
   ast->accept(semVisitor);
   Scope* rootScope = semVisitor.getRootScope();
 
-  std::cout << "--- Abstract Syntax Tree ---" << std::endl;
-  gazprea::ASTPrinter printer(std::cout, true); // Create a printer instance
-  ast->accept(printer);
-  std::cout << "--------------------------\n" << std::endl;
+  // Run constant folding pass (uses semantic info from previous pass)
+  ConstantFoldingVisitor cfv;
+  ast->accept(cfv);
+
 
   std::ofstream os(argv[2]);
   BackEnd backend;
+  
   // backend.emitModule(); demo module
   MLIRGen mlirGen(backend, rootScope);
   ast->accept(mlirGen);
+ 
   backend.lowerDialects();
   backend.dumpLLVM(os);
+  
 
   return 0;
 }

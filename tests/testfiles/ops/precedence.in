@@ -1,0 +1,9 @@
+//CHECK_FILE:precedence.out
+
+procedure main() returns integer {
+    integer a = 1;
+    integer b = 2;
+    integer c = 3;
+    a + b * c -> std_output;
+    return 0;
+}
