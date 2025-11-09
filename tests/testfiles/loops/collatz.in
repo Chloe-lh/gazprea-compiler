@@ -1,0 +1,21 @@
+//CHECK_FILE:collatz.out
+
+procedure main() returns integer {
+    var integer n = 12;
+
+    // Print the starting number
+    n -> std_output;
+
+    loop while (n != 1) {
+        // Check if n is even or odd
+        if (n % 2 == 0) {
+            n = n / 2;
+        } else {
+            n = 3 * n + 1;
+        }
+        n -> std_output;
+        '\n' -> std_output;
+    }
+
+    return 0;
+}
