@@ -1,0 +1,11 @@
+//CHECK_FILE:break.out
+
+procedure main() returns integer {
+    var integer x = 1;
+    loop while (x < 6) {
+        if (x == 3) break;
+        x -> std_output;
+        x = x + 1;
+    }
+    return 0;
+}

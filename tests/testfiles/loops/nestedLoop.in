@@ -1,0 +1,23 @@
+//CHECK_FILE:nestedLoop.out
+
+procedure main() returns integer {
+    var integer x = 0;
+    var integer y;
+    loop while (x < 3) {
+        y = 0;
+        loop while (y < 3) {
+            y -> std_output;
+            x -> std_output;
+
+            y = y + 1;
+        }
+        '\n' -> std_output;
+        x = x + 1;
+    }
+    loop {
+        integer y = 2;
+        y -> std_output;
+        break;
+    }
+    return 0;
+}

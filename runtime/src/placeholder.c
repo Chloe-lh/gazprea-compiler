@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include "../include/run_time_errors.h"
 
 // Add function named dummyPrint with signature void(int) to llvm to have this linked in.
 void dummyPrint(int i) {

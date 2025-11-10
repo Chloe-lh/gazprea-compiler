@@ -312,29 +312,19 @@ public:
 class IfNode : public StatNode {
 public:
   std::shared_ptr<ExprNode> cond;
-  // Either the then/else are blocks or single statements. Only one of
-  // thenBlock/thenStat will be non-null (and similarly for else*).
   std::shared_ptr<BlockNode> thenBlock;
   std::shared_ptr<BlockNode> elseBlock;
   std::shared_ptr<StatNode> thenStat;
   std::shared_ptr<StatNode> elseStat;
 
-  // Constructor for block-style if: thenBlock (and optional elseBlock)
-  IfNode(std::shared_ptr<ExprNode> condition,
-         std::shared_ptr<BlockNode> thenBlock,
-         std::shared_ptr<BlockNode> elseBlock = nullptr)
-      : cond(std::move(condition)), thenBlock(std::move(thenBlock)),
-        elseBlock(std::move(elseBlock)) {}
-
-  // Constructor for single-statement if: thenStat (and optional elseStat)
-  IfNode(std::shared_ptr<ExprNode> condition,
-         std::shared_ptr<StatNode> thenStat,
-         std::shared_ptr<StatNode> elseStat = nullptr)
-      : cond(std::move(condition)), thenStat(std::move(thenStat)),
-        elseStat(std::move(elseStat)) {}
+  // A simple constructor.
+  explicit IfNode(std::shared_ptr<ExprNode> condition)
+      : cond(std::move(condition)), thenBlock(nullptr), elseBlock(nullptr),
+        thenStat(nullptr), elseStat(nullptr) {}
 
   void accept(ASTVisitor &visitor) override;
 };
+  
 enum class LoopKind { Plain, While, WhilePost };
 // plain : no Condition
 // while : condition body

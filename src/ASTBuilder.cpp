@@ -420,10 +420,24 @@ ASTBuilder::visitFuncCallExpr(GazpreaParser::FuncCallExprContext *ctx) {
 }
 //  CALL ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT END  #CallStat
 std::any ASTBuilder::visitCallStat(GazpreaParser::CallStatContext *ctx) {
+  if (!ctx || !ctx->ID()) {
+    throw std::runtime_error("visitCallStat: invalid call statement context");
+  }
+  
   std::string funcName = ctx->ID()->getText();
-  auto args = gazprea::builder_utils::collectArgs(
-      *this, std::vector<GazpreaParser::ExprContext *>(ctx->expr().begin(),
-                                                       ctx->expr().end()));
+  
+  // Safely collect arguments
+  std::vector<GazpreaParser::ExprContext *> exprCtxs;
+  if (ctx->expr().size() > 0) {
+    exprCtxs.reserve(ctx->expr().size());
+    for (auto exprCtx : ctx->expr()) {
+      if (exprCtx) {
+        exprCtxs.push_back(exprCtx);
+      }
+    }
+  }
+  
+  auto args = gazprea::builder_utils::collectArgs(*this, exprCtxs);
 
   // Build an expression-level call node and wrap it in a CallStatNode
   auto callExpr = std::make_shared<FuncCallExpr>(funcName, std::move(args));
@@ -436,6 +450,7 @@ std::any ASTBuilder::visitInputStat(GazpreaParser::InputStatContext *ctx) {
   auto node = std::make_shared<InputStatNode>(id);
   return stat_any(std::move(node));
 }
+
 std::any ASTBuilder::visitOutputStat(GazpreaParser::OutputStatContext *ctx) {
   std::shared_ptr<ExprNode> expr = nullptr;
   if (ctx->expr()) {
@@ -502,24 +517,59 @@ std::any ASTBuilder::visitFunctionBlockTupleReturn(
   std::make_shared<FuncBlockNode>(funcName, varParams, returnType, body);
   return node_any(std::move(node));
 }
-// PROCEDURE ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT (RETURNS type)? block;
+// PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS type)? block;
 std::any ASTBuilder::visitProcedure(GazpreaParser::ProcedureContext *ctx) {
-  std::string funcName = ctx->ID(0)->getText();
-  // Extract params and convert to VarInfo vector (parameters are const by
-  // default)
-  std::vector<std::pair<CompleteType, std::string>> params =
-      builder_utils::ExtractParams(*this, ctx);
-  std::vector<VarInfo> varParams =
-      builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
+  std::string funcName = ctx->ID()->getText();
+  
+  // Extract params with qualifiers
+  std::vector<VarInfo> varParams;
+  auto paramList = ctx->param();
+  for (auto paramCtx : paramList) {
+    CompleteType ptype(BaseType::UNKNOWN);
+    std::string pname;
+    bool isConst = true; // default is const
+    
+    if (paramCtx->type()) {
+      auto anyT = visit(paramCtx->type());
+      if (anyT.has_value() && anyT.type() == typeid(CompleteType)) {
+        try {
+          ptype = std::any_cast<CompleteType>(anyT);
+        } catch (const std::bad_any_cast &) {
+          ptype = CompleteType(BaseType::UNKNOWN);
+        }
+      }
+    }
+    
+    if (paramCtx->ID()) {
+      pname = paramCtx->ID()->getText();
+    }
+    if (pname.empty()) {
+      pname = "_arg" + std::to_string(varParams.size());
+    }
+    
+    // Extract qualifier
+    if (paramCtx->qualifier()) {
+      auto qualAny = visit(paramCtx->qualifier());
+      if (qualAny.has_value()) {
+        try {
+          std::string qual = std::any_cast<std::string>(qualAny);
+          isConst = (qual != "var");
+        } catch (const std::bad_any_cast &) {
+          // default to const
+        }
+      }
+    }
+    
+    varParams.emplace_back(pname, ptype, isConst);
+  }
+  
   std::shared_ptr<BlockNode> body = nullptr;
 
   // Handle procedure optional return type
   CompleteType returnType = CompleteType(BaseType::UNKNOWN);
   if (ctx->RETURNS()) {
-    // The returns type will be the last 'type' occurrence in this context
-    auto typeVec = ctx->type();
-    if (!typeVec.empty()) {
-      auto anyRet = visit(typeVec.back());
+    if (ctx->type()) {
+      auto anyRet = visit(ctx->type());
       if (anyRet.has_value() && anyRet.type() == typeid(CompleteType)) {
         try {
           returnType = std::any_cast<CompleteType>(anyRet);
@@ -886,6 +936,10 @@ std::any ASTBuilder::visitIntExpr(GazpreaParser::IntExprContext *ctx) {
   }
 }
 std::any ASTBuilder::visitIdExpr(GazpreaParser::IdExprContext *ctx) {
+  if (!ctx || !ctx->ID()) {
+    throw std::runtime_error("visitIdExpr: invalid identifier expression context");
+  }
+  
   std::string name = ctx->ID()->getText();
   // Create the IdNode and return it. Don't assign a concrete type here —
   // identifier types are resolved in the name-resolution / type-resolution
@@ -1142,61 +1196,42 @@ std::any ASTBuilder::visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx) {
 std::any ASTBuilder::visitIfStat(gazprea::GazpreaParser::IfStatContext *ctx) {
   auto ifCtx = ctx->if_stat();
   if (!ifCtx) {
-    return nullptr;
+      return nullptr;
   }
 
-  // Visit the condition expression
-  auto condAny = visit(ifCtx->expr());
-  auto cond = std::any_cast<std::shared_ptr<ExprNode>>(condAny);
+  // Visit the condition and create the IfNode using the new constructor.
+  auto cond = safe_any_cast_ptr<ExprNode>(visit(ifCtx->expr()));
+  auto node = std::make_shared<IfNode>(cond);
 
-  // Determine and visit the 'then' branch
-  std::shared_ptr<BlockNode> thenBlock = nullptr;
-  std::shared_ptr<StatNode> thenStat = nullptr;
-  bool thenWasBlock = !ifCtx->block().empty();
 
-  if (thenWasBlock) {
-    auto blockAny = visit(ifCtx->block(0));
-    auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(blockAny);
-    thenBlock = std::dynamic_pointer_cast<BlockNode>(astNode);
+  // The ANTLR grammar guarantees the 'then' branch is the first block or first statement.
+  if (!ifCtx->block().empty()) {
+      node->thenBlock = safe_any_cast_ptr<BlockNode>(visit(ifCtx->block(0)));
   } else {
-    auto statAny = visit(ifCtx->stat(0));
-    thenStat = std::any_cast<std::shared_ptr<StatNode>>(statAny);
+      node->thenStat = safe_any_cast_ptr<StatNode>(visit(ifCtx->stat(0)));
   }
 
-  // Visit the 'else' branch, if it exists
-  std::shared_ptr<BlockNode> elseBlock = nullptr;
-  std::shared_ptr<StatNode> elseStat = nullptr;
+  // Determine and visit the 'else' branch, if it exists.
   if (ifCtx->ELSE()) {
-    if (thenWasBlock) {
-      // If 'then' was a block, 'else' is either the second block or the first stat
-      if (ifCtx->block().size() > 1) {
-        auto blockAny = visit(ifCtx->block(1));
-        auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(blockAny);
-        elseBlock = std::dynamic_pointer_cast<BlockNode>(astNode);
-      } else if (!ifCtx->stat().empty()) {
-        auto statAny = visit(ifCtx->stat(0));
-        elseStat = std::any_cast<std::shared_ptr<StatNode>>(statAny);
+      bool thenWasBlock = (node->thenBlock != nullptr);
+      
+      if (thenWasBlock) {
+          // If 'then' was a block, 'else' can be the second block or the first statement.
+          if (ifCtx->block().size() > 1) {
+              node->elseBlock = safe_any_cast_ptr<BlockNode>(visit(ifCtx->block(1)));
+          } else if (!ifCtx->stat().empty()) {
+              node->elseStat = safe_any_cast_ptr<StatNode>(visit(ifCtx->stat(0)));
+          }
+      } else { // 'then' was a statement
+          // If 'then' was a statement, 'else' can be the first block or the second statement.
+          if (!ifCtx->block().empty()) {
+              node->elseBlock = safe_any_cast_ptr<BlockNode>(visit(ifCtx->block(0)));
+          } else if (ifCtx->stat().size() > 1) {
+              node->elseStat = safe_any_cast_ptr<StatNode>(visit(ifCtx->stat(1)));
+          }
       }
-    } else {
-      // If 'then' was a stat, 'else' is either the first block or the second stat
-      if (!ifCtx->block().empty()) {
-        auto blockAny = visit(ifCtx->block(0));
-        auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(blockAny);
-        elseBlock = std::dynamic_pointer_cast<BlockNode>(astNode);
-      } else if (ifCtx->stat().size() > 1) {
-        auto statAny = visit(ifCtx->stat(1));
-        elseStat = std::any_cast<std::shared_ptr<StatNode>>(statAny);
-      }
-    }
   }
 
-  // Construct the IfNode using the correct constructor and return
-  std::shared_ptr<IfNode> node;
-  if (thenBlock) {
-    node = std::make_shared<IfNode>(cond, thenBlock, elseBlock);
-  } else {
-    node = std::make_shared<IfNode>(cond, thenStat, elseStat);
-  }
   return node_any(std::move(node));
 }
 

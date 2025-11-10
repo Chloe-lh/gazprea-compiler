@@ -1,0 +1,13 @@
+//CHECK_FILE:call.out
+
+procedure increment(var integer x) {
+    x = x + 1;
+}
+
+procedure main() returns integer {
+    var integer num = 5;
+    call increment(num);  // num becomes 6
+    call increment(num);
+    num -> std_output;
+    return 0;
+}

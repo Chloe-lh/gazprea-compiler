@@ -10,9 +10,11 @@ func
     | FUNCTION ID PARENLEFT (type ID? (COMMA type ID?)*)? PARENRIGHT RETURNS tuple_dec END  #FunctionPrototypeTupleReturn
     ;
 
-procedure: PROCEDURE ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT (RETURNS type)? block;
+procedure: PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS type)? block;
 
-// specify between typed declarations from tuple member access (ID '.' INT)
+param: qualifier? type ID;
+
+dec
     : qualifier? (builtin_type ID | ID ID) (EQ expr)? END   #ExplicitTypedDec
     | qualifier ID EQ expr END                              #InferredTypeDec
     | qualifier? tuple_dec ID (EQ expr)? END                #TupleTypedDec
@@ -94,7 +96,12 @@ if_stat: IF PARENLEFT expr PARENRIGHT (block|stat) (ELSE (block|stat))?;
 loop_stat
     : LOOP (block|stat) (WHILE PARENLEFT expr PARENRIGHT END)? #LoopDefault
     | LOOP (WHILE PARENLEFT expr PARENRIGHT) (block|stat) #WhileLoopBlock
+    | LOOP ID IN (rangeExpr | arrayLiteral) (block|stat) #ForLoopBlock
     ;
+
+rangeExpr: expr RANGE expr;
+
+arrayLiteral: SQLEFT expr (COMMA expr)* SQRIGHT;
 
 
 qualifier: VAR //mutable
@@ -161,6 +168,7 @@ PARENLEFT: '(';
 PARENRIGHT: ')';
 SQLEFT: '[';
 SQRIGHT: ']';
+RANGE: '..';
 
 // keywords
 AND: 'and';

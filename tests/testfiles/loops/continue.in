@@ -1,0 +1,18 @@
+//CHECK_FILE:continue.out
+
+procedure main() returns integer {
+    var integer x = 1;
+    loop while (x < 6) {
+        if (x == 3) {
+            x = x + 1;
+            continue;
+        }
+        if (x == 5) {
+            x = x + 1;
+            continue;
+        }
+        x -> std_output;
+        x = x + 1;
+    }
+    return 0;
+}

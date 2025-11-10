@@ -15,19 +15,20 @@ After generating the MLIR, Backend will lower the dialects and output LLVM IR
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "CompileTimeExceptions.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Casting.h"
 
 
 #include <stdexcept>
 
-MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope)
-    : backend_(backend),
-      builder_(*backend.getBuilder()),
-      allocaBuilder_(*backend.getBuilder()), // Dummy init, will be set in FileNode
-      module_(backend.getModule()),
-      context_(backend.getContext()),
-      loc_(backend.getLoc()),
-      root_(rootScope) {
+MLIRGen::MLIRGen(BackEnd& backend): backend_(backend), builder_(*backend.getBuilder()), allocaBuilder_(*backend.getBuilder()), module_(backend.getModule()), context_(backend.getContext()), loc_(backend.getLoc())  {
+    root_ = nullptr;
+    currScope_ = nullptr;
+    scopeMap_ = nullptr;
+}
 
+MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<const ASTNode*, Scope*>* scopeMap)
+    : backend_(backend), builder_(*backend.getBuilder()), allocaBuilder_(*backend.getBuilder()), module_(backend.getModule()), context_(backend.getContext()), loc_(backend.getLoc()), root_(rootScope), currScope_(nullptr), scopeMap_(scopeMap) {
     // Ensure printf and global strings are created upfront
     if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("printf")) {
         auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
@@ -45,21 +46,19 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope)
                                     builder_.getStringAttr(strRef), 0);
         }
     };
+    // Declaration for MathError function
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("MathError")) {
+        auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+        auto voidTy = mlir::LLVM::LLVMVoidType::get(&context_);
+        auto mathErrorType = mlir::LLVM::LLVMFunctionType::get(voidTy, ptrTy, false);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "MathError", mathErrorType);
+    }
     createGlobalStringIfMissing("%d\0", "intFormat");
     createGlobalStringIfMissing("%c\0", "charFormat");
     createGlobalStringIfMissing("%.2f\0", "floatFormat");
     createGlobalStringIfMissing("%s\0", "strFormat");
     createGlobalStringIfMissing("\n\0", "newline");
 }
-
-MLIRGen::MLIRGen(BackEnd& backend)
-// TODO: is this constructor needed?
-    : backend_(backend),
-      builder_(*backend.getBuilder()),
-      allocaBuilder_(*backend.getBuilder()), // Dummy init, will be set in FileNode
-      module_(backend.getModule()),
-      context_(backend.getContext()),
-      loc_(backend.getLoc()) {}
 
 
 VarInfo MLIRGen::popValue() {
@@ -130,21 +129,40 @@ mlir::func::FuncOp MLIRGen::beginFunctionDefinitionWithConstants(
 mlir::func::FuncOp MLIRGen::createFunctionDeclaration(const std::string &name,
                                                      const std::vector<VarInfo> &params,
                                                      const CompleteType &returnType) {
+    // Check if declaration already exists
+    if (auto existing = module_.lookupSymbol<mlir::func::FuncOp>(name)) {
+        return existing;
+    }
+    
     // Build function type
     std::vector<mlir::Type> argTys;
     argTys.reserve(params.size());
-    for (const auto &p : params) argTys.push_back(getLLVMType(p.type));
+    for (const auto &p : params) {
+        // For var parameters, use memref type (call-by-reference)
+        // For const parameters, use scalar type (call-by-value)
+        if (!p.isConst) {
+            // var parameter: create memref type
+            mlir::Type elemTy = getLLVMType(p.type);
+            argTys.push_back(mlir::MemRefType::get({}, elemTy));
+        } else {
+            // const parameter: use scalar type
+            argTys.push_back(getLLVMType(p.type));
+        }
+    }
 
     std::vector<mlir::Type> resTys;
     if (returnType.baseType != BaseType::UNKNOWN) resTys.push_back(getLLVMType(returnType));
 
     auto ftype = builder_.getFunctionType(argTys, resTys);
 
-    // If a declaration doesn't already exist, create one
-    if (auto existing = module_.lookupSymbol<mlir::func::FuncOp>(name)) {
-        return existing;
-    }
-    return builder_.create<mlir::func::FuncOp>(loc_, name, ftype);
+    // Create function at module level
+    auto* moduleBuilder = backend_.getBuilder().get();
+    auto savedIP = moduleBuilder->saveInsertionPoint();
+    moduleBuilder->setInsertionPointToStart(module_.getBody());
+    auto func = moduleBuilder->create<mlir::func::FuncOp>(loc_, name, ftype);
+    moduleBuilder->restoreInsertionPoint(savedIP);
+    
+    return func;
 }
 
 void MLIRGen::bindFunctionParametersWithConstants(mlir::func::FuncOp func, const std::vector<VarInfo> &params) {
@@ -155,12 +173,19 @@ void MLIRGen::bindFunctionParametersWithConstants(mlir::func::FuncOp func, const
         const auto &p = params[i];
         VarInfo* vi = currScope_ ? currScope_->resolveVar(p.identifier) : nullptr;
         if (!vi) throw std::runtime_error("Codegen: missing parameter '" + p.identifier + "' in scope");
-        // Ensure parameter has an allocated memref to store the incoming
-        // entry-block argument. Constant folding stores are represented on
-        // the AST (ExprNode::constant), not on VarInfo, so do not attempt
-        // to read a 'constant' field here.
-        if (!vi->value) allocaVar(vi);
-        builder_.create<mlir::memref::StoreOp>(loc_, entry.getArgument(i), vi->value, mlir::ValueRange{});
+        
+        mlir::Value argValue = entry.getArgument(i);
+        
+        // For var parameters, the argument is already a memref, so use it directly
+        // For const parameters, we need to allocate storage and store the value
+        if (!p.isConst && argValue.getType().isa<mlir::MemRefType>()) {
+            // var parameter: argument is already a memref, use it directly
+            vi->value = argValue;
+        } else {
+            // const parameter: allocate storage and store the value
+            if (!vi->value) allocaVar(vi);
+            builder_.create<mlir::memref::StoreOp>(loc_, argValue, vi->value, mlir::ValueRange{});
+        }
     }
 }
 
@@ -169,10 +194,68 @@ void MLIRGen::lowerFunctionOrProcedureBody(const std::vector<VarInfo> &params,
                                            const CompleteType &returnType,
                                            Scope* savedScope)
 {
+    // Save insertion point before visiting body (we're in the function's entry block)
+    auto savedIP = builder_.saveInsertionPoint();
+    
+    // Get the function from the current block before visiting body
+    auto* region = builder_.getBlock()->getParent();
+    mlir::func::FuncOp funcOp = nullptr;
+    if (region) {
+        mlir::Operation* parentOp = region->getParentOp();
+        while (parentOp) {
+            if (auto func = llvm::dyn_cast<mlir::func::FuncOp>(parentOp)) {
+                funcOp = func;
+                break;
+            }
+            parentOp = parentOp->getParentOp();
+        }
+    }
+    
     if (body) body->accept(*this);
-
-    auto &entry = builder_.getBlock()->getParent()->front(); // function entry block
-    if (entry.empty() || !entry.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+    
+    // Restore insertion point to where we were (function's entry block)
+    builder_.restoreInsertionPoint(savedIP);
+    
+    // Use the function we found before visiting the body
+    if (!funcOp) {
+        // Fallback: try to get it from current block
+        auto* currentRegion = builder_.getBlock()->getParent();
+        if (currentRegion) {
+            mlir::Operation* parentOp = currentRegion->getParentOp();
+            while (parentOp) {
+                if (auto func = llvm::dyn_cast<mlir::func::FuncOp>(parentOp)) {
+                    funcOp = func;
+                    break;
+                }
+                parentOp = parentOp->getParentOp();
+            }
+        }
+    }
+    
+    if (!funcOp) {
+        currScope_ = savedScope;
+        return;
+    }
+    
+    auto &entry = funcOp.front();
+    
+    // Check if ANY block in the function body has a return terminator
+    // func.return can only be in function blocks, not region blocks
+    bool hasReturn = false;
+    for (auto &block : funcOp.getBody().getBlocks()) {
+        if (!block.empty() && block.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+            if (llvm::isa<mlir::func::ReturnOp>(block.back())) {
+                hasReturn = true;
+                break;
+            }
+        }
+    }
+    
+    // Set insertion point to the end of the entry block
+    builder_.setInsertionPointToEnd(&entry);
+    
+    // If no return was found, add one
+    if (!hasReturn) {
         if (returnType.baseType == BaseType::UNKNOWN)
             builder_.create<mlir::func::ReturnOp>(loc_);
         else
@@ -436,22 +519,12 @@ void MLIRGen::visit(OutputStatNode* node) {
     node->expr->accept(*this);
     VarInfo exprVarInfo = popValue();
 
-    // Debug: print the MLIR type of the value we're about to load (helps
-    // diagnose invalid cast errors when building memref::LoadOp).
-    {
-        std::string ty_s;
-        llvm::raw_string_ostream rso(ty_s);
-        exprVarInfo.value.getType().print(rso);
-        rso.flush();
-        std::cerr << "DEBUG: OutputStat operand type: " << ty_s << "\n";
-    }
-
     // Load the value from its memref if needed. Some visitors may push
     // scalar mlir::Value directly (non-memref), so accept both forms.
     mlir::Value loadedValue;
     if (exprVarInfo.value.getType().isa<mlir::MemRefType>()) {
         loadedValue = builder_.create<mlir::memref::LoadOp>(
-            loc_, exprVarInfo.value, mlir::ValueRange{});
+        loc_, exprVarInfo.value, mlir::ValueRange{});
     } else {
         loadedValue = exprVarInfo.value;
     }
@@ -533,9 +606,36 @@ void MLIRGen::visit(OutputStatNode* node) {
     );
 }
 
+// Not necessary. For part 2
 void MLIRGen::visit(InputStatNode* node) { throw std::runtime_error("InputStatNode not implemented"); }
-void MLIRGen::visit(BreakStatNode* node) { throw std::runtime_error("BreakStatNode not implemented"); }
-void MLIRGen::visit(ContinueStatNode* node) { throw std::runtime_error("ContinueStatNode not implemented"); }
+void MLIRGen::visit(BreakStatNode* node) {
+    if (loopContexts_.empty()) {
+        throw std::runtime_error("BreakStatNode: break statement outside of loop");
+    }
+    // Set the break flag to false, which will cause the loop to exit
+    auto& loopCtx = loopContexts_.back();
+    mlir::Type i1Type = builder_.getI1Type();
+    auto falseAttr = builder_.getIntegerAttr(i1Type, 0);
+    auto falseConst = builder_.create<mlir::arith::ConstantOp>(loc_, i1Type, falseAttr);
+    builder_.create<mlir::memref::StoreOp>(loc_, falseConst.getResult(), loopCtx.breakFlag, mlir::ValueRange{});
+    // Note: We can't directly yield from the loop body here since we're inside an if region
+    // The break flag will cause the loop to exit on the next condition check
+    // This means statements after the if will still execute in the current iteration
+    // This is a known limitation of using MLIR SCF for imperative break statements
+}
+
+void MLIRGen::visit(ContinueStatNode* node) {
+    if (loopContexts_.empty()) {
+        throw std::runtime_error("ContinueStatNode: continue statement outside of loop");
+    }
+    // Set the continue flag to false to skip remaining statements in the loop body.
+    // The flag will be reset to true at the start of the next iteration.
+    auto& loopCtx = loopContexts_.back();
+    mlir::Type i1Type = builder_.getI1Type();
+    auto falseAttr = builder_.getIntegerAttr(i1Type, 0);
+    auto falseConst = builder_.create<mlir::arith::ConstantOp>(loc_, i1Type, falseAttr);
+    builder_.create<mlir::memref::StoreOp>(loc_, falseConst.getResult(), loopCtx.continueFlag, mlir::ValueRange{});
+}
 void MLIRGen::visit(ReturnStatNode* node) {
     const CompleteType* retTy = currScope_ ? currScope_->getReturnType() : nullptr;
     if (!retTy || retTy->baseType == BaseType::UNKNOWN) {
@@ -547,11 +647,126 @@ void MLIRGen::visit(ReturnStatNode* node) {
     }
     node->expr->accept(*this);
     VarInfo v = popValue();
+    if (v.type.baseType == BaseType::UNKNOWN) {
+        throw std::runtime_error("visit(ReturnStatNode*): return expression has UNKNOWN type");
+    }
     VarInfo promoted = promoteType(&v, const_cast<CompleteType*>(retTy));
     mlir::Value loaded = builder_.create<mlir::memref::LoadOp>(loc_, promoted.value, mlir::ValueRange{});
     builder_.create<mlir::func::ReturnOp>(loc_, loaded);
 }
-void MLIRGen::visit(CallStatNode* node) { throw std::runtime_error("CallStatNode not implemented"); }
+void MLIRGen::visit(CallStatNode* node) {
+    if (!node || !node->call) {
+        throw std::runtime_error("CallStatNode: missing call expression");
+    }
+    
+    if (!currScope_) {
+        throw std::runtime_error("CallStatNode: no current scope");
+    }
+    
+    // First, evaluate arguments to get their types and values
+    std::vector<VarInfo> argInfos;
+    argInfos.reserve(node->call->args.size());
+    
+    // Evaluate all arguments and collect their VarInfo
+    for (const auto& argExpr : node->call->args) {
+        if (!argExpr) {
+            throw std::runtime_error("CallStatNode: null argument expression");
+        }
+        argExpr->accept(*this);
+        if (v_stack_.empty()) {
+            throw std::runtime_error("CallStatNode: argument evaluation did not produce a value");
+        }
+        VarInfo argInfo = popValue();
+        argInfos.push_back(argInfo);
+    }
+    
+    // Build type-only VarInfo list for procedure resolution
+    std::vector<VarInfo> typeOnlyArgs;
+    typeOnlyArgs.reserve(argInfos.size());
+    for (const auto& argInfo : argInfos) {
+        typeOnlyArgs.push_back(VarInfo{"", argInfo.type, true});
+    }
+    
+    // Resolve procedure using types only (semantic analysis should have validated this exists)
+    ProcInfo* procInfo = nullptr;
+    try {
+        procInfo = currScope_->resolveProc(node->call->funcName, typeOnlyArgs);
+    } catch (const CompileTimeException& e) {
+        throw std::runtime_error("CallStatNode: procedure '" + node->call->funcName + "' not found or type mismatch: " + e.what());
+    }
+    if (!procInfo) {
+        throw std::runtime_error("CallStatNode: procedure '" + node->call->funcName + "' not found");
+    }
+    
+    // Look up the procedure function declaration (should exist from procedure definition)
+    mlir::func::FuncOp procFunc = module_.lookupSymbol<mlir::func::FuncOp>(node->call->funcName);
+    if (!procFunc) {
+        throw std::runtime_error("CallStatNode: procedure function '" + node->call->funcName + "' not found in module");
+    }
+    
+    // Build argument values for MLIR call
+    std::vector<mlir::Value> callArgs;
+    callArgs.reserve(argInfos.size());
+    
+    for (size_t i = 0; i < argInfos.size() && i < procInfo->params.size(); ++i) {
+        const auto& param = procInfo->params[i];
+        const auto& argInfo = argInfos[i];
+        
+        // For var parameters, pass the memref directly (by reference)
+        // For const parameters, pass the value (load if needed)
+        if (!param.isConst) {
+            // var parameter: pass memref directly
+            if (!argInfo.value) {
+                throw std::runtime_error("CallStatNode: var parameter requires mutable argument (variable), but argument has no value");
+            }
+            mlir::Type argType = argInfo.value.getType();
+            if (!argType.isa<mlir::MemRefType>()) {
+                throw std::runtime_error("CallStatNode: var parameter requires mutable argument (variable) with memref type");
+            }
+            callArgs.push_back(argInfo.value);
+        } else {
+            // const parameter: load value if it's a memref
+            mlir::Value argVal;
+            if (!argInfo.value) {
+                throw std::runtime_error("CallStatNode: argument has no value");
+            }
+            mlir::Type argType = argInfo.value.getType();
+            if (argType.isa<mlir::MemRefType>()) {
+                argVal = builder_.create<mlir::memref::LoadOp>(loc_, argInfo.value, mlir::ValueRange{});
+            } else {
+                argVal = argInfo.value;
+            }
+            callArgs.push_back(argVal);
+        }
+    }
+    
+    // Verify function signature matches what we're passing
+    auto funcType = procFunc.getFunctionType();
+    if (funcType.getNumInputs() != callArgs.size()) {
+        throw std::runtime_error("CallStatNode: argument count mismatch for procedure '" + node->call->funcName + "'");
+    }
+    
+    // Verify each argument type matches the function signature
+    for (size_t i = 0; i < callArgs.size(); ++i) {
+        mlir::Type expectedType = funcType.getInput(i);
+        mlir::Type actualType = callArgs[i].getType();
+        if (expectedType != actualType) {
+            throw std::runtime_error("CallStatNode: type mismatch for argument " + std::to_string(i) + 
+                " in procedure '" + node->call->funcName + "'");
+        }
+    }
+    
+    // Generate the call operation
+    if (!builder_.getBlock()) {
+        throw std::runtime_error("CallStatNode: builder has no current block");
+    }
+    
+    builder_.create<mlir::func::CallOp>(loc_, procFunc, callArgs);
+    
+    // If procedure returns a value, we discard it (call statement doesn't use return value)
+    // Per spec: "The return value from a procedure call can only be manipulated with unary operators"
+    // Since this is a call statement, we just discard the result
+}
 void MLIRGen::visit(IfNode* node) {
     
     // Evaluate the condition expression in the current block
@@ -575,35 +790,22 @@ void MLIRGen::visit(IfNode* node) {
         // Set insertion point to the start of the then block
         builder_.setInsertionPointToStart(&thenBlock);
         
-        // Update allocaBuilder to point to the then block so allocas are created here
-        auto savedAllocaBuilder = allocaBuilder_;
-        allocaBuilder_ = mlir::OpBuilder(&thenBlock, thenBlock.begin());
-        
         // Visit the then branch
-        if (node->thenBlock) {
-            node->thenBlock->accept(*this);
-        } else if (node->thenStat) {
-            node->thenStat->accept(*this);
+    if (node->thenBlock) {
+        node->thenBlock->accept(*this);
+    } else if (node->thenStat) {
+        node->thenStat->accept(*this);
         }
         
-        allocaBuilder_ = savedAllocaBuilder;
-        
-        // Remove any existing terminators
-        int terminatorCount = 0;
-        while (!thenBlock.empty() && thenBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-            thenBlock.back().erase();
-            terminatorCount++;
+        // Insert yield only if there isn't already a terminator (e.g., from break/continue)
+        if (thenBlock.empty() || !thenBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+            if (!thenBlock.empty()) {
+                builder_.setInsertionPointAfter(&thenBlock.back());
+            } else {
+                builder_.setInsertionPointToStart(&thenBlock);
+    }
+    builder_.create<mlir::scf::YieldOp>(loc_);
         }
-        if (terminatorCount > 0) {
-        }
-        
-        // Insert yield at the end of the block
-        if (!thenBlock.empty()) {
-            builder_.setInsertionPointAfter(&thenBlock.back());
-        } else {
-            builder_.setInsertionPointToStart(&thenBlock);
-        }
-        builder_.create<mlir::scf::YieldOp>(loc_);
     }
 
     // Build the 'else' region if it exists
@@ -613,47 +815,188 @@ void MLIRGen::visit(IfNode* node) {
         // Set insertion point to the start of the else block
         builder_.setInsertionPointToStart(&elseBlock);
         
-        // Update allocaBuilder to point to the else block so allocas are created here
-        auto savedAllocaBuilder = allocaBuilder_;
-        allocaBuilder_ = mlir::OpBuilder(&elseBlock, elseBlock.begin());
-        
         // Visit the else branch
         if (node->elseBlock) {
             node->elseBlock->accept(*this);
         } else if (node->elseStat) {
             node->elseStat->accept(*this);
         }
-
-        allocaBuilder_ = savedAllocaBuilder;
         
-        // Remove any existing terminators
-        while (!elseBlock.empty() && elseBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-            elseBlock.back().erase();
-        }
-        
-        // Insert yield at the end of the block
-        if (!elseBlock.empty()) {
-            builder_.setInsertionPointAfter(&elseBlock.back());
-        } else {
-            builder_.setInsertionPointToStart(&elseBlock);
+        // Insert yield only if there isn't already a terminator (e.g., from break/continue)
+        if (elseBlock.empty() || !elseBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+            if (!elseBlock.empty()) {
+                builder_.setInsertionPointAfter(&elseBlock.back());
+            } else {
+                builder_.setInsertionPointToStart(&elseBlock);
         }
         builder_.create<mlir::scf::YieldOp>(loc_);
+        }
     }
 
     // Restore insertion point after the if operation
     builder_.setInsertionPointAfter(ifOp);
 }
-void MLIRGen::visit(LoopNode* node) { throw std::runtime_error("LoopNode not implemented"); }
-void MLIRGen::visit(BlockNode* node) { 
-    // Enter the corresponding semantic child scope if present
-    Scope* saved = currScope_;
-    if (currScope_ && !currScope_->children().empty()) {
-        // for now: pick the first child; semantics created a fresh scope for this block
-        currScope_ = currScope_->children().front().get();
+void MLIRGen::visit(LoopNode* node) {
+    if (!node->body) {
+        throw std::runtime_error("LoopNode: loop body is null");
     }
 
-    for (const auto& d : node->decs) if (d) d->accept(*this);
-    for (const auto& s : node->stats) if (s) s->accept(*this);
+    // Create a break flag (true = continue, false = break)
+    CompleteType boolType = CompleteType(BaseType::BOOL);
+    VarInfo breakFlagVar = VarInfo(boolType);
+    allocaVar(&breakFlagVar);
+    mlir::Type i1Type = builder_.getI1Type();
+    auto trueAttr = builder_.getIntegerAttr(i1Type, 1);
+    auto trueConst = builder_.create<mlir::arith::ConstantOp>(loc_, i1Type, trueAttr);
+    builder_.create<mlir::memref::StoreOp>(loc_, trueConst.getResult(), breakFlagVar.value, mlir::ValueRange{});
+    
+    // Create a continue flag (true = execute body, false = skip to next iteration)
+    VarInfo continueFlagVar = VarInfo(boolType);
+    allocaVar(&continueFlagVar);
+    builder_.create<mlir::memref::StoreOp>(loc_, trueConst.getResult(), continueFlagVar.value, mlir::ValueRange{});
+    
+    // Create scf.while operation (empty initially)
+    auto whileOp = builder_.create<mlir::scf::WhileOp>(loc_, mlir::TypeRange{}, mlir::ValueRange{});
+    
+    // Save insertion point AFTER creating the loop 
+    auto savedIPAfterLoop = builder_.saveInsertionPoint();
+    
+    // Build the "before" region (condition check)
+    mlir::Region& beforeRegion = whileOp.getBefore();
+    mlir::Block* beforeBlock = new mlir::Block();
+    beforeRegion.push_back(beforeBlock);
+    
+    {
+        auto savedIP = builder_.saveInsertionPoint();
+        builder_.setInsertionPointToStart(beforeBlock);
+        
+        mlir::Value condValue;
+        mlir::Value breakFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, breakFlagVar.value, mlir::ValueRange{});
+        
+        if (node->kind == LoopKind::While && node->cond) {
+            // Re-evaluate condition in the before region
+            node->cond->accept(*this);
+            VarInfo condVarInfo = popValue();
+            mlir::Value condVal = builder_.create<mlir::memref::LoadOp>(loc_, condVarInfo.value, mlir::ValueRange{});
+            // Combine condition with break flag: loop continues if condition is true AND break flag is true
+            condValue = builder_.create<mlir::arith::AndIOp>(loc_, condVal, breakFlagVal);
+        } else {
+            // Plain loop: continue if break flag is true
+            condValue = breakFlagVal;
+        }
+        
+        // Yield the condition value
+        builder_.create<mlir::scf::ConditionOp>(loc_, condValue, mlir::ValueRange{});
+        
+        builder_.restoreInsertionPoint(savedIP);
+    }
+    
+    // Build the "after" region (loop body)
+    mlir::Region& afterRegion = whileOp.getAfter();
+    mlir::Block* afterBlock = new mlir::Block();
+    afterRegion.push_back(afterBlock);
+    
+    {
+        auto savedIP = builder_.saveInsertionPoint();
+        builder_.setInsertionPointToStart(afterBlock);
+        
+        // Reset continue flag to true at the start of each iteration
+        auto trueConstAfter = builder_.create<mlir::arith::ConstantOp>(loc_, i1Type, trueAttr);
+        builder_.create<mlir::memref::StoreOp>(loc_, trueConstAfter.getResult(), continueFlagVar.value, mlir::ValueRange{});
+
+        // Push loop context for break/continue
+        LoopContext loopCtx;
+        loopCtx.exitBlock = nullptr;
+        loopCtx.continueBlock = nullptr;
+        loopCtx.breakFlag = breakFlagVar.value;
+        loopCtx.continueFlag = continueFlagVar.value;
+        loopContexts_.push_back(loopCtx);
+        
+        // Visit the loop body.
+        if (node->body) {
+            node->body->accept(*this);
+        }
+        
+        // Pop loop context
+        loopContexts_.pop_back();
+
+        // The 'after' region of the while loop also needs a terminator.
+        if (afterBlock->empty() || !afterBlock->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+            builder_.create<mlir::scf::YieldOp>(loc_);
+        }
+        
+        builder_.restoreInsertionPoint(savedIP);
+    }
+    
+    // Restore insertion point to after the loop was created
+    builder_.restoreInsertionPoint(savedIPAfterLoop);
+}
+
+void MLIRGen::visit(BlockNode* node) {
+    // Enter the corresponding semantic child scope if present
+    Scope* saved = currScope_;
+    if (scopeMap_) {
+        auto it = scopeMap_->find(node);
+        if (it != scopeMap_->end()) {
+            currScope_ = it->second;
+        }
+    }
+
+    bool inLoop = !loopContexts_.empty();
+
+    // Process declarations, wrapping each in a conditional if we're in a loop
+    for (const auto& d : node->decs) {
+        if (d) {
+            if (inLoop) {
+                auto& loopCtx = loopContexts_.back();
+                mlir::Value breakFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.breakFlag, mlir::ValueRange{});
+                mlir::Value continueFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.continueFlag, mlir::ValueRange{});
+                mlir::Value shouldExecute = builder_.create<mlir::arith::AndIOp>(loc_, breakFlagVal, continueFlagVal);
+                
+                auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, shouldExecute, false);
+                builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
+                
+                d->accept(*this);
+                
+                if (ifOp.getThenRegion().front().empty() || !ifOp.getThenRegion().front().back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+                    builder_.create<mlir::scf::YieldOp>(loc_);
+                }
+                
+                builder_.setInsertionPointAfter(ifOp);
+            } else {
+                d->accept(*this);
+            }
+        }
+    }
+    
+    // After processing declarations, prevent further declarations in this block
+    currScope_->disableDeclarations();
+    
+    // Process statements, wrapping each in a conditional if we're in a loop
+    for (const auto& s : node->stats) {
+        if (s) {
+            if (inLoop) {
+                auto& loopCtx = loopContexts_.back();
+                mlir::Value breakFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.breakFlag, mlir::ValueRange{});
+                mlir::Value continueFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.continueFlag, mlir::ValueRange{});
+                mlir::Value shouldExecute = builder_.create<mlir::arith::AndIOp>(loc_, breakFlagVal, continueFlagVal);
+                
+                auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, shouldExecute, false);
+                builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
+                
+                s->accept(*this);
+                
+                if (ifOp.getThenRegion().front().empty() || !ifOp.getThenRegion().front().back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+                    // FIX 3: Use :: instead of . for namespace resolution
+                    builder_.create<mlir::scf::YieldOp>(loc_);
+                }
+                
+                builder_.setInsertionPointAfter(ifOp);
+            } else {
+                s->accept(*this);
+            }
+        }
+    }
 
     currScope_ = saved;
 }
@@ -671,6 +1014,10 @@ void MLIRGen::visit(TypeCastNode* node) {
 }
 
 void MLIRGen::visit(IdNode* node) {
+    if (!currScope_) {
+        throw std::runtime_error("visit(IdNode*): no current scope");
+    }
+    
     VarInfo* varInfo = currScope_->resolveVar(node->id);
 
     if (!varInfo) {
@@ -683,31 +1030,43 @@ void MLIRGen::visit(IdNode* node) {
         // Look up the global variable in the module
         auto globalOp = module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->id);
         if (!globalOp) {
-            throw SymbolError(1, "Semantic Analysis: Variable '" + node->id + "' not initialized.");
+            // Not a global - ensure local variable is allocated
+            allocaVar(varInfo);
+            if (!varInfo->value) {
+                throw std::runtime_error("visit(IdNode*): Failed to allocate variable '" + node->id + "'");
+            }
+        } else {
+            // Get the address of the global variable
+            mlir::Value globalAddr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
+            
+            // Get the element type from the global (GlobalOp.getType() returns the element type)
+            mlir::Type elementType = globalOp.getType();
+            
+            // Create a temporary alloca to hold the loaded value
+            // This allows us to use the same memref-based code path
+            VarInfo tempVarInfo = VarInfo(varInfo->type);
+            if (tempVarInfo.type.baseType == BaseType::UNKNOWN) {
+                throw std::runtime_error("visit(IdNode*): Variable '" + node->id + "' has UNKNOWN type");
+            }
+            allocaLiteral(&tempVarInfo);
+            
+            // Load from global using LLVM::LoadOp
+            mlir::Value loadedValue = builder_.create<mlir::LLVM::LoadOp>(
+                loc_, elementType, globalAddr);
+            
+            // Store the loaded value into the temporary memref
+            builder_.create<mlir::memref::StoreOp>(loc_, loadedValue, tempVarInfo.value, mlir::ValueRange{});
+            
+            pushValue(tempVarInfo);
+            return;
         }
-        
-        // Get the address of the global variable
-        mlir::Value globalAddr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
-        
-        // Get the element type from the global (GlobalOp.getType() returns the element type)
-        mlir::Type elementType = globalOp.getType();
-        
-        // Create a temporary alloca to hold the loaded value
-        // This allows us to use the same memref-based code path
-        VarInfo tempVarInfo = VarInfo(varInfo->type);
-        allocaLiteral(&tempVarInfo);
-        
-        // Load from global using LLVM::LoadOp
-        mlir::Value loadedValue = builder_.create<mlir::LLVM::LoadOp>(
-            loc_, elementType, globalAddr);
-        
-        // Store the loaded value into the temporary memref
-        builder_.create<mlir::memref::StoreOp>(loc_, loadedValue, tempVarInfo.value, mlir::ValueRange{});
-        
-        pushValue(tempVarInfo);
-        return;
     }
 
+    // Ensure we have a valid value before pushing
+    if (!varInfo->value) {
+        throw std::runtime_error("visit(IdNode*): Variable '" + node->id + "' has no value after allocation");
+    }
+    
     pushValue(*varInfo); 
 }
 
@@ -923,6 +1282,21 @@ bool MLIRGen::tryEmitConstantForNode(ExprNode* node) {
 }
 
 void MLIRGen::allocaVar(VarInfo* varInfo) {
+    mlir::Block *entryBlock = allocaBuilder_.getBlock();
+    if (!entryBlock) {
+        entryBlock = builder_.getBlock();
+    }
+    if (!entryBlock) {
+        throw std::runtime_error("allocaVar: no available entry block for allocation");
+    }
+
+    mlir::OpBuilder::InsertionGuard guard(allocaBuilder_);
+    auto insertPos = entryBlock->begin();
+    while (insertPos != entryBlock->end() && llvm::isa<mlir::memref::AllocaOp>(&*insertPos)) {
+        ++insertPos;
+    }
+    allocaBuilder_.setInsertionPoint(entryBlock, insertPos);
+
     switch (varInfo->type.baseType) {
         case BaseType::BOOL:
             varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
@@ -958,8 +1332,10 @@ void MLIRGen::allocaVar(VarInfo* varInfo) {
             break;
 
         default:
-            throw std::runtime_error("allocaLiteral FATAL: unsupported type " +
-                                    std::to_string(static_cast<int>(varInfo->type.baseType)));
+            std::string varName = varInfo->identifier.empty() ? "<temporary>" : varInfo->identifier;
+            throw std::runtime_error("allocaVar FATAL: unsupported type " +
+                                    std::to_string(static_cast<int>(varInfo->type.baseType)) +
+                                    " for variable '" + varName + "'");
     }
 }
 
@@ -1133,6 +1509,12 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
 
 /* Only allows implicit promotion from integer -> real. throws AssignError otherwise. */
 VarInfo MLIRGen::promoteType(VarInfo* from, CompleteType* toType) {
+    if (toType->baseType == BaseType::UNKNOWN) {
+        throw std::runtime_error("promoteType: target type is UNKNOWN");
+    }
+    if (from->type.baseType == BaseType::UNKNOWN) {
+        throw std::runtime_error("promoteType: source type is UNKNOWN");
+    }
     // No-op when types are identical
     if (from->type == *toType) {
         return *from;
@@ -1190,57 +1572,89 @@ void MLIRGen::visit(UnaryExpr* node) {
 
 void MLIRGen::visit(ExpExpr* node) {
     if (tryEmitConstantForNode(node)) return;
+
+    // Check if constant folding occurred, but don't skip runtime checks for invalid ops
+    bool wasConstant = node->constant.has_value();
+    
+    if (wasConstant) {
+        // Try to emit as constant, but if it fails,
+        // fall through to runtime code generation
+        try {
+            VarInfo lit = createLiteralFromConstant(node->constant.value(), node->type);
+            pushValue(lit);
+            return;
+        } catch (...) {
+            // Constant creation failed - fall through to runtime code
+            // This ensures runtime error checks are still generated
+        }
+    }
+
+    // Generate runtime code with error checking
     node->left->accept(*this);
     VarInfo left = popValue();
-    mlir::Value lhs = left.value;
+    mlir::Value lhs = builder_.create<mlir::memref::LoadOp>(loc_, left.value, mlir::ValueRange{});
+
     node->right->accept(*this);
     VarInfo right = popValue();
-    mlir::Value rhs = right.value;
+    mlir::Value rhs = builder_.create<mlir::memref::LoadOp>(loc_, right.value, mlir::ValueRange{});
 
     bool isInt = lhs.getType().isa<mlir::IntegerType>();
 
     // Promote to float if needed
-    if (isInt) {
-        auto f32Type = builder_.getF32Type();
+    auto f32Type = builder_.getF32Type();
+    if (lhs.getType().isa<mlir::IntegerType>()) {
         lhs = builder_.create<mlir::arith::SIToFPOp>(loc_, f32Type, lhs);
+    }
+    if (rhs.getType().isa<mlir::IntegerType>()) {
         rhs = builder_.create<mlir::arith::SIToFPOp>(loc_, f32Type, rhs);
     }
 
-    // Error check: 0 raised to negative power
-    auto zero = builder_.create<mlir::arith::ConstantOp>(
-            loc_, lhs.getType(), builder_.getZeroAttr(lhs.getType()));
-    
-    mlir::Value isZero = builder_.create<mlir::arith::CmpFOp>(
-            loc_, mlir::arith::CmpFPredicate::OEQ, lhs, zero);
-    
-    mlir::Value ltZero = builder_.create<mlir::arith::CmpFOp>(
-            loc_, mlir::arith::CmpFPredicate::OLT, rhs, zero);
-    
-    mlir::Value invalidExp = builder_.create<mlir::arith::AndIOp>(loc_, isZero, ltZero);
+    auto zero = builder_.create<mlir::arith::ConstantOp>(loc_, lhs.getType(), builder_.getZeroAttr(lhs.getType()));
+    mlir::Value isBaseZero = builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OEQ, lhs, zero);
+    mlir::Value isExpNegative = builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OLT, rhs, zero);
+    mlir::Value invalidExp = builder_.create<mlir::arith::AndIOp>(loc_, isBaseZero, isExpNegative);
 
-    auto parentBlock = builder_.getBlock();
-    auto errorBlock = parentBlock->splitBlock(builder_.getInsertionPoint());
-    auto continueBlock = errorBlock->splitBlock(errorBlock->begin());
-    
-    builder_.create<mlir::cf::CondBranchOp>(loc_, invalidExp, errorBlock, mlir::ValueRange{}, continueBlock, mlir::ValueRange{});
+    auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, lhs.getType(), invalidExp, true);
 
-    builder_.setInsertionPointToStart(errorBlock);
-    auto errorMsg = builder_.create<mlir::arith::ConstantOp>(loc_, builder_.getStringAttr("Math Error: 0 cannot be raised to a negative power."));
-    builder_.create<mlir::func::CallOp>(loc_, "MathError", mlir::TypeRange{}, mlir::ValueRange{errorMsg});
-    
-    builder_.setInsertionPointToStart(continueBlock);
+    // Then region: error
+    builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
+    {
+        auto mathErrorFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("MathError");
+        if (mathErrorFunc) {
+            std::string errorMsgStr = "Math Error: 0 cannot be raised to a negative power.";
+            std::string errorMsgName = "pow_zero_err_str";
+             if (!module_.lookupSymbol<mlir::LLVM::GlobalOp>(errorMsgName)) {
+                  mlir::OpBuilder moduleBuilder(module_.getBodyRegion());
+                  mlir::Type charType = builder_.getI8Type();
+                  auto strRef = mlir::StringRef(errorMsgStr.c_str(), errorMsgStr.length() + 1);
+                  auto strType = mlir::LLVM::LLVMArrayType::get(charType, strRef.size());
+                  moduleBuilder.create<mlir::LLVM::GlobalOp>(loc_, strType, true,
+                                          mlir::LLVM::Linkage::Internal, errorMsgName,
+                                          builder_.getStringAttr(strRef), 0);
+             }
+             auto globalErrorMsg = module_.lookupSymbol<mlir::LLVM::GlobalOp>(errorMsgName);
+             mlir::Value errorMsgPtr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalErrorMsg);
+             builder_.create<mlir::LLVM::CallOp>(loc_, mathErrorFunc, mlir::ValueRange{errorMsgPtr});
+        }
+        builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{zero});
+    }
 
-    mlir::Value result = builder_.create<mlir::math::PowFOp>(loc_, lhs, rhs);
+    // Else region: valid exponentiation
+    builder_.setInsertionPointToStart(&ifOp.getElseRegion().front());
+    {
+        mlir::Value powResult = builder_.create<mlir::math::PowFOp>(loc_, lhs, rhs);
+        builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{powResult});
+    }
 
-    // If original operands were int, apply math.floor and cast back to int
+    mlir::Value result = ifOp.getResult(0);
+    builder_.setInsertionPointAfter(ifOp);
+
     if (isInt) {
         mlir::Value floored = builder_.create<mlir::math::FloorOp>(loc_, result);
         auto intType = builder_.getI32Type();
         result = builder_.create<mlir::arith::FPToSIOp>(loc_, intType, floored);
     }
 
-    // Assume both operands are of same type. Create a memref-backed VarInfo
-    // to hold the scalar result so later passes can rely on memref semantics.
     VarInfo outVar(left.type);
     allocaLiteral(&outVar);
     builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
@@ -1253,62 +1667,82 @@ void MLIRGen::visit(MultExpr* node){
 
     node->left->accept(*this);
     VarInfo leftInfo = popValue();
-    mlir::Value left = leftInfo.value;
     node->right->accept(*this);
     VarInfo rightInfo = popValue();
-    mlir::Value right = rightInfo.value;
 
-    if(node->op == "/" || node->op == "%"){
-        auto zero = builder_.create<mlir::arith::ConstantOp>(
-            loc_, right.getType(), builder_.getZeroAttr(right.getType()));
-
-        // Compare right == 0
-        mlir::Value isZero;
-        if (right.getType().isa<mlir::IntegerType>()) {
-            isZero = builder_.create<mlir::arith::CmpIOp>(
-                loc_, mlir::arith::CmpIPredicate::eq, right, zero);
-        } else if (right.getType().isa<mlir::FloatType>()) {
-            isZero = builder_.create<mlir::arith::CmpFOp>(
-                loc_, mlir::arith::CmpFPredicate::OEQ, right, zero);
+    auto loadIfMemref = [&](mlir::Value v) -> mlir::Value {
+        if (v.getType().isa<mlir::MemRefType>()) {
+            return builder_.create<mlir::memref::LoadOp>(loc_, v, mlir::ValueRange{});
         }
+        return v;
+    };
 
-        // Create block for error and block for normal division
-        auto parentBlock = builder_.getBlock();
-        auto errorBlock = parentBlock->splitBlock(builder_.getInsertionPoint());
-        auto continueBlock = errorBlock->splitBlock(errorBlock->begin());
-
-        // Conditional branch
-        builder_.create<mlir::cf::CondBranchOp>(loc_, isZero, errorBlock, mlir::ValueRange{}, continueBlock, mlir::ValueRange{});
-
-        // Error block: call runtime error function
-        builder_.setInsertionPointToStart(errorBlock);
-        auto errorMsg = builder_.create<mlir::arith::ConstantOp>(loc_, builder_.getStringAttr("Divide by zero error"));
-        builder_.create<mlir::func::CallOp>(loc_, "MathError", mlir::TypeRange{}, mlir::ValueRange{errorMsg});
-
-        // Continue block: do the division
-        builder_.setInsertionPointToStart(continueBlock);
-    }
+    mlir::Value left = loadIfMemref(leftInfo.value);
+    mlir::Value right = loadIfMemref(rightInfo.value);
 
     mlir::Value result;
-    if(left.getType().isa<mlir::IntegerType>()) {
-        if (node->op == "*") {
+
+    if (node->op == "/" || node->op == "%") {
+        auto zero = builder_.create<mlir::arith::ConstantOp>(loc_, right.getType(), builder_.getZeroAttr(right.getType()));
+        mlir::Value isZero;
+        if (right.getType().isa<mlir::IntegerType>()) {
+            isZero = builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::eq, right, zero);
+        } else { // FloatType
+            isZero = builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OEQ, right, zero);
+        }
+
+        auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, left.getType(), isZero, /*hasElse=*/true);
+
+        // --- THEN Region (divisor is zero) ---
+        builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
+        {
+            auto mathErrorFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("MathError");
+            if (mathErrorFunc) {
+                 std::string errorMsgStr = "Divide by zero error";
+                 std::string errorMsgName = "div_by_zero_err_str";
+                 mlir::Value errorMsgPtr;
+                 if (!module_.lookupSymbol<mlir::LLVM::GlobalOp>(errorMsgName)) {
+                      mlir::OpBuilder moduleBuilder(module_.getBodyRegion());
+                      mlir::Type charType = builder_.getI8Type();
+                      auto strRef = mlir::StringRef(errorMsgStr.c_str(), errorMsgStr.length() + 1);
+                      auto strType = mlir::LLVM::LLVMArrayType::get(charType, strRef.size());
+                      moduleBuilder.create<mlir::LLVM::GlobalOp>(loc_, strType, true,
+                                              mlir::LLVM::Linkage::Internal, errorMsgName,
+                                              builder_.getStringAttr(strRef), 0);
+                 }
+                 auto globalErrorMsg = module_.lookupSymbol<mlir::LLVM::GlobalOp>(errorMsgName);
+                 errorMsgPtr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalErrorMsg);
+                 builder_.create<mlir::LLVM::CallOp>(loc_, mathErrorFunc, mlir::ValueRange{errorMsgPtr});
+            }
+            builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{zero});
+        }
+
+        // --- ELSE Region (divisor is not zero) ---
+        builder_.setInsertionPointToStart(&ifOp.getElseRegion().front());
+        {
+            mlir::Value divResult;
+            if (left.getType().isa<mlir::IntegerType>()) {
+                if (node->op == "/") divResult = builder_.create<mlir::arith::DivSIOp>(loc_, left, right);
+                else divResult = builder_.create<mlir::arith::RemSIOp>(loc_, left, right);
+            } else { // FloatType
+                divResult = builder_.create<mlir::arith::DivFOp>(loc_, left, right);
+            }
+            builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{divResult});
+        }
+        
+        result = ifOp.getResult(0);
+        builder_.setInsertionPointAfter(ifOp);
+
+    } else { // Multiplication
+        if(left.getType().isa<mlir::IntegerType>()) {
             result = builder_.create<mlir::arith::MulIOp>(loc_, left, right);
-        } else if (node->op == "/") {
-            result = builder_.create<mlir::arith::DivSIOp>(loc_, left, right);
-        } else if (node->op == "%") {
-            result = builder_.create<mlir::arith::RemSIOp>(loc_, left, right);
-        }
-    } else if(left.getType().isa<mlir::FloatType>()) {
-        if (node->op == "*") {
+        } else if(left.getType().isa<mlir::FloatType>()) {
             result = builder_.create<mlir::arith::MulFOp>(loc_, left, right);
-        } else if (node->op == "/") {
-            result = builder_.create<mlir::arith::DivFOp>(loc_, left, right);
+        } else {
+            throw std::runtime_error("MLIRGen Error: Unsupported type for multiplication.");
         }
-    } else {
-        throw std::runtime_error("MLIRGen Error: Unsupported type for multiplication.");
     }
 
-    // Wrap scalar result into a memref-backed VarInfo
     VarInfo outVar(leftInfo.type);
     allocaLiteral(&outVar);
     builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
@@ -1317,42 +1751,62 @@ void MLIRGen::visit(MultExpr* node){
 }
 
 void MLIRGen::visit(AddExpr* node){
-    // If the node has a compile-time constant, emit it directly and push.
     if (tryEmitConstantForNode(node)) return;
 
     node->left->accept(*this);
+    VarInfo leftInfo = popValue();
     node->right->accept(*this);
 
     // Pop in reverse order
     VarInfo rightInfo = popValue();
-    VarInfo leftInfo = popValue();
 
-    CompleteType targetType = node->type;
-    if (targetType.baseType != BaseType::INTEGER && targetType.baseType != BaseType::REAL) {
-        throw std::runtime_error("MLIRGen Error: Unsupported type for addition.");
+    // Determine the promoted type (semantic analysis already set node->type)
+    CompleteType promotedType = node->type;
+    if (promotedType.baseType == BaseType::UNKNOWN) {
+        // Fallback: try to promote manually
+        promotedType = promote(leftInfo.type, rightInfo.type);
+        if (promotedType.baseType == BaseType::UNKNOWN) {
+            promotedType = promote(rightInfo.type, leftInfo.type);
+        }
+        if (promotedType.baseType == BaseType::UNKNOWN) {
+            throw std::runtime_error("AddExpr: cannot promote types for addition");
+        }
     }
 
-    // Cast/promote both operands to the target type
-    VarInfo leftCast = castType(&leftInfo, &targetType);
-    VarInfo rightCast = castType(&rightInfo, &targetType);
+    // Cast both operands to the promoted type
+    VarInfo leftPromoted = castType(&leftInfo, &promotedType);
+    VarInfo rightPromoted = castType(&rightInfo, &promotedType);
 
-    // Load vals
-    mlir::Value leftVal = builder_.create<mlir::memref::LoadOp>(loc_, leftCast.value, mlir::ValueRange{});
-    mlir::Value rightVal = builder_.create<mlir::memref::LoadOp>(loc_, rightCast.value, mlir::ValueRange{});
+    // Load the promoted values
+    mlir::Value leftLoaded = builder_.create<mlir::memref::LoadOp>(
+        loc_, leftPromoted.value, mlir::ValueRange{}
+    );
+    mlir::Value rightLoaded = builder_.create<mlir::memref::LoadOp>(
+        loc_, rightPromoted.value, mlir::ValueRange{}
+    );
 
-    // Perform operation based on target type
     mlir::Value result;
-    if (targetType.baseType == BaseType::INTEGER) {
-        result = (node->op == "+")
-            ? static_cast<mlir::Value>(builder_.create<mlir::arith::AddIOp>(loc_, leftVal, rightVal))
-            : static_cast<mlir::Value>(builder_.create<mlir::arith::SubIOp>(loc_, leftVal, rightVal));
-    } else { // REAL
-        result = (node->op == "+")
-            ? static_cast<mlir::Value>(builder_.create<mlir::arith::AddFOp>(loc_, leftVal, rightVal))
-            : static_cast<mlir::Value>(builder_.create<mlir::arith::SubFOp>(loc_, leftVal, rightVal));
+    if (promotedType.baseType == BaseType::INTEGER) {
+        if (node->op == "+") {
+            result = builder_.create<mlir::arith::AddIOp>(loc_, leftLoaded, rightLoaded);
+        } else if (node->op == "-") {
+            result = builder_.create<mlir::arith::SubIOp>(loc_, leftLoaded, rightLoaded);
+        }
+    } else if (promotedType.baseType == BaseType::REAL) {
+        if (node->op == "+") {
+            result = builder_.create<mlir::arith::AddFOp>(loc_, leftLoaded, rightLoaded);
+        } else if (node->op == "-") {
+            result = builder_.create<mlir::arith::SubFOp>(loc_, leftLoaded, rightLoaded);
+        }
+    } else {
+        throw std::runtime_error("MLIRGen Error: Unsupported type for addition: " + toString(promotedType));
     }
 
-    VarInfo outVar(targetType);
+    // Use the expression's own type (node->type)
+    VarInfo outVar(node->type);
+    if (outVar.type.baseType == BaseType::UNKNOWN) {
+        throw std::runtime_error("visit(AddExpr*): expression has UNKNOWN type");
+    }
     allocaLiteral(&outVar);
     builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
     outVar.identifier = "";
@@ -1519,28 +1973,36 @@ mlir::Value mlirTupleEquals(VarInfo& leftInfo, VarInfo& rightInfo, mlir::Locatio
 
 void MLIRGen::visit(EqExpr* node){
     if (tryEmitConstantForNode(node)) return;
+
     node->left->accept(*this);
     VarInfo leftInfo = popValue();
-    mlir::Value left = leftInfo.value;
     node->right->accept(*this);
     VarInfo rightInfo = popValue();
-    mlir::Value right = rightInfo.value;
 
-    // If left/right are memref descriptors, load the contained scalar so the
-    // equality helpers compare raw scalar types (integers/floats) rather than
-    // memref descriptors.
-    if (left.getType().isa<mlir::MemRefType>()) {
-        left = builder_.create<mlir::memref::LoadOp>(loc_, leftInfo.value, mlir::ValueRange{});
+    CompleteType promotedType = promote(leftInfo.type, rightInfo.type);
+    if (promotedType.baseType == BaseType::UNKNOWN) {
+        promotedType = promote(rightInfo.type, leftInfo.type);
     }
-    if (right.getType().isa<mlir::MemRefType>()) {
-        right = builder_.create<mlir::memref::LoadOp>(loc_, rightInfo.value, mlir::ValueRange{});
+    if (promotedType.baseType == BaseType::UNKNOWN) {
+        throw std::runtime_error("EqExpr: cannot promote types for comparison");
     }
+    
+    VarInfo leftPromoted = castType(&leftInfo, &promotedType);
+    VarInfo rightPromoted = castType(&rightInfo, &promotedType);
 
-    mlir::Type type = left.getType();
+    // Load the values
+    mlir::Value left = builder_.create<mlir::memref::LoadOp>(
+        loc_, leftPromoted.value, mlir::ValueRange{}
+    );
+    mlir::Value right = builder_.create<mlir::memref::LoadOp>(
+        loc_, rightPromoted.value, mlir::ValueRange{}
+    );
+
     mlir::Value result;
 
-    if (type.isa<mlir::TupleType>()) {
-        result = mlirTupleEquals(leftInfo, rightInfo, loc_, builder_);
+    if (promotedType.baseType == BaseType::TUPLE) {
+        // Note: mlirTupleEquals needs the VarInfo with subtypes, not the loaded value
+        result = mlirTupleEquals(leftPromoted, rightPromoted, loc_, builder_);
     } else {
         result = mlirScalarEquals(left, right, loc_, builder_);
     }
@@ -1550,8 +2012,7 @@ void MLIRGen::visit(EqExpr* node){
         result = builder_.create<mlir::arith::XOrIOp>(loc_, result, one);
     }
 
-    // Store the comparison result into a memref-backed VarInfo and push
-    VarInfo outVar(leftInfo.type);
+    VarInfo outVar(node->type);
     allocaLiteral(&outVar);
     builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
     outVar.identifier = "";
@@ -1562,10 +2023,18 @@ void MLIRGen::visit(AndExpr* node){
     if (tryEmitConstantForNode(node)) return;
     node->left->accept(*this);
     VarInfo leftInfo = popValue();
-    mlir::Value left = leftInfo.value;
     node->right->accept(*this);
     VarInfo rightInfo = popValue();
-    mlir::Value right = rightInfo.value;
+
+    auto loadIfMemref = [&](mlir::Value v) -> mlir::Value {
+        if (v.getType().isa<mlir::MemRefType>()) {
+            return builder_.create<mlir::memref::LoadOp>(loc_, v, mlir::ValueRange{});
+        }
+        return v;
+    };
+    
+    mlir::Value left = loadIfMemref(leftInfo.value);
+    mlir::Value right = loadIfMemref(rightInfo.value);
 
     auto andOp = builder_.create<mlir::arith::AndIOp>(loc_, left, right);
     
@@ -1581,10 +2050,18 @@ void MLIRGen::visit(OrExpr* node){
     if (tryEmitConstantForNode(node)) return;
     node->left->accept(*this);
     VarInfo leftInfo = popValue();
-    mlir::Value left = leftInfo.value;
     node->right->accept(*this);
     VarInfo rightInfo = popValue();
-    mlir::Value right = rightInfo.value;
+    
+    auto loadIfMemref = [&](mlir::Value v) -> mlir::Value {
+        if (v.getType().isa<mlir::MemRefType>()) {
+            return builder_.create<mlir::memref::LoadOp>(loc_, v, mlir::ValueRange{});
+        }
+        return v;
+    };
+
+    mlir::Value left = loadIfMemref(leftInfo.value);
+    mlir::Value right = loadIfMemref(rightInfo.value);
 
     mlir::Value result;
     if(node->op == "or") {

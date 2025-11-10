@@ -1,0 +1,16 @@
+//CHECK_FILE:mathError.out
+
+procedure main() returns integer {
+    var integer numerator = 10;
+    var integer denominator = 0;
+    var integer result = 0;
+
+    // This operation will trigger the runtime check.
+    // The program should terminate here and print the MathError.
+    result = numerator / denominator;
+
+    // This code should be unreachable and never execute.
+    "Execution continued past error." -> std_output;
+
+    return 1; // Return a non-zero code if it somehow gets here.
+}

@@ -3,6 +3,8 @@ bin/
 
 # Ignore generated ANTLR sources
 gen/
+grammar/.antlr/
+.cache/
 
 # Ignore CLion files
 cmake-build*/
@@ -13,3 +15,7 @@ build/
 
 # Ignore macOS files
 .DS_STORE
+
+# test stuff
+tests/maks-testfiles/
+tests/fake-output/
