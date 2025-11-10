@@ -1311,53 +1311,39 @@ void MLIRGen::visit(AddExpr* node){
     // If the node has a compile-time constant, emit it directly and push.
     if (tryEmitConstantForNode(node)) return;
 
-    // Evaluate left then right (visitors push values onto the stack)
     node->left->accept(*this);
-    VarInfo leftInfo = popValue();
-    mlir::Value left = leftInfo.value;
     node->right->accept(*this);
+
+    // Pop in reverse order
     VarInfo rightInfo = popValue();
-    mlir::Value right = rightInfo.value;
+    VarInfo leftInfo = popValue();
 
-    // Debug: print operand types (helps diagnose invalid casts)
-    {
-        std::string lt_s, rt_s;
-        llvm::raw_string_ostream lso(lt_s), rso(rt_s);
-        left.getType().print(lso); lso.flush();
-        right.getType().print(rso); rso.flush();
-        std::cerr << "DEBUG: AddExpr operand types: left=" << lt_s << " right=" << rt_s << "\n";
-    }
-
-    // helper: load if this value is a memref
-    auto loadIfMemref = [&](mlir::Value v) -> mlir::Value {
-        if (v.getType().isa<mlir::MemRefType>()) {
-            return builder_.create<mlir::memref::LoadOp>(loc_, v, mlir::ValueRange{});
-        }
-        return v;
-    };
-
-    mlir::Value leftLoaded  = loadIfMemref(left);
-    mlir::Value rightLoaded = loadIfMemref(right);
-
-    mlir::Value result;
-    if (leftLoaded.getType().isa<mlir::IntegerType>()) {
-        if (node->op == "+") {
-            result = builder_.create<mlir::arith::AddIOp>(loc_, leftLoaded, rightLoaded);
-        } else if (node->op == "-") {
-            result = builder_.create<mlir::arith::SubIOp>(loc_, leftLoaded, rightLoaded);
-        }
-    } else if (leftLoaded.getType().isa<mlir::FloatType>()) {
-        if (node->op == "+") {
-            result = builder_.create<mlir::arith::AddFOp>(loc_, leftLoaded, rightLoaded);
-        } else if (node->op == "-") {
-            result = builder_.create<mlir::arith::SubFOp>(loc_, leftLoaded, rightLoaded);
-        }
-    } else {
+    CompleteType targetType = node->type;
+    if (targetType.baseType != BaseType::INTEGER && targetType.baseType != BaseType::REAL) {
         throw std::runtime_error("MLIRGen Error: Unsupported type for addition.");
     }
 
-    // Wrap scalar result into a memref-backed VarInfo
-    VarInfo outVar(leftInfo.type);
+    // Cast/promote both operands to the target type
+    VarInfo leftCast = castType(&leftInfo, &targetType);
+    VarInfo rightCast = castType(&rightInfo, &targetType);
+
+    // Load vals
+    mlir::Value leftVal = builder_.create<mlir::memref::LoadOp>(loc_, leftCast.value, mlir::ValueRange{});
+    mlir::Value rightVal = builder_.create<mlir::memref::LoadOp>(loc_, rightCast.value, mlir::ValueRange{});
+
+    // Perform operation based on target type
+    mlir::Value result;
+    if (targetType.baseType == BaseType::INTEGER) {
+        result = (node->op == "+")
+            ? static_cast<mlir::Value>(builder_.create<mlir::arith::AddIOp>(loc_, leftVal, rightVal))
+            : static_cast<mlir::Value>(builder_.create<mlir::arith::SubIOp>(loc_, leftVal, rightVal));
+    } else { // REAL
+        result = (node->op == "+")
+            ? static_cast<mlir::Value>(builder_.create<mlir::arith::AddFOp>(loc_, leftVal, rightVal))
+            : static_cast<mlir::Value>(builder_.create<mlir::arith::SubFOp>(loc_, leftVal, rightVal));
+    }
+
+    VarInfo outVar(targetType);
     allocaLiteral(&outVar);
     builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
     outVar.identifier = "";
@@ -1486,7 +1472,7 @@ mlir::Value mlirScalarEquals(mlir::Value left, mlir::Value right, mlir::Location
     } else if (type.isa<mlir::FloatType>()) {
         return builder.create<mlir::arith::CmpFOp>(loc, mlir::arith::CmpFPredicate::OEQ, left, right);
     } else {
-        throw std::runtime_error("mlirScalarEquals: Unsupported type for equality");
+        throw std::runtime_error("FATAL: mlirScalarEquals: Unsupported type for equality");
     }
 }
 
