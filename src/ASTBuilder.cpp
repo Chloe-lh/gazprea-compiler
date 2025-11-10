@@ -185,61 +185,49 @@ std::any ASTBuilder::visitTypeCastExpr(GazpreaParser::TypeCastExprContext *ctx) 
 }
 /*
 dec
-    : qualifier? type ID (EQ expr)? END          #ExplicitTypedDec
-    | qualifier ID EQ expr END                   #InferredTypeDec
-    | qualifier? tuple_dec ID (EQ expr)? END     #TupleTypedDec
+    : qualifier? (builtin_type ID | ID ID) (EQ expr)? END   #ExplicitTypedDec
+    | qualifier ID EQ expr END                              #InferredTypeDec
+    | qualifier? tuple_dec ID (EQ expr)? END                #TupleTypedDec
 */
 std::any
 ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
-  // qualifier (optional) - defaults to "const" if not provided (per grammar comment)
-  std::string qualifier = "const"; // default
+  // qualifier (optional) - defaults to "const" if not provided
+  std::string qualifier = "const";
   if (ctx->qualifier()) {
     auto qualAny = visit(ctx->qualifier());
     if (qualAny.has_value()) {
-      try {
-        qualifier = std::any_cast<std::string>(qualAny);
-      } catch (const std::bad_any_cast &) {
-        qualifier = "const"; // default on error
-      }
+      try { qualifier = std::any_cast<std::string>(qualAny); }
+      catch (const std::bad_any_cast &) { qualifier = "const"; }
     }
   }
-  std::shared_ptr<TypeAliasNode> typeAlias = nullptr;
-  if (ctx->type()) {
-    auto tctx = ctx->type();
-    if (tctx->INTEGER()) {
-      typeAlias = std::make_shared<TypeAliasNode>(
-          std::string(""), CompleteType(BaseType::INTEGER));
-    } else if (tctx->REAL()) {
-      typeAlias = std::make_shared<TypeAliasNode>(std::string(""),
-                                                  CompleteType(BaseType::REAL));
-    } else if (tctx->BOOLEAN()) {
-      typeAlias = std::make_shared<TypeAliasNode>(std::string(""),
-                                                  CompleteType(BaseType::BOOL));
-    } else if (tctx->CHARACTER()) {
-      typeAlias = std::make_shared<TypeAliasNode>(
-          std::string(""), CompleteType(BaseType::CHARACTER));
-    } else if (tctx->ID()) {
-      // named alias; store the alias name and leave concrete type unknown
-      typeAlias = std::make_shared<TypeAliasNode>(
-          tctx->ID()->getText(), CompleteType(BaseType::UNKNOWN));
-    } else {
-      typeAlias = std::make_shared<TypeAliasNode>(
-          std::string(""), CompleteType(BaseType::UNKNOWN));
-    }
+
+  std::shared_ptr<TypeAliasNode> typeAlias;
+  std::string id;
+
+  // builtin_type ID case
+  if (ctx->builtin_type()) {
+    auto bt = ctx->builtin_type();
+    if (bt->BOOLEAN()) typeAlias = std::make_shared<TypeAliasNode>("", CompleteType(BaseType::BOOL));
+    else if (bt->CHARACTER()) typeAlias = std::make_shared<TypeAliasNode>("", CompleteType(BaseType::CHARACTER));
+    else if (bt->INTEGER()) typeAlias = std::make_shared<TypeAliasNode>("", CompleteType(BaseType::INTEGER));
+    else if (bt->REAL()) typeAlias = std::make_shared<TypeAliasNode>("", CompleteType(BaseType::REAL));
+    else if (bt->STRING()) typeAlias = std::make_shared<TypeAliasNode>("", CompleteType(BaseType::STRING));
+    else typeAlias = std::make_shared<TypeAliasNode>("", CompleteType(BaseType::UNKNOWN));
+    id = ctx->ID(0)->getText();
   } else {
-    typeAlias = std::make_shared<TypeAliasNode>(
-        std::string(""), CompleteType(BaseType::UNKNOWN));
+    // alias ID ID case: ID(0) alias name, ID(1) variable name
+    std::string aliasName = ctx->ID(0)->getText();
+    id = ctx->ID(1)->getText();
+    typeAlias = std::make_shared<TypeAliasNode>(aliasName, CompleteType(BaseType::UNKNOWN));
   }
-  // declared identifier
-  std::string id = ctx->ID()->getText();
+
   // optional initializer
   std::shared_ptr<ExprNode> init = nullptr;
   if (ctx->expr()) {
     auto exprAny = visit(ctx->expr());
-    if (exprAny.has_value()) {
-      init = safe_any_cast_ptr<ExprNode>(exprAny);
-    }
+    if (exprAny.has_value()) init = safe_any_cast_ptr<ExprNode>(exprAny);
   }
+
   auto node = std::make_shared<TypedDecNode>(id, typeAlias, qualifier, init);
   return node_any(std::move(node));
 }
@@ -299,18 +287,28 @@ ASTBuilder::visitTupleTypedDec(GazpreaParser::TupleTypedDecContext *ctx) {
 }
 std::any
 ASTBuilder::visitTupleAccessExpr(GazpreaParser::TupleAccessExprContext *ctx) {
-  // tuple_access: ID DECIM TUPLE_INT
+  // tuple_access: ID '.' INT | TUPACCESS
   auto ta = ctx->tuple_access();
   std::string tupleName = "";
   int index = 0;
   if (ta) {
-    if (ta->ID())
-      tupleName = ta->ID()->getText();
-    if (ta->INT()) {
-      try {
-        index = std::stoi(ta->INT()->getText());
-      } catch (const std::exception &) {
-        index = 0;
+    if (ta->TUPACCESS()) {
+      // token form: name.index
+      std::string text = ta->TUPACCESS()->getText();
+      auto pos = text.find('.');
+      if (pos != std::string::npos) {
+        tupleName = text.substr(0, pos);
+        try {
+          index = std::stoi(text.substr(pos + 1));
+        } catch (...) {
+          index = 0;
+        }
+      }
+    } else {
+      if (ta->ID()) tupleName = ta->ID()->getText();
+      if (ta->INT()) {
+        try { index = std::stoi(ta->INT()->getText()); }
+        catch (const std::exception &) { index = 0; }
       }
     }
   }
