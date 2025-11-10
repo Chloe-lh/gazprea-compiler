@@ -129,21 +129,40 @@ mlir::func::FuncOp MLIRGen::beginFunctionDefinitionWithConstants(
 mlir::func::FuncOp MLIRGen::createFunctionDeclaration(const std::string &name,
                                                      const std::vector<VarInfo> &params,
                                                      const CompleteType &returnType) {
+    // Check if declaration already exists
+    if (auto existing = module_.lookupSymbol<mlir::func::FuncOp>(name)) {
+        return existing;
+    }
+    
     // Build function type
     std::vector<mlir::Type> argTys;
     argTys.reserve(params.size());
-    for (const auto &p : params) argTys.push_back(getLLVMType(p.type));
+    for (const auto &p : params) {
+        // For var parameters, use memref type (call-by-reference)
+        // For const parameters, use scalar type (call-by-value)
+        if (!p.isConst) {
+            // var parameter: create memref type
+            mlir::Type elemTy = getLLVMType(p.type);
+            argTys.push_back(mlir::MemRefType::get({}, elemTy));
+        } else {
+            // const parameter: use scalar type
+            argTys.push_back(getLLVMType(p.type));
+        }
+    }
 
     std::vector<mlir::Type> resTys;
     if (returnType.baseType != BaseType::UNKNOWN) resTys.push_back(getLLVMType(returnType));
 
     auto ftype = builder_.getFunctionType(argTys, resTys);
 
-    // If a declaration doesn't already exist, create one
-    if (auto existing = module_.lookupSymbol<mlir::func::FuncOp>(name)) {
-        return existing;
-    }
-    return builder_.create<mlir::func::FuncOp>(loc_, name, ftype);
+    // Create function at module level
+    auto* moduleBuilder = backend_.getBuilder().get();
+    auto savedIP = moduleBuilder->saveInsertionPoint();
+    moduleBuilder->setInsertionPointToStart(module_.getBody());
+    auto func = moduleBuilder->create<mlir::func::FuncOp>(loc_, name, ftype);
+    moduleBuilder->restoreInsertionPoint(savedIP);
+    
+    return func;
 }
 
 void MLIRGen::bindFunctionParametersWithConstants(mlir::func::FuncOp func, const std::vector<VarInfo> &params) {
@@ -154,12 +173,19 @@ void MLIRGen::bindFunctionParametersWithConstants(mlir::func::FuncOp func, const
         const auto &p = params[i];
         VarInfo* vi = currScope_ ? currScope_->resolveVar(p.identifier) : nullptr;
         if (!vi) throw std::runtime_error("Codegen: missing parameter '" + p.identifier + "' in scope");
-        // Ensure parameter has an allocated memref to store the incoming
-        // entry-block argument. Constant folding stores are represented on
-        // the AST (ExprNode::constant), not on VarInfo, so do not attempt
-        // to read a 'constant' field here.
-        if (!vi->value) allocaVar(vi);
-        builder_.create<mlir::memref::StoreOp>(loc_, entry.getArgument(i), vi->value, mlir::ValueRange{});
+        
+        mlir::Value argValue = entry.getArgument(i);
+        
+        // For var parameters, the argument is already a memref, so use it directly
+        // For const parameters, we need to allocate storage and store the value
+        if (!p.isConst && argValue.getType().isa<mlir::MemRefType>()) {
+            // var parameter: argument is already a memref, use it directly
+            vi->value = argValue;
+        } else {
+            // const parameter: allocate storage and store the value
+            if (!vi->value) allocaVar(vi);
+            builder_.create<mlir::memref::StoreOp>(loc_, argValue, vi->value, mlir::ValueRange{});
+        }
     }
 }
 
@@ -619,7 +645,119 @@ void MLIRGen::visit(ReturnStatNode* node) {
     mlir::Value loaded = builder_.create<mlir::memref::LoadOp>(loc_, promoted.value, mlir::ValueRange{});
     builder_.create<mlir::func::ReturnOp>(loc_, loaded);
 }
-void MLIRGen::visit(CallStatNode* node) { throw std::runtime_error("CallStatNode not implemented"); }
+void MLIRGen::visit(CallStatNode* node) {
+    if (!node || !node->call) {
+        throw std::runtime_error("CallStatNode: missing call expression");
+    }
+    
+    if (!currScope_) {
+        throw std::runtime_error("CallStatNode: no current scope");
+    }
+    
+    // First, evaluate arguments to get their types and values
+    std::vector<VarInfo> argInfos;
+    argInfos.reserve(node->call->args.size());
+    
+    // Evaluate all arguments and collect their VarInfo
+    for (const auto& argExpr : node->call->args) {
+        if (!argExpr) {
+            throw std::runtime_error("CallStatNode: null argument expression");
+        }
+        argExpr->accept(*this);
+        if (v_stack_.empty()) {
+            throw std::runtime_error("CallStatNode: argument evaluation did not produce a value");
+        }
+        VarInfo argInfo = popValue();
+        argInfos.push_back(argInfo);
+    }
+    
+    // Build type-only VarInfo list for procedure resolution
+    std::vector<VarInfo> typeOnlyArgs;
+    typeOnlyArgs.reserve(argInfos.size());
+    for (const auto& argInfo : argInfos) {
+        typeOnlyArgs.push_back(VarInfo{"", argInfo.type, true});
+    }
+    
+    // Resolve procedure using types only (semantic analysis should have validated this exists)
+    ProcInfo* procInfo = nullptr;
+    try {
+        procInfo = currScope_->resolveProc(node->call->funcName, typeOnlyArgs);
+    } catch (const CompileTimeException& e) {
+        throw std::runtime_error("CallStatNode: procedure '" + node->call->funcName + "' not found or type mismatch: " + e.what());
+    }
+    if (!procInfo) {
+        throw std::runtime_error("CallStatNode: procedure '" + node->call->funcName + "' not found");
+    }
+    
+    // Look up the procedure function declaration (should exist from procedure definition)
+    mlir::func::FuncOp procFunc = module_.lookupSymbol<mlir::func::FuncOp>(node->call->funcName);
+    if (!procFunc) {
+        throw std::runtime_error("CallStatNode: procedure function '" + node->call->funcName + "' not found in module");
+    }
+    
+    // Build argument values for MLIR call
+    std::vector<mlir::Value> callArgs;
+    callArgs.reserve(argInfos.size());
+    
+    for (size_t i = 0; i < argInfos.size() && i < procInfo->params.size(); ++i) {
+        const auto& param = procInfo->params[i];
+        const auto& argInfo = argInfos[i];
+        
+        // For var parameters, pass the memref directly (by reference)
+        // For const parameters, pass the value (load if needed)
+        if (!param.isConst) {
+            // var parameter: pass memref directly
+            if (!argInfo.value) {
+                throw std::runtime_error("CallStatNode: var parameter requires mutable argument (variable), but argument has no value");
+            }
+            mlir::Type argType = argInfo.value.getType();
+            if (!argType.isa<mlir::MemRefType>()) {
+                throw std::runtime_error("CallStatNode: var parameter requires mutable argument (variable) with memref type");
+            }
+            callArgs.push_back(argInfo.value);
+        } else {
+            // const parameter: load value if it's a memref
+            mlir::Value argVal;
+            if (!argInfo.value) {
+                throw std::runtime_error("CallStatNode: argument has no value");
+            }
+            mlir::Type argType = argInfo.value.getType();
+            if (argType.isa<mlir::MemRefType>()) {
+                argVal = builder_.create<mlir::memref::LoadOp>(loc_, argInfo.value, mlir::ValueRange{});
+            } else {
+                argVal = argInfo.value;
+            }
+            callArgs.push_back(argVal);
+        }
+    }
+    
+    // Verify function signature matches what we're passing
+    auto funcType = procFunc.getFunctionType();
+    if (funcType.getNumInputs() != callArgs.size()) {
+        throw std::runtime_error("CallStatNode: argument count mismatch for procedure '" + node->call->funcName + "'");
+    }
+    
+    // Verify each argument type matches the function signature
+    for (size_t i = 0; i < callArgs.size(); ++i) {
+        mlir::Type expectedType = funcType.getInput(i);
+        mlir::Type actualType = callArgs[i].getType();
+        if (expectedType != actualType) {
+            throw std::runtime_error("CallStatNode: type mismatch for argument " + std::to_string(i) + 
+                " in procedure '" + node->call->funcName + "'");
+        }
+    }
+    
+    // Generate the call operation
+    if (!builder_.getBlock()) {
+        throw std::runtime_error("CallStatNode: builder has no current block");
+    }
+    
+    builder_.create<mlir::func::CallOp>(loc_, procFunc, callArgs);
+    
+    // If procedure returns a value, we discard it (call statement doesn't use return value)
+    // Per spec: "The return value from a procedure call can only be manipulated with unary operators"
+    // Since this is a call statement, we just discard the result
+}
 void MLIRGen::visit(IfNode* node) {
     
     // Evaluate the condition expression in the current block
@@ -867,6 +1005,10 @@ void MLIRGen::visit(TypeCastNode* node) {
 }
 
 void MLIRGen::visit(IdNode* node) {
+    if (!currScope_) {
+        throw std::runtime_error("visit(IdNode*): no current scope");
+    }
+    
     VarInfo* varInfo = currScope_->resolveVar(node->id);
 
     if (!varInfo) {
@@ -879,34 +1021,43 @@ void MLIRGen::visit(IdNode* node) {
         // Look up the global variable in the module
         auto globalOp = module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->id);
         if (!globalOp) {
-        throw SymbolError(1, "Semantic Analysis: Variable '" + node->id + "' not initialized.");
-    }
-
-        // Get the address of the global variable
-        mlir::Value globalAddr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
-        
-        // Get the element type from the global (GlobalOp.getType() returns the element type)
-        mlir::Type elementType = globalOp.getType();
-        
-        // Create a temporary alloca to hold the loaded value
-        // This allows us to use the same memref-based code path
-        VarInfo tempVarInfo = VarInfo(varInfo->type);
-        if (tempVarInfo.type.baseType == BaseType::UNKNOWN) {
-            throw std::runtime_error("visit(IdNode*): Variable '" + node->id + "' has UNKNOWN type");
+            // Not a global - ensure local variable is allocated
+            allocaVar(varInfo);
+            if (!varInfo->value) {
+                throw std::runtime_error("visit(IdNode*): Failed to allocate variable '" + node->id + "'");
+            }
+        } else {
+            // Get the address of the global variable
+            mlir::Value globalAddr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
+            
+            // Get the element type from the global (GlobalOp.getType() returns the element type)
+            mlir::Type elementType = globalOp.getType();
+            
+            // Create a temporary alloca to hold the loaded value
+            // This allows us to use the same memref-based code path
+            VarInfo tempVarInfo = VarInfo(varInfo->type);
+            if (tempVarInfo.type.baseType == BaseType::UNKNOWN) {
+                throw std::runtime_error("visit(IdNode*): Variable '" + node->id + "' has UNKNOWN type");
+            }
+            allocaLiteral(&tempVarInfo);
+            
+            // Load from global using LLVM::LoadOp
+            mlir::Value loadedValue = builder_.create<mlir::LLVM::LoadOp>(
+                loc_, elementType, globalAddr);
+            
+            // Store the loaded value into the temporary memref
+            builder_.create<mlir::memref::StoreOp>(loc_, loadedValue, tempVarInfo.value, mlir::ValueRange{});
+            
+            pushValue(tempVarInfo);
+            return;
         }
-        allocaLiteral(&tempVarInfo);
-        
-        // Load from global using LLVM::LoadOp
-        mlir::Value loadedValue = builder_.create<mlir::LLVM::LoadOp>(
-            loc_, elementType, globalAddr);
-        
-        // Store the loaded value into the temporary memref
-        builder_.create<mlir::memref::StoreOp>(loc_, loadedValue, tempVarInfo.value, mlir::ValueRange{});
-        
-        pushValue(tempVarInfo);
-        return;
     }
 
+    // Ensure we have a valid value before pushing
+    if (!varInfo->value) {
+        throw std::runtime_error("visit(IdNode*): Variable '" + node->id + "' has no value after allocation");
+    }
+    
     pushValue(*varInfo); 
 }
 

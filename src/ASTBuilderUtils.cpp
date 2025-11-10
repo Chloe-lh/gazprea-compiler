@@ -175,23 +175,73 @@ ExtractParams(ASTBuilder &builder,
 std::vector<std::pair<CompleteType, std::string>>
 ExtractParams(ASTBuilder &builder,
               gazprea::GazpreaParser::ProcedureContext *ctx) {
-  // procedure: optional RETURNS type at the end, parameter types precede it
-  size_t typeCount = ctx->type().size();
-  bool hasReturn = (ctx->RETURNS() != nullptr);
-  size_t paramCount = hasReturn && typeCount > 0 ? typeCount - 1 : typeCount;
-  std::vector<GazpreaParser::TypeContext *> types;
-  types.reserve(paramCount);
-  for (size_t i = 0; i < paramCount; ++i) {
-    types.push_back(ctx->type(i));
-  }
-  std::vector<antlr4::tree::TerminalNode *> ids;
-  auto idList = ctx->ID();
-  if (idList.size() > 1) {
-    for (size_t i = 1; i < idList.size() && ids.size() < paramCount; ++i) {
-      ids.push_back(idList[i]);
+  // procedure: uses param rule with qualifier? type ID
+  // Parameters are extracted from param contexts, not from separate type/ID lists
+  std::vector<std::pair<CompleteType, std::string>> out;
+  auto paramList = ctx->param();
+  for (auto paramCtx : paramList) {
+    CompleteType ptype(BaseType::UNKNOWN);
+    std::string pname;
+    
+    if (paramCtx->type()) {
+      auto anyT = builder.visit(paramCtx->type());
+      if (anyT.has_value() && anyT.type() == typeid(CompleteType)) {
+        ptype = std::any_cast<CompleteType>(anyT);
+      }
     }
+    
+    if (paramCtx->ID()) {
+      pname = paramCtx->ID()->getText();
+    }
+    if (pname.empty()) {
+      pname = "_arg" + std::to_string(out.size());
+    }
+    
+    out.emplace_back(std::move(ptype), std::move(pname));
   }
-  return extractParamsFromParts(builder, types, ids);
+  return out;
+}
+
+// Helper to extract params with qualifiers for procedures
+static std::vector<std::tuple<CompleteType, std::string, bool>> extractParamsWithQualifiers(
+    ASTBuilder &builder,
+    const std::vector<gazprea::GazpreaParser::ParamContext *> &params) {
+  std::vector<std::tuple<CompleteType, std::string, bool>> out;
+  for (auto paramCtx : params) {
+    CompleteType ptype(BaseType::UNKNOWN);
+    std::string pname;
+    bool isConst = true; // default is const
+    
+    if (paramCtx->type()) {
+      auto anyT = builder.visit(paramCtx->type());
+      if (anyT.has_value() && anyT.type() == typeid(CompleteType)) {
+        ptype = std::any_cast<CompleteType>(anyT);
+      }
+    }
+    
+    if (paramCtx->ID()) {
+      pname = paramCtx->ID()->getText();
+    }
+    if (pname.empty()) {
+      pname = "_arg" + std::to_string(out.size());
+    }
+    
+    // Extract qualifier
+    if (paramCtx->qualifier()) {
+      auto qualAny = builder.visit(paramCtx->qualifier());
+      if (qualAny.has_value()) {
+        try {
+          std::string qual = std::any_cast<std::string>(qualAny);
+          isConst = (qual != "var");
+        } catch (const std::bad_any_cast &) {
+          // default to const
+        }
+      }
+    }
+    
+    out.emplace_back(std::move(ptype), std::move(pname), isConst);
+  }
+  return out;
 }
 
 // helper to extract return type from type list

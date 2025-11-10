@@ -422,10 +422,24 @@ ASTBuilder::visitFuncCallExpr(GazpreaParser::FuncCallExprContext *ctx) {
 }
 //  CALL ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT END  #CallStat
 std::any ASTBuilder::visitCallStat(GazpreaParser::CallStatContext *ctx) {
+  if (!ctx || !ctx->ID()) {
+    throw std::runtime_error("visitCallStat: invalid call statement context");
+  }
+  
   std::string funcName = ctx->ID()->getText();
-  auto args = gazprea::builder_utils::collectArgs(
-      *this, std::vector<GazpreaParser::ExprContext *>(ctx->expr().begin(),
-                                                       ctx->expr().end()));
+  
+  // Safely collect arguments
+  std::vector<GazpreaParser::ExprContext *> exprCtxs;
+  if (ctx->expr().size() > 0) {
+    exprCtxs.reserve(ctx->expr().size());
+    for (auto exprCtx : ctx->expr()) {
+      if (exprCtx) {
+        exprCtxs.push_back(exprCtx);
+      }
+    }
+  }
+  
+  auto args = gazprea::builder_utils::collectArgs(*this, exprCtxs);
 
   // Build an expression-level call node and wrap it in a CallStatNode
   auto callExpr = std::make_shared<FuncCallExpr>(funcName, std::move(args));
@@ -505,24 +519,59 @@ std::any ASTBuilder::visitFunctionBlockTupleReturn(
   std::make_shared<FuncBlockNode>(funcName, varParams, returnType, body);
   return node_any(std::move(node));
 }
-// PROCEDURE ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT (RETURNS type)? block;
+// PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS type)? block;
 std::any ASTBuilder::visitProcedure(GazpreaParser::ProcedureContext *ctx) {
-  std::string funcName = ctx->ID(0)->getText();
-  // Extract params and convert to VarInfo vector (parameters are const by
-  // default)
-  std::vector<std::pair<CompleteType, std::string>> params =
-      builder_utils::ExtractParams(*this, ctx);
-  std::vector<VarInfo> varParams =
-      builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
+  std::string funcName = ctx->ID()->getText();
+  
+  // Extract params with qualifiers
+  std::vector<VarInfo> varParams;
+  auto paramList = ctx->param();
+  for (auto paramCtx : paramList) {
+    CompleteType ptype(BaseType::UNKNOWN);
+    std::string pname;
+    bool isConst = true; // default is const
+    
+    if (paramCtx->type()) {
+      auto anyT = visit(paramCtx->type());
+      if (anyT.has_value() && anyT.type() == typeid(CompleteType)) {
+        try {
+          ptype = std::any_cast<CompleteType>(anyT);
+        } catch (const std::bad_any_cast &) {
+          ptype = CompleteType(BaseType::UNKNOWN);
+        }
+      }
+    }
+    
+    if (paramCtx->ID()) {
+      pname = paramCtx->ID()->getText();
+    }
+    if (pname.empty()) {
+      pname = "_arg" + std::to_string(varParams.size());
+    }
+    
+    // Extract qualifier
+    if (paramCtx->qualifier()) {
+      auto qualAny = visit(paramCtx->qualifier());
+      if (qualAny.has_value()) {
+        try {
+          std::string qual = std::any_cast<std::string>(qualAny);
+          isConst = (qual != "var");
+        } catch (const std::bad_any_cast &) {
+          // default to const
+        }
+      }
+    }
+    
+    varParams.emplace_back(pname, ptype, isConst);
+  }
+  
   std::shared_ptr<BlockNode> body = nullptr;
 
   // Handle procedure optional return type
   CompleteType returnType = CompleteType(BaseType::UNKNOWN);
   if (ctx->RETURNS()) {
-    // The returns type will be the last 'type' occurrence in this context
-    auto typeVec = ctx->type();
-    if (!typeVec.empty()) {
-      auto anyRet = visit(typeVec.back());
+    if (ctx->type()) {
+      auto anyRet = visit(ctx->type());
       if (anyRet.has_value() && anyRet.type() == typeid(CompleteType)) {
         try {
           returnType = std::any_cast<CompleteType>(anyRet);
@@ -889,6 +938,10 @@ std::any ASTBuilder::visitIntExpr(GazpreaParser::IntExprContext *ctx) {
   }
 }
 std::any ASTBuilder::visitIdExpr(GazpreaParser::IdExprContext *ctx) {
+  if (!ctx || !ctx->ID()) {
+    throw std::runtime_error("visitIdExpr: invalid identifier expression context");
+  }
+  
   std::string name = ctx->ID()->getText();
   // Create the IdNode and return it. Don't assign a concrete type here —
   // identifier types are resolved in the name-resolution / type-resolution
