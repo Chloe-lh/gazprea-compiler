@@ -460,6 +460,8 @@ void MLIRGen::visit(OutputStatNode* node) {
     const char* formatStrName = nullptr;
     switch (exprVarInfo.type.baseType) {
         case BaseType::BOOL:
+            formatStrName = "charFormat";
+            break;
         case BaseType::INTEGER:
             formatStrName = "intFormat";
             break;
@@ -490,11 +492,18 @@ void MLIRGen::visit(OutputStatNode* node) {
     // Now transform the value if needed (extensions)
     mlir::Value valueToPrint = loadedValue;
     switch (exprVarInfo.type.baseType) {
-        case BaseType::BOOL:
-            // Extend boolean to i32 for printing
-            valueToPrint = builder_.create<mlir::arith::ExtUIOp>(
-                loc_, builder_.getI32Type(), loadedValue);
+        case BaseType::BOOL: {                 
+             // map to T/F
+            auto i8Ty = builder_.getI8Type();
+            auto tVal = builder_.create<mlir::arith::ConstantOp>(
+                loc_, i8Ty, builder_.getIntegerAttr(i8Ty, static_cast<int>('T')));
+            auto fVal = builder_.create<mlir::arith::ConstantOp>(
+                loc_, i8Ty, builder_.getIntegerAttr(i8Ty, static_cast<int>('F')));
+            valueToPrint = builder_.create<mlir::arith::SelectOp>(loc_, loadedValue, tVal, fVal);
+            // Promote to i32 to satisfy vararg promotion for %c
+            valueToPrint = builder_.create<mlir::arith::ExtSIOp>(loc_, builder_.getI32Type(), valueToPrint);
             break;
+        }
         case BaseType::REAL:
             // Extend float to f64 for printing
             valueToPrint = builder_.create<mlir::arith::ExtFOp>(
