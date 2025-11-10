@@ -4,7 +4,7 @@
     "gazprea-sweaties": "../bin/gazc"
   },
   "runtimes": {
-    "gazprea-sweaties": "../bin/libgazrt.so"
+    "gazprea-sweaties": "../bin/libgazrt.dylib"
   }, 
   "toolchains": {
     "gazprea-llc": [
@@ -17,7 +17,7 @@
       }, 
       {
         "stepName": "llc",
-        "executablePath": "/cshome/cmput415/415-resources/llvm-project/build/bin/llc",
+        "executablePath": "./../../llvm-project/build/bin/llc",
         "arguments": ["-filetype=obj", "$INPUT", "-o", "$OUTPUT"],
         "output": "gaz.o"
       },
