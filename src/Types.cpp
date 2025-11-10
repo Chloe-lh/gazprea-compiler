@@ -172,7 +172,23 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
             break;
        case BaseType::TUPLE:
             switch (to.baseType) {
-                case BaseType::TUPLE:      return BaseType::TUPLE;    // only valid if same len + internal types are convertible element-wise
+                case BaseType::TUPLE: {
+                    // Check if tuple lengths match
+                    if (from.subTypes.size() != to.subTypes.size()) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+                    // Check if each element type can be promoted to the corresponding target type
+                    CompleteType result(BaseType::TUPLE);
+                    result.subTypes.reserve(from.subTypes.size());
+                    for (size_t i = 0; i < from.subTypes.size(); ++i) {
+                        CompleteType promotedElem = promote(from.subTypes[i], to.subTypes[i]);
+                        if (promotedElem.baseType == BaseType::UNKNOWN) {
+                            return CompleteType(BaseType::UNKNOWN);
+                        }
+                        result.subTypes.push_back(promotedElem);
+                    }
+                    return result;
+                }
             }
             break;
         case BaseType::STRING:

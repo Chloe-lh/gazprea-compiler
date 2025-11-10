@@ -776,6 +776,10 @@ void SemanticAnalysisVisitor::visit(TupleLiteralNode* node) {
 
 void SemanticAnalysisVisitor::visit(TupleAccessNode* node) {
     VarInfo* varInfo = current_->resolveVar(node->tupleName);
+    
+    if (!varInfo) {
+        throw std::runtime_error("Semantic Analysis: FATAL: Variable '" + node->tupleName + "' not found in TupleAccessNode");
+    }
 
     if (varInfo->type.baseType != BaseType::TUPLE) {
         throw std::runtime_error("Semantic Analysis: FATAL: Non-tuple type '" + toString(varInfo->type) + "' in TupleAccessNode");

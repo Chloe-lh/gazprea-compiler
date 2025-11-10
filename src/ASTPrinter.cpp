@@ -317,10 +317,18 @@ void ASTPrinter::visit(AssignStatNode *node) {
 }
 
 void ASTPrinter::visit(OutputStatNode *node) {
+  if (!node) {
+    printTreeLine("OutputStatNode", "ERROR: null node");
+    return;
+  }
   printTreeLine("OutputStatNode");
   indent++;
   pushChildContext(true);
-  node->expr->accept(*this);
+  if (node->expr) {
+    node->expr->accept(*this);
+  } else {
+    printTreeLine("ERROR: null expression");
+  }
   popChildContext();
   indent--;
 }
@@ -514,6 +522,10 @@ void ASTPrinter::visit(TupleLiteralNode *node) {
 }
 
 void ASTPrinter::visit(TupleAccessNode *node) {
+  if (!node) {
+    printTreeLine("TupleAccessNode", "ERROR: null node");
+    return;
+  }
   printTreeLine("TupleAccessNode", "name: " + node->tupleName +
                                        ", index: " + std::to_string(node->index));
 }

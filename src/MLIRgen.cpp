@@ -1003,7 +1003,47 @@ void MLIRGen::visit(BlockNode* node) {
 
 // Expressions / Operators
 // 
-void MLIRGen::visit(TupleAccessNode* node) { throw std::runtime_error("TupleAccessNode not implemented"); }
+void MLIRGen::visit(TupleAccessNode* node) {
+    if (!currScope_) {
+        throw std::runtime_error("TupleAccessNode: no current scope");
+    }
+    
+    // Resolve the tuple variable
+    VarInfo* tupleVarInfo = currScope_->resolveVar(node->tupleName);
+    
+    if (!tupleVarInfo) {
+        throw SymbolError(1, "Semantic Analysis: Variable '" + node->tupleName + "' not defined.");
+    }
+    
+    if (tupleVarInfo->type.baseType != BaseType::TUPLE) {
+        throw std::runtime_error("TupleAccessNode: Variable '" + node->tupleName + "' is not a tuple.");
+    }
+    
+    // Ensure tuple storage is allocated
+    if (tupleVarInfo->mlirSubtypes.empty()) {
+        allocaVar(tupleVarInfo);
+    }
+    
+    // Validate index (1-based)
+    if (node->index < 1 || node->index > tupleVarInfo->mlirSubtypes.size()) {
+        throw std::runtime_error("TupleAccessNode: Index " + std::to_string(node->index) + 
+            " out of range for tuple of size " + std::to_string(tupleVarInfo->mlirSubtypes.size()));
+    }
+    
+    // Get the element at the specified index (convert from 1-based to 0-based)
+    // Copy the VarInfo instead of using a reference to avoid issues with vector reallocation
+    VarInfo elementVarInfo = tupleVarInfo->mlirSubtypes[node->index - 1];
+    
+    // Ensure the element has a valid value (should be set by allocaVar)
+    if (!elementVarInfo.value) {
+        throw std::runtime_error("TupleAccessNode: Element at index " + std::to_string(node->index) + 
+            " of tuple '" + node->tupleName + "' has no allocated value.");
+    }
+    
+    // Push a copy of the element's VarInfo onto the stack
+    pushValue(elementVarInfo);
+}
+
 void MLIRGen::visit(TupleTypeCastNode* node) { throw std::runtime_error("TupleTypeCastNode not implemented"); }
 
 void MLIRGen::visit(TypeCastNode* node) {

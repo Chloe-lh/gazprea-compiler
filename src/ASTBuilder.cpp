@@ -313,7 +313,7 @@ ASTBuilder::visitTupleAccessExpr(GazpreaParser::TupleAccessExprContext *ctx) {
     }
   }
   auto node = std::make_shared<TupleAccessNode>(tupleName, index);
-  return node_any(std::move(node));
+  return expr_any(std::move(node));
 }
 //  TupleTypeAliasNode(const std::string& aliasName, CompleteType tupleType);
 // TYPEALIAS tuple_dec ID
@@ -453,6 +453,8 @@ std::any ASTBuilder::visitInputStat(GazpreaParser::InputStatContext *ctx) {
 
 std::any ASTBuilder::visitOutputStat(GazpreaParser::OutputStatContext *ctx) {
   std::shared_ptr<ExprNode> expr = nullptr;
+  
+  // Check for regular expression first
   if (ctx->expr()) {
     auto anyExpr = visit(ctx->expr());
     if (anyExpr.has_value()) {
@@ -463,6 +465,37 @@ std::any ASTBuilder::visitOutputStat(GazpreaParser::OutputStatContext *ctx) {
       }
     }
   }
+  // Check for tuple_access (grammar has: tuple_access '->' STD_OUTPUT)
+  else if (ctx->tuple_access()) {
+    // Manually parse tuple_access since there's no visitor method for it
+    auto ta = ctx->tuple_access();
+    std::string tupleName = "";
+    int index = 0;
+    if (ta) {
+      if (ta->TUPACCESS()) {
+        // token form: name.index
+        std::string text = ta->TUPACCESS()->getText();
+        auto pos = text.find('.');
+        if (pos != std::string::npos) {
+          tupleName = text.substr(0, pos);
+          try {
+            index = std::stoi(text.substr(pos + 1));
+          } catch (...) {
+            index = 0;
+          }
+        }
+      } else {
+        if (ta->ID()) tupleName = ta->ID()->getText();
+        if (ta->INT()) {
+          try { index = std::stoi(ta->INT()->getText()); }
+          catch (const std::exception &) { index = 0; }
+        }
+      }
+    }
+    auto tupleAccessNode = std::make_shared<TupleAccessNode>(tupleName, index);
+    expr = std::static_pointer_cast<ExprNode>(tupleAccessNode);
+  }
+  
   auto node = std::make_shared<OutputStatNode>(expr);
   return stat_any(std::move(node));
 }
