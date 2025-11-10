@@ -1,10 +1,10 @@
 {
   "testDir": "testfiles",
   "testedExecutablePaths": {
-    "<team-name>": "../bin/gazc"
+    "sweaties": "../bin/gazc"
   },
   "runtimes": {
-    "<team-name>": "../bin/libgazrt.so"
+    "sweaties": "../bin/libgazrt.so"
   },
   "toolchains": {
     "gazprea-llc": [

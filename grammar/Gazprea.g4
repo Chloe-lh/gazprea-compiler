@@ -14,14 +14,15 @@ procedure: PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS ty
 
 param: qualifier? type ID;
 
-dec
-    : qualifier? type ID (EQ expr)? END          #ExplicitTypedDec
-    | qualifier ID EQ expr END                   #InferredTypeDec
-    | qualifier? tuple_dec ID (EQ expr)? END     #TupleTypedDec
+// specify between typed declarations from tuple member access (ID '.' INT)
+    : qualifier? (builtin_type ID | ID ID) (EQ expr)? END   #ExplicitTypedDec
+    | qualifier ID EQ expr END                              #InferredTypeDec
+    | qualifier? tuple_dec ID (EQ expr)? END                #TupleTypedDec
     ;
 
 stat
-    : ID EQ expr END                #AssignStat
+    : tuple_access '->' STD_OUTPUT END            #OutputStat
+    | { this->_input->LA(2) == GazpreaParser::EQ }? ID EQ expr END   #AssignStat
     | expr '->' STD_OUTPUT END      #OutputStat
     | ID '<-' STD_INPUT  END        #InputStat
     | BREAK END                     #BreakStat
@@ -39,6 +40,15 @@ type //this should include basic types
     | REAL
     | STRING
     | ID
+    ;
+
+// Built-in scalar types (used to disambiguate declarations)
+builtin_type
+    : BOOLEAN
+    | CHARACTER
+    | INTEGER
+    | REAL
+    | STRING
     ;
 
 type_alias
@@ -74,7 +84,9 @@ expr
 
 tuple_dec: TUPLE PARENLEFT type (COMMA type)+ PARENRIGHT;
 tuple_literal: PARENLEFT expr (COMMA expr)+ PARENRIGHT;
-tuple_access: ID DECIM INT;
+tuple_access: ID DECIM INT
+            | TUPACCESS
+            ;
 
 // declarations must be placed at the start of the block
 block: CURLLEFT dec* stat* CURLRIGHT;
@@ -146,6 +158,9 @@ LOWER_E: 'e';
 
 COMMA: ',';
 
+// Recognize tuple member access as a single token to avoid ambiguity
+TUPACCESS: [a-zA-Z_][a-zA-Z0-9_]* '.' [0-9]+;
+
 // brackets
 CURLLEFT: '{';
 CURLRIGHT: '}';
@@ -196,11 +211,10 @@ WHILE: 'while';
 XOR: 'xor';
 STRUCT: 'struct';
 
+// Place after TUPACCESS so 'tup.1' is not split into ID '.' INT
 ID: [a-zA-Z_][a-zA-Z0-9_]*;
 
 //skip whitespace and comments
 SL_COMMENT: '//'.*? ('\n'|EOF) -> skip; 
 ML_COMMENT: '/*' .*? '*/' -> skip; //cannot be nested
 WS : [ \t\r\n]+ -> skip ;
-
-

@@ -1,0 +1,14 @@
+//CHECK_FILE:tupleDecl.out
+
+procedure main() returns integer {
+    const tuple(integer, character, real) tup = (1, 'x', 3.14);
+    tuple(character, character, real) tup2;
+
+    tup2 = ('a', 'b', 3.14);
+    tup.1 -> std_output;
+    " " -> std_output;
+    tup.2 -> std_output;
+    " " -> std_output;
+    tup.3 -> std_output;
+    return 0;
+}
