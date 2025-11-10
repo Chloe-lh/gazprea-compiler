@@ -1410,6 +1410,23 @@ void MLIRGen::visit(UnaryExpr* node) {
 void MLIRGen::visit(ExpExpr* node) {
     if (tryEmitConstantForNode(node)) return;
 
+    // Check if constant folding occurred, but don't skip runtime checks for invalid ops
+    bool wasConstant = node->constant.has_value();
+    
+    if (wasConstant) {
+        // Try to emit as constant, but if it fails (e.g., invalid operation),
+        // fall through to runtime code generation
+        try {
+            VarInfo lit = createLiteralFromConstant(node->constant.value(), node->type);
+            pushValue(lit);
+            return;
+        } catch (...) {
+            // Constant creation failed - fall through to runtime code
+            // This ensures runtime error checks are still generated
+        }
+    }
+
+    // Generate runtime code with error checking (existing implementation)
     node->left->accept(*this);
     VarInfo left = popValue();
     mlir::Value lhs = builder_.create<mlir::memref::LoadOp>(loc_, left.value, mlir::ValueRange{});
