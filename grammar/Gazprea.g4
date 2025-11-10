@@ -14,7 +14,7 @@ procedure: PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS ty
 
 param: qualifier? type ID;
 
-// specify between typed declarations from tuple member access (ID '.' INT)
+dec
     : qualifier? (builtin_type ID | ID ID) (EQ expr)? END   #ExplicitTypedDec
     | qualifier ID EQ expr END                              #InferredTypeDec
     | qualifier? tuple_dec ID (EQ expr)? END                #TupleTypedDec
