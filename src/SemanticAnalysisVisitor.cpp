@@ -824,10 +824,15 @@ void SemanticAnalysisVisitor::visit(TypeCastNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(TupleTypeCastNode* node) {
-    // Target tuple type is carried in node->type by the AST constructor
+    // Evaluate the expression being cast
     node->expr->accept(*this);
-    if (!canCastType(node->expr->type, node->type)) {
-        throw TypeError(1, std::string("Semantic Analysis: cannot cast from '") + toString(node->expr->type) + "' to '" + toString(node->type) + "'.");
+    
+    // Set the result type to the target tuple type
+    node->type = node->targetTupleType;
+    
+    // Validate that the cast is legal
+    if (!canCastType(node->expr->type, node->targetTupleType)) {
+        throw TypeError(1, std::string("Semantic Analysis: cannot cast from '") + toString(node->expr->type) + "' to '" + toString(node->targetTupleType) + "'.");
     }
 }
 

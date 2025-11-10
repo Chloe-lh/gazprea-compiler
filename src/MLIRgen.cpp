@@ -1044,7 +1044,67 @@ void MLIRGen::visit(TupleAccessNode* node) {
     pushValue(elementVarInfo);
 }
 
-void MLIRGen::visit(TupleTypeCastNode* node) { throw std::runtime_error("TupleTypeCastNode not implemented"); }
+void MLIRGen::visit(TupleTypeCastNode* node) {
+    if (!node || !node->expr) {
+        throw std::runtime_error("TupleTypeCastNode: missing expression");
+    }
+    
+    // Evaluate the source tuple expression
+    node->expr->accept(*this);
+    VarInfo sourceTuple = popValue();
+    
+    // Validate source is a tuple
+    if (sourceTuple.type.baseType != BaseType::TUPLE) {
+        throw std::runtime_error("TupleTypeCastNode: source expression is not a tuple");
+    }
+    
+    // Validate target is a tuple
+    if (node->targetTupleType.baseType != BaseType::TUPLE) {
+        throw std::runtime_error("TupleTypeCastNode: target type is not a tuple");
+    }
+    
+    // Validate tuple lengths match
+    if (sourceTuple.type.subTypes.size() != node->targetTupleType.subTypes.size()) {
+        throw std::runtime_error("TupleTypeCastNode: tuple arity mismatch (source: " + 
+            std::to_string(sourceTuple.type.subTypes.size()) + ", target: " + 
+            std::to_string(node->targetTupleType.subTypes.size()) + ")");
+    }
+    
+    // Ensure source tuple storage is allocated
+    if (sourceTuple.mlirSubtypes.empty()) {
+        allocaVar(&sourceTuple);
+    }
+    
+    // Create result tuple with target type
+    VarInfo resultTuple(node->targetTupleType);
+    allocaLiteral(&resultTuple);
+    
+    // Cast each element from source to target type
+    if (resultTuple.mlirSubtypes.size() != sourceTuple.mlirSubtypes.size()) {
+        throw std::runtime_error("TupleTypeCastNode: mlirSubtypes size mismatch");
+    }
+    
+    for (size_t i = 0; i < sourceTuple.mlirSubtypes.size(); ++i) {
+        VarInfo& sourceElem = sourceTuple.mlirSubtypes[i];
+        VarInfo& targetElem = resultTuple.mlirSubtypes[i];
+        
+        // Cast the element from source type to target type
+        VarInfo castedElem = castType(&sourceElem, &targetElem.type);
+        
+        // Load the casted value and store it into the target tuple element
+        mlir::Value castedValue;
+        if (castedElem.value.getType().isa<mlir::MemRefType>()) {
+            castedValue = builder_.create<mlir::memref::LoadOp>(loc_, castedElem.value, mlir::ValueRange{});
+        } else {
+            castedValue = castedElem.value;
+        }
+        
+        builder_.create<mlir::memref::StoreOp>(loc_, castedValue, targetElem.value, mlir::ValueRange{});
+    }
+    
+    // Push the result tuple
+    pushValue(resultTuple);
+}
 
 void MLIRGen::visit(TypeCastNode* node) {
     node->expr->accept(*this);
@@ -1066,14 +1126,29 @@ void MLIRGen::visit(IdNode* node) {
 
     // If the variable doesn't have a value, it's likely a global variable
     // For globals, we need to create operations to access them
-    if (!varInfo->value) {
+    // For tuples, check mlirSubtypes instead of value
+    bool needsAllocation = false;
+    if (varInfo->type.baseType == BaseType::TUPLE) {
+        needsAllocation = varInfo->mlirSubtypes.empty();
+    } else {
+        needsAllocation = !varInfo->value;
+    }
+    
+    if (needsAllocation) {
         // Look up the global variable in the module
         auto globalOp = module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->id);
         if (!globalOp) {
             // Not a global - ensure local variable is allocated
             allocaVar(varInfo);
-            if (!varInfo->value) {
-                throw std::runtime_error("visit(IdNode*): Failed to allocate variable '" + node->id + "'");
+            // For tuples, check mlirSubtypes; for others, check value
+            if (varInfo->type.baseType == BaseType::TUPLE) {
+                if (varInfo->mlirSubtypes.empty()) {
+                    throw std::runtime_error("visit(IdNode*): Failed to allocate tuple variable '" + node->id + "'");
+                }
+            } else {
+                if (!varInfo->value) {
+                    throw std::runtime_error("visit(IdNode*): Failed to allocate variable '" + node->id + "'");
+                }
             }
         } else {
             // Get the address of the global variable
@@ -1103,8 +1178,15 @@ void MLIRGen::visit(IdNode* node) {
     }
 
     // Ensure we have a valid value before pushing
-    if (!varInfo->value) {
-        throw std::runtime_error("visit(IdNode*): Variable '" + node->id + "' has no value after allocation");
+    // For tuples, check mlirSubtypes; for others, check value
+    if (varInfo->type.baseType == BaseType::TUPLE) {
+        if (varInfo->mlirSubtypes.empty()) {
+            throw std::runtime_error("visit(IdNode*): Tuple variable '" + node->id + "' has no allocated subtypes");
+        }
+    } else {
+        if (!varInfo->value) {
+            throw std::runtime_error("visit(IdNode*): Variable '" + node->id + "' has no value after allocation");
+        }
     }
     
     pushValue(*varInfo); 

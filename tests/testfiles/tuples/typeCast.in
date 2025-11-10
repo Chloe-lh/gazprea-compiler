@@ -1,0 +1,16 @@
+//CHECK_FILE:typeCast.out
+
+procedure main() returns integer {
+    // Declare a tuple with integer, character, real
+    const tuple(integer, character, real) tup1 = (42, 'x', 3.14);
+    
+    tuple(real, character, real) tup2;
+    
+    // Cast tup1 to match tup2's type
+    tup2 = as<tuple(real, character, real)>(tup1);
+    
+    // Now tup2.1 is a real (42.0) instead of integer (42)
+    tup2.1 -> std_output;  // Prints: 42.0 (or 42.000000)
+    
+    return 0;
+}
