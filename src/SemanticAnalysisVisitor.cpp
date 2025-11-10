@@ -448,8 +448,17 @@ void SemanticAnalysisVisitor::visit(IfNode* node) {
     if (node->cond->type.baseType != BaseType::BOOL) {
         throw TypeError(1, "Semantic Analysis: if condition must be boolean; got '" + toString(node->cond->type) + "'.");
     }
-    if (node->thenBlock) node->thenBlock->accept(*this);
-    if (node->elseBlock) node->elseBlock->accept(*this);
+    if (node->thenBlock) {
+        node->thenBlock->accept(*this);
+    } else if (node->thenStat) {
+        node->thenStat->accept(*this);
+    }
+
+    if (node->elseBlock) {
+        node->elseBlock->accept(*this);
+    } else if (node->elseStat) {
+        node->elseStat->accept(*this);
+    }
 }
 
 void SemanticAnalysisVisitor::visit(BlockNode* node) {

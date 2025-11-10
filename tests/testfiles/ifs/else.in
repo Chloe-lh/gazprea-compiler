@@ -3,7 +3,7 @@
 procedure main() returns integer {
     real x = 5.0;
     integer y = 4;
-    if (x < y) y -> std_output;
+    if (x == y) y -> std_output;
     else x -> std_output;
     return 0;
 }

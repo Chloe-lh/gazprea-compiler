@@ -1145,69 +1145,42 @@ std::any ASTBuilder::visitLoopDefault(GazpreaParser::LoopDefaultContext *ctx) {
 std::any ASTBuilder::visitIfStat(gazprea::GazpreaParser::IfStatContext *ctx) {
   auto ifCtx = ctx->if_stat();
   if (!ifCtx) {
-    return nullptr;
+      return nullptr;
   }
 
-  // Visit the condition expression
-  auto condAny = visit(ifCtx->expr());
-  auto cond = std::any_cast<std::shared_ptr<ExprNode>>(condAny);
+  // Visit the condition and create the IfNode using the new constructor.
+  auto cond = safe_any_cast_ptr<ExprNode>(visit(ifCtx->expr()));
+  auto node = std::make_shared<IfNode>(cond);
 
-  // Determine and visit the 'then' branch
-  std::shared_ptr<BlockNode> thenBlock = nullptr;
-  std::shared_ptr<StatNode> thenStat = nullptr;
-  bool thenWasBlock = !ifCtx->block().empty();
 
-  if (thenWasBlock) {
-    auto blockAny = visit(ifCtx->block(0));
-    auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(blockAny);
-    thenBlock = std::dynamic_pointer_cast<BlockNode>(astNode);
+  // The ANTLR grammar guarantees the 'then' branch is the first block or first statement.
+  if (!ifCtx->block().empty()) {
+      node->thenBlock = safe_any_cast_ptr<BlockNode>(visit(ifCtx->block(0)));
   } else {
-    auto statAny = visit(ifCtx->stat(0));
-    thenStat = std::any_cast<std::shared_ptr<StatNode>>(statAny);
+      node->thenStat = safe_any_cast_ptr<StatNode>(visit(ifCtx->stat(0)));
   }
 
-  // Visit the 'else' branch, if it exists
-  std::shared_ptr<BlockNode> elseBlock = nullptr;
-  std::shared_ptr<StatNode> elseStat = nullptr;
+  // Determine and visit the 'else' branch, if it exists.
   if (ifCtx->ELSE()) {
-    if (thenWasBlock) {
-      // If 'then' was a block, 'else' is either the second block or the first stat
-      if (ifCtx->block().size() > 1) {
-        auto blockAny = visit(ifCtx->block(1));
-        auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(blockAny);
-        elseBlock = std::dynamic_pointer_cast<BlockNode>(astNode);
-      } else if (!ifCtx->stat().empty()) {
-        auto statAny = visit(ifCtx->stat(0));
-        elseStat = std::any_cast<std::shared_ptr<StatNode>>(statAny);
+      bool thenWasBlock = (node->thenBlock != nullptr);
+      
+      if (thenWasBlock) {
+          // If 'then' was a block, 'else' can be the second block or the first statement.
+          if (ifCtx->block().size() > 1) {
+              node->elseBlock = safe_any_cast_ptr<BlockNode>(visit(ifCtx->block(1)));
+          } else if (!ifCtx->stat().empty()) {
+              node->elseStat = safe_any_cast_ptr<StatNode>(visit(ifCtx->stat(0)));
+          }
+      } else { // 'then' was a statement
+          // If 'then' was a statement, 'else' can be the first block or the second statement.
+          if (!ifCtx->block().empty()) {
+              node->elseBlock = safe_any_cast_ptr<BlockNode>(visit(ifCtx->block(0)));
+          } else if (ifCtx->stat().size() > 1) {
+              node->elseStat = safe_any_cast_ptr<StatNode>(visit(ifCtx->stat(1)));
+          }
       }
-    } else {
-      // If 'then' was a stat, 'else' is either the first block or the second stat
-      if (!ifCtx->block().empty()) {
-        auto blockAny = visit(ifCtx->block(0));
-        auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(blockAny);
-        elseBlock = std::dynamic_pointer_cast<BlockNode>(astNode);
-      } else if (ifCtx->stat().size() > 1) {
-        auto statAny = visit(ifCtx->stat(1));
-        elseStat = std::any_cast<std::shared_ptr<StatNode>>(statAny);
-      }
-    }
   }
 
-  // Construct the IfNode using the correct constructor and return
-  std::shared_ptr<IfNode> node;
-  if (thenBlock) {
-    node = std::make_shared<IfNode>(cond, thenBlock, elseBlock);
-    // If else branch is a stat (not a block), set it manually
-    if (elseStat) {
-      node->elseStat = elseStat;
-    }
-  } else {
-    node = std::make_shared<IfNode>(cond, thenStat, elseStat);
-    // If else branch is a block (not a stat), set it manually
-    if (elseBlock) {
-      node->elseBlock = elseBlock;
-    }
-  }
   return node_any(std::move(node));
 }
 

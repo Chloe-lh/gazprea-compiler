@@ -169,6 +169,7 @@ FALSE: 'false';
 FORMAT: 'format';
 FUNCTION: 'function';
 IF: 'if';
+IN: 'in';
 INTEGER: 'integer';
 LENGTH: 'length';
 LOOP: 'loop';

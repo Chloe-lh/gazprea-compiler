@@ -571,6 +571,7 @@ void MLIRGen::visit(OutputStatNode* node) {
     );
 }
 
+// Not necessary. For part 2
 void MLIRGen::visit(InputStatNode* node) { throw std::runtime_error("InputStatNode not implemented"); }
 void MLIRGen::visit(BreakStatNode* node) {
     if (loopContexts_.empty()) {
@@ -611,6 +612,9 @@ void MLIRGen::visit(ReturnStatNode* node) {
     }
     node->expr->accept(*this);
     VarInfo v = popValue();
+    if (v.type.baseType == BaseType::UNKNOWN) {
+        throw std::runtime_error("visit(ReturnStatNode*): return expression has UNKNOWN type");
+    }
     VarInfo promoted = promoteType(&v, const_cast<CompleteType*>(retTy));
     mlir::Value loaded = builder_.create<mlir::memref::LoadOp>(loc_, promoted.value, mlir::ValueRange{});
     builder_.create<mlir::func::ReturnOp>(loc_, loaded);
@@ -639,18 +643,12 @@ void MLIRGen::visit(IfNode* node) {
         // Set insertion point to the start of the then block
         builder_.setInsertionPointToStart(&thenBlock);
         
-        // Update allocaBuilder to point to the then block so allocas are created here
-        auto savedAllocaBuilder = allocaBuilder_;
-        allocaBuilder_ = mlir::OpBuilder(&thenBlock, thenBlock.begin());
-        
         // Visit the then branch
     if (node->thenBlock) {
         node->thenBlock->accept(*this);
     } else if (node->thenStat) {
         node->thenStat->accept(*this);
         }
-        
-        allocaBuilder_ = savedAllocaBuilder;
         
         // Insert yield only if there isn't already a terminator (e.g., from break/continue)
         if (thenBlock.empty() || !thenBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
@@ -670,18 +668,12 @@ void MLIRGen::visit(IfNode* node) {
         // Set insertion point to the start of the else block
         builder_.setInsertionPointToStart(&elseBlock);
         
-        // Update allocaBuilder to point to the else block so allocas are created here
-        auto savedAllocaBuilder = allocaBuilder_;
-        allocaBuilder_ = mlir::OpBuilder(&elseBlock, elseBlock.begin());
-        
         // Visit the else branch
         if (node->elseBlock) {
             node->elseBlock->accept(*this);
         } else if (node->elseStat) {
             node->elseStat->accept(*this);
         }
-
-        allocaBuilder_ = savedAllocaBuilder;
         
         // Insert yield only if there isn't already a terminator (e.g., from break/continue)
         if (elseBlock.empty() || !elseBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
@@ -899,6 +891,9 @@ void MLIRGen::visit(IdNode* node) {
         // Create a temporary alloca to hold the loaded value
         // This allows us to use the same memref-based code path
         VarInfo tempVarInfo = VarInfo(varInfo->type);
+        if (tempVarInfo.type.baseType == BaseType::UNKNOWN) {
+            throw std::runtime_error("visit(IdNode*): Variable '" + node->id + "' has UNKNOWN type");
+        }
         allocaLiteral(&tempVarInfo);
         
         // Load from global using LLVM::LoadOp
@@ -1177,8 +1172,10 @@ void MLIRGen::allocaVar(VarInfo* varInfo) {
             break;
 
         default:
-            throw std::runtime_error("allocaLiteral FATAL: unsupported type " +
-                                    std::to_string(static_cast<int>(varInfo->type.baseType)));
+            std::string varName = varInfo->identifier.empty() ? "<temporary>" : varInfo->identifier;
+            throw std::runtime_error("allocaVar FATAL: unsupported type " +
+                                    std::to_string(static_cast<int>(varInfo->type.baseType)) +
+                                    " for variable '" + varName + "'");
     }
 }
 
@@ -1352,6 +1349,12 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
 
 /* Only allows implicit promotion from integer -> real. throws AssignError otherwise. */
 VarInfo MLIRGen::promoteType(VarInfo* from, CompleteType* toType) {
+    if (toType->baseType == BaseType::UNKNOWN) {
+        throw std::runtime_error("promoteType: target type is UNKNOWN");
+    }
+    if (from->type.baseType == BaseType::UNKNOWN) {
+        throw std::runtime_error("promoteType: source type is UNKNOWN");
+    }
     // No-op when types are identical
     if (from->type == *toType) {
         return *from;
@@ -1414,7 +1417,7 @@ void MLIRGen::visit(ExpExpr* node) {
     bool wasConstant = node->constant.has_value();
     
     if (wasConstant) {
-        // Try to emit as constant, but if it fails (e.g., invalid operation),
+        // Try to emit as constant, but if it fails,
         // fall through to runtime code generation
         try {
             VarInfo lit = createLiteralFromConstant(node->constant.value(), node->type);
@@ -1426,7 +1429,7 @@ void MLIRGen::visit(ExpExpr* node) {
         }
     }
 
-    // Generate runtime code with error checking (existing implementation)
+    // Generate runtime code with error checking
     node->left->accept(*this);
     VarInfo left = popValue();
     mlir::Value lhs = builder_.create<mlir::memref::LoadOp>(loc_, left.value, mlir::ValueRange{});
@@ -1588,47 +1591,60 @@ void MLIRGen::visit(MultExpr* node){
 }
 
 void MLIRGen::visit(AddExpr* node){
-    // If the node has a compile-time constant, emit it directly and push.
     if (tryEmitConstantForNode(node)) return;
 
-    // Evaluate left then right (visitors push values onto the stack)
     node->left->accept(*this);
     VarInfo leftInfo = popValue();
-    mlir::Value left = leftInfo.value;
     node->right->accept(*this);
     VarInfo rightInfo = popValue();
-    mlir::Value right = rightInfo.value;
 
-    // helper: load if this value is a memref
-    auto loadIfMemref = [&](mlir::Value v) -> mlir::Value {
-        if (v.getType().isa<mlir::MemRefType>()) {
-            return builder_.create<mlir::memref::LoadOp>(loc_, v, mlir::ValueRange{});
+    // Determine the promoted type (semantic analysis already set node->type)
+    CompleteType promotedType = node->type;
+    if (promotedType.baseType == BaseType::UNKNOWN) {
+        // Fallback: try to promote manually
+        promotedType = promote(leftInfo.type, rightInfo.type);
+        if (promotedType.baseType == BaseType::UNKNOWN) {
+            promotedType = promote(rightInfo.type, leftInfo.type);
         }
-        return v;
-    };
+        if (promotedType.baseType == BaseType::UNKNOWN) {
+            throw std::runtime_error("AddExpr: cannot promote types for addition");
+        }
+    }
 
-    mlir::Value leftLoaded  = loadIfMemref(left);
-    mlir::Value rightLoaded = loadIfMemref(right);
+    // Cast both operands to the promoted type
+    VarInfo leftPromoted = castType(&leftInfo, &promotedType);
+    VarInfo rightPromoted = castType(&rightInfo, &promotedType);
+
+    // Load the promoted values
+    mlir::Value leftLoaded = builder_.create<mlir::memref::LoadOp>(
+        loc_, leftPromoted.value, mlir::ValueRange{}
+    );
+    mlir::Value rightLoaded = builder_.create<mlir::memref::LoadOp>(
+        loc_, rightPromoted.value, mlir::ValueRange{}
+    );
 
     mlir::Value result;
-    if (leftLoaded.getType().isa<mlir::IntegerType>()) {
+    if (promotedType.baseType == BaseType::INTEGER) {
         if (node->op == "+") {
             result = builder_.create<mlir::arith::AddIOp>(loc_, leftLoaded, rightLoaded);
         } else if (node->op == "-") {
             result = builder_.create<mlir::arith::SubIOp>(loc_, leftLoaded, rightLoaded);
         }
-    } else if (leftLoaded.getType().isa<mlir::FloatType>()) {
+    } else if (promotedType.baseType == BaseType::REAL) {
         if (node->op == "+") {
             result = builder_.create<mlir::arith::AddFOp>(loc_, leftLoaded, rightLoaded);
         } else if (node->op == "-") {
             result = builder_.create<mlir::arith::SubFOp>(loc_, leftLoaded, rightLoaded);
         }
     } else {
-        throw std::runtime_error("MLIRGen Error: Unsupported type for addition.");
+        throw std::runtime_error("MLIRGen Error: Unsupported type for addition: " + toString(promotedType));
     }
 
-    // Wrap scalar result into a memref-backed VarInfo
-    VarInfo outVar(leftInfo.type);
+    // Use the expression's own type (node->type)
+    VarInfo outVar(node->type);
+    if (outVar.type.baseType == BaseType::UNKNOWN) {
+        throw std::runtime_error("visit(AddExpr*): expression has UNKNOWN type");
+    }
     allocaLiteral(&outVar);
     builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
     outVar.identifier = "";
@@ -1795,37 +1811,36 @@ mlir::Value mlirTupleEquals(VarInfo& leftInfo, VarInfo& rightInfo, mlir::Locatio
 
 void MLIRGen::visit(EqExpr* node){
     if (tryEmitConstantForNode(node)) return;
+
     node->left->accept(*this);
     VarInfo leftInfo = popValue();
-
     node->right->accept(*this);
     VarInfo rightInfo = popValue();
 
-    auto loadIfMemref = [&](mlir::Value v) -> mlir::Value {
-        if (v.getType().isa<mlir::MemRefType>()) {
-            return builder_.create<mlir::memref::LoadOp>(loc_, v, mlir::ValueRange{});
-        }
-        return v;
-    };
-
-    mlir::Value left = loadIfMemref(leftInfo.value);
-    mlir::Value right = loadIfMemref(rightInfo.value);
-
-    // If left/right are memref descriptors, load the contained scalar so the
-    // equality helpers compare raw scalar types (integers/floats) rather than
-    // memref descriptors.
-    if (left.getType().isa<mlir::MemRefType>()) {
-        left = builder_.create<mlir::memref::LoadOp>(loc_, leftInfo.value, mlir::ValueRange{});
+    CompleteType promotedType = promote(leftInfo.type, rightInfo.type);
+    if (promotedType.baseType == BaseType::UNKNOWN) {
+        promotedType = promote(rightInfo.type, leftInfo.type);
     }
-    if (right.getType().isa<mlir::MemRefType>()) {
-        right = builder_.create<mlir::memref::LoadOp>(loc_, rightInfo.value, mlir::ValueRange{});
+    if (promotedType.baseType == BaseType::UNKNOWN) {
+        throw std::runtime_error("EqExpr: cannot promote types for comparison");
     }
+    
+    VarInfo leftPromoted = castType(&leftInfo, &promotedType);
+    VarInfo rightPromoted = castType(&rightInfo, &promotedType);
 
-    mlir::Type type = left.getType();
+    // Load the values
+    mlir::Value left = builder_.create<mlir::memref::LoadOp>(
+        loc_, leftPromoted.value, mlir::ValueRange{}
+    );
+    mlir::Value right = builder_.create<mlir::memref::LoadOp>(
+        loc_, rightPromoted.value, mlir::ValueRange{}
+    );
+
     mlir::Value result;
 
-    if (type.isa<mlir::TupleType>()) {
-        result = mlirTupleEquals(leftInfo, rightInfo, loc_, builder_);
+    if (promotedType.baseType == BaseType::TUPLE) {
+        // Note: mlirTupleEquals needs the VarInfo with subtypes, not the loaded value
+        result = mlirTupleEquals(leftPromoted, rightPromoted, loc_, builder_);
     } else {
         result = mlirScalarEquals(left, right, loc_, builder_);
     }
@@ -1835,7 +1850,6 @@ void MLIRGen::visit(EqExpr* node){
         result = builder_.create<mlir::arith::XOrIOp>(loc_, result, one);
     }
 
-    // Store the comparison result into a memref-backed VarInfo and push
     VarInfo outVar(node->type);
     allocaLiteral(&outVar);
     builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});

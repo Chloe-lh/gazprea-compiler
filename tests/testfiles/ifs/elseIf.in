@@ -1,0 +1,20 @@
+//CHECK_FILE:elseIf.out
+
+procedure main() returns integer {
+    var integer x = 4;
+    var integer y = 4;
+    if (x < y) {
+        y = y + 2;
+        y -> std_output;
+    }
+    else if (x == y) {
+        // True branch. Print 5
+        x = x + 1;
+        x -> std_output;
+    }
+    else if (x >= y) { // Ignored, since last branch was true
+        y -> std_output;
+    }
+    else x -> std_output;
+    return 0;
+}

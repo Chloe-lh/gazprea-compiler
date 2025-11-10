@@ -3,6 +3,8 @@ bin/
 
 # Ignore generated ANTLR sources
 gen/
+grammar/.antlr/
+.cache/
 
 # Ignore CLion files
 cmake-build*/
