@@ -24,7 +24,7 @@
       {
         "stepName": "clang",
         "executablePath": "/usr/local/llvm/bin/clang",
-        "arguments": ["$INPUT", "-o", "$OUTPUT", "-L$RT_PATH", "-l$RT_LIB"],
+        "arguments": ["$INPUT", "-o", "$OUTPUT", "-L$RT_PATH", "-l$RT_LIB", "-no-pie"],
         "output": "gaz"
       },
       {
