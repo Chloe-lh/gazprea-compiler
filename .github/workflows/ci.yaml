@@ -24,5 +24,5 @@ jobs:
       - name: Run command using gazprea binary
         working-directory: tests
         run: |
-          dragon-runner CIConfig.json
+          dragon-runner CIConfig.json -vvv
 
