@@ -1,4 +1,4 @@
-//CHECK_FILE:complex1.out
+//CHECK_FILE:complex2.out
 
 const GLOBAL_INT = 10;
 const GLOBAL_CHAR = 'A';
@@ -45,34 +45,10 @@ procedure main() returns integer {
     var character asChar;
     var boolean asBool;
 
-    GLOBAL_INT -> std_output;
-    "\n" -> std_output;
-    GLOBAL_CHAR -> std_output;
-    "\n" -> std_output;
-    GLOBAL_REAL -> std_output;
-    "\n" -> std_output;
-
-    (x + 2) -> std_output;
-    "\n" -> std_output;
-    (y + 4.5) -> std_output;
-    "\n\n" -> std_output;
-
-    "Boolean casting\n" -> std_output;
-
-    asInt = as<integer>(flag);      // bool -> int
-    asChar = as<character>(flag);   // bool -> char
-    asBool = as<boolean>(letter);      // char -> bool
-
-    asInt -> std_output;
-    "\n" -> std_output;
-    asChar -> std_output;
-    "\n" -> std_output;
-    asBool -> std_output;
-
     if (flag) {
         "5 + 10 and 3.0 + 2.5\n" -> std_output; 
         call addAndPrint(x, y);
-        "\n\n" -> std_output;
+        "\n" -> std_output;
     }
 
     else {
