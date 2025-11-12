@@ -930,11 +930,11 @@ void MLIRGen::visit(LoopNode* node) {
 void MLIRGen::visit(BlockNode* node) {
     // Enter the corresponding semantic child scope if present
     Scope* saved = currScope_;
-    if (scopeMap_) {
-        auto it = scopeMap_->find(node);
-        if (it != scopeMap_->end()) {
-            currScope_ = it->second;
-        }
+    auto it = scopeMap_->find(node);
+    if (it != scopeMap_->end()) {
+        currScope_ = it->second;
+    } else {
+        throw std::runtime_error("FATAL: no corresponding scope found for BlockNode instance.");
     }
 
     bool inLoop = !loopContexts_.empty();
