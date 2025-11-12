@@ -73,10 +73,13 @@ void MLIRGen::pushValue(VarInfo& value) {
     v_stack_.push_back(value);
 }
 
-mlir::func::FuncOp MLIRGen::beginFunctionDefinition(const std::string &name,
-                                                    const std::vector<VarInfo> &params,
-                                                    const CompleteType &returnType,
-                                                    Scope*& savedScope) {
+mlir::func::FuncOp MLIRGen::beginFunctionDefinition(
+    const ASTNode* funcOrProc,
+    const std::string &name,
+    const std::vector<VarInfo> &params,
+    const CompleteType &returnType,
+    Scope*& savedScope
+) {
     // Create or get declaration
     auto func = createFunctionDeclaration(name, params, returnType);
 
@@ -92,33 +95,25 @@ mlir::func::FuncOp MLIRGen::beginFunctionDefinition(const std::string &name,
     allocaBuilder_ = mlir::OpBuilder(entry, entry->begin());
     builder_.setInsertionPointToStart(entry);
 
-    // Switch semantic scope: find child scope matching parameter names
+    // Switch semantic scope using the semantic map if available
     savedScope = currScope_;
-    Scope* funcScope = nullptr;
-    if (currScope_ && !currScope_->children().empty()) {
-        if (!params.empty()) {
-            for (const auto &ch : currScope_->children()) {
-                const auto &syms = ch->symbols();
-                bool ok = true;
-                for (const auto &p : params) {
-                    if (syms.find(p.identifier) == syms.end()) { ok = false; break; }
-                }
-                if (ok) { funcScope = ch.get(); break; }
-            }
-        }
-        if (!funcScope && !currScope_->children().empty()) funcScope = currScope_->children().front().get();
+    auto it = scopeMap_->find(funcOrProc);
+    if (it != scopeMap_->end()) {
+        currScope_ = it->second;
+    } else {
+        throw std::runtime_error("MLIRGen: No semantic scope registered for '" + name + "'.");
     }
-    if (funcScope) currScope_ = funcScope;
 
     return func;
 }
 mlir::func::FuncOp MLIRGen::beginFunctionDefinitionWithConstants(
+    const ASTNode* funcOrProc,
     const std::string &name,
     const std::vector<VarInfo> &params,
     const CompleteType &returnType,
     Scope* &savedScope)
 {
-    auto func = beginFunctionDefinition(name, params, returnType, savedScope);
+    auto func = beginFunctionDefinition(funcOrProc, name, params, returnType, savedScope);
 
     // Bind parameters: use constant values if available
     bindFunctionParametersWithConstants(func, params);
@@ -310,13 +305,13 @@ void MLIRGen::visit(FileNode* node) {
 // functions
 void MLIRGen::visit(FuncStatNode* node) {
     Scope* savedScope = nullptr;
-    beginFunctionDefinitionWithConstants(node->name, node->parameters, node->returnType, savedScope);
+    beginFunctionDefinitionWithConstants(node, node->name, node->parameters, node->returnType, savedScope);
     lowerFunctionOrProcedureBody(node->parameters, node->body, node->returnType, savedScope);
 }
 
 void MLIRGen::visit(FuncBlockNode* node) {
     Scope* savedScope = nullptr;
-    beginFunctionDefinitionWithConstants(node->name, node->parameters, node->returnType, savedScope);
+    beginFunctionDefinitionWithConstants(node, node->name, node->parameters, node->returnType, savedScope);
     lowerFunctionOrProcedureBody(node->parameters, node->body, node->returnType, savedScope);
 }
 
@@ -339,7 +334,7 @@ void MLIRGen::visit(FuncCallExpr* node) {
 
 void MLIRGen::visit(ProcedureNode* node) {
     Scope* savedScope = nullptr;
-    beginFunctionDefinitionWithConstants(node->name, node->params, node->returnType, savedScope);
+    beginFunctionDefinitionWithConstants(node, node->name, node->params, node->returnType, savedScope);
     lowerFunctionOrProcedureBody(node->params, node->body, node->returnType, savedScope);
 }
 
