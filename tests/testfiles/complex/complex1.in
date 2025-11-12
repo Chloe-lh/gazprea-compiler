@@ -1,0 +1,55 @@
+//CHECK_FILE:complex1.out
+
+const GLOBAL_INT = 10;
+const GLOBAL_CHAR = 'A';
+const GLOBAL_REAL = 2.5;
+
+procedure addAndPrint(integer a, real b) {
+    integer sumInt = a + GLOBAL_INT;
+    real sumReal = b + GLOBAL_REAL;
+    sumInt -> std_output;
+    sumReal -> std_output;
+}
+
+procedure showTuple() {
+    const tuple(integer, character, real) tup = (1, 'x', 3.14);
+    tup.1 -> std_output;    // integer
+    tup.2 -> std_output;    // character
+    tup.3 -> std_output;    // real
+}
+
+procedure main() returns integer {
+    integer x = 5;
+    real y = 3.0;
+    boolean flag = true;
+    character letter = 'b';
+    var integer asInt;
+    var character asChar;
+    var boolean asBool;
+
+    GLOBAL_INT -> std_output;
+    GLOBAL_CHAR -> std_output;
+    GLOBAL_REAL -> std_output;
+
+    (x + 2) -> std_output;
+    (y + 4.5) -> std_output;
+
+    asInt = as<integer>(flag);      // bool -> int
+    asChar = as<character>(flag);   // bool -> char
+    asBool = as<boolean>(letter);      // char -> bool
+
+    asInt -> std_output;
+    asChar -> std_output;
+    asBool -> std_output;
+
+    if (flag) {
+        call addAndPrint(x, y);
+    }
+
+    else {
+        999 -> std_output;
+    }
+
+    call showTuple();
+    return 0;
+}
