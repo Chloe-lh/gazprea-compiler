@@ -96,7 +96,13 @@ int main(int argc, char **argv) {
   MLIRGen mlirGen(backend, rootScope, scopeMap);
   ast->accept(mlirGen);
  
-  backend.lowerDialects();
+  // Debug
+  backend.dumpMLIR(std::cerr);
+
+  if (backend.lowerDialects() != 0) {
+    std::cerr << "Lowering failed; aborting translation." << std::endl;
+    return 1;
+  }
   backend.dumpLLVM(os);
   
 
