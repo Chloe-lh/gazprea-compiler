@@ -1066,6 +1066,18 @@ std::any ASTBuilder::visitStringExpr(GazpreaParser::StringExprContext *ctx) {
   return expr_any(std::move(node));
 }
 
+std::any ASTBuilder::visitParenExpr(GazpreaParser::ParenExprContext *ctx) {
+  std::shared_ptr<ExprNode> inner = nullptr;
+  if (ctx->expr()) {
+    auto anyInner = visit(ctx->expr());
+    if (anyInner.has_value()) {
+      inner = safe_any_cast_ptr<ExprNode>(anyInner);
+    }
+  }
+  auto node = std::make_shared<ParenExpr>(inner);
+  return expr_any(std::move(node));
+}
+
 std::any ASTBuilder::visitRealExpr(GazpreaParser::RealExprContext *ctx) {
   std::string text = ctx->real()->getText();
   // apply leading zero
