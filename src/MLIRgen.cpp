@@ -55,7 +55,7 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<co
     }
     createGlobalStringIfMissing("%d\0", "intFormat");
     createGlobalStringIfMissing("%c\0", "charFormat");
-    createGlobalStringIfMissing("%.2f\0", "floatFormat");
+    createGlobalStringIfMissing("%g\0", "floatFormat");
     createGlobalStringIfMissing("%s\0", "strFormat");
     createGlobalStringIfMissing("\n\0", "newline");
 }
