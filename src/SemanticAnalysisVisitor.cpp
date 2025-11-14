@@ -287,8 +287,19 @@ void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
     // on the declaration node as a CompleteType
     CompleteType& varType = node->type;
 
+    // const by default
+    bool isConst = true;
+    if (node->qualifier == "var") {
+        isConst = false;
+    } else if (node->qualifier == "const" || node->qualifier.empty()) {
+    } else {
+        throw std::runtime_error(
+            "Semantic Analysis: Invalid qualifier provided for tuple declaration '" +
+            node->qualifier + "'.");
+    }
+
     // Ensure not already declared in scope
-    current_->declareVar(node->name, varType, false);
+    current_->declareVar(node->name, varType, isConst);
 
     // Ensure init expr type matches with var type (if provided)
     if (node->init != nullptr) {

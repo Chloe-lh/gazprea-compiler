@@ -161,8 +161,9 @@ TypeAliasDecNode::TypeAliasDecNode(const std::string &aliasName,
 void TypeAliasDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
 TupleTypedDecNode::TupleTypedDecNode(const std::string &name,
+                                     const std::string &qualifier,
                                      CompleteType tupleType)
-    : init(nullptr) {
+    : qualifier(qualifier), init(nullptr) {
   this->name = name;
   this->type = std::move(tupleType);
 }

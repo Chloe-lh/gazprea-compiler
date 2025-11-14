@@ -259,6 +259,18 @@ ASTBuilder::visitInferredTypeDec(GazpreaParser::InferredTypeDecContext *ctx) {
 }
 std::any
 ASTBuilder::visitTupleTypedDec(GazpreaParser::TupleTypedDecContext *ctx) {
+  std::string qualifier = "const"; // default to const
+  if (ctx->qualifier()) {
+    auto qualAny = visit(ctx->qualifier());
+    if (qualAny.has_value()) {
+      try {
+        qualifier = std::any_cast<std::string>(qualAny);
+      } catch (const std::bad_any_cast &) {
+        qualifier = "const";
+      }
+    }
+  }
+
   std::string id = ctx->ID()->getText();
   CompleteType tupleType = CompleteType(BaseType::UNKNOWN);
   if (ctx->tuple_dec()) {
@@ -281,7 +293,7 @@ ASTBuilder::visitTupleTypedDec(GazpreaParser::TupleTypedDecContext *ctx) {
     }
   }
 
-  auto node = std::make_shared<TupleTypedDecNode>(id, tupleType);
+  auto node = std::make_shared<TupleTypedDecNode>(id, qualifier, tupleType);
   node->init = init;
   return node_any(std::move(node));
 }

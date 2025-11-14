@@ -294,7 +294,10 @@ void ASTPrinter::visit(InferredDecNode *node) {
 }
 
 void ASTPrinter::visit(TupleTypedDecNode *node) {
-  printTreeLine("TupleTypedDecNode", "name: " + node->name);
+  printTreeLine("TupleTypedDecNode", "name: " + node->name + ", qualifier: " +
+                                      (node->qualifier.empty()
+                                           ? std::string("const")
+                                           : node->qualifier));
   indent++;
   pushChildContext(node->init == nullptr);
   printTreeLine("TupleType", toString(node->type));
