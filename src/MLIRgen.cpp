@@ -1411,6 +1411,12 @@ bool MLIRGen::tryEmitConstantForNode(ExprNode* node) {
 }
 
 void MLIRGen::allocaVar(VarInfo* varInfo) {
+    mlir::Block *block = builder_.getBlock();
+    if (!block) block = builder_.getInsertionBlock();
+    if (!block) {
+        throw std::runtime_error("allocaVar: builder has no current block");
+    }
+
     // Find the parent function op
     mlir::Operation *op = builder_.getInsertionBlock()->getParentOp();
     mlir::func::FuncOp funcOp = nullptr;
@@ -1471,7 +1477,6 @@ void MLIRGen::allocaVar(VarInfo* varInfo) {
     }
 }
 
-/* TODO: implement tuple-tuple casting for TupleTypeCastNode handling */
 VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
     VarInfo to = VarInfo(*toType);
     allocaLiteral(&to); // Create new value container
