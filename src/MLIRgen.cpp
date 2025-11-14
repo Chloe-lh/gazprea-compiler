@@ -55,7 +55,7 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<co
     }
     createGlobalStringIfMissing("%d\0", "intFormat");
     createGlobalStringIfMissing("%c\0", "charFormat");
-    createGlobalStringIfMissing("%.2f\0", "floatFormat");
+    createGlobalStringIfMissing("%g\0", "floatFormat");
     createGlobalStringIfMissing("%s\0", "strFormat");
     createGlobalStringIfMissing("\n\0", "newline");
 }
@@ -73,10 +73,13 @@ void MLIRGen::pushValue(VarInfo& value) {
     v_stack_.push_back(value);
 }
 
-mlir::func::FuncOp MLIRGen::beginFunctionDefinition(const std::string &name,
-                                                    const std::vector<VarInfo> &params,
-                                                    const CompleteType &returnType,
-                                                    Scope*& savedScope) {
+mlir::func::FuncOp MLIRGen::beginFunctionDefinition(
+    const ASTNode* funcOrProc,
+    const std::string &name,
+    const std::vector<VarInfo> &params,
+    const CompleteType &returnType,
+    Scope*& savedScope
+) {
     // Create or get declaration
     auto func = createFunctionDeclaration(name, params, returnType);
 
@@ -92,33 +95,25 @@ mlir::func::FuncOp MLIRGen::beginFunctionDefinition(const std::string &name,
     allocaBuilder_ = mlir::OpBuilder(entry, entry->begin());
     builder_.setInsertionPointToStart(entry);
 
-    // Switch semantic scope: find child scope matching parameter names
+    // Switch semantic scope using the semantic map if available
     savedScope = currScope_;
-    Scope* funcScope = nullptr;
-    if (currScope_ && !currScope_->children().empty()) {
-        if (!params.empty()) {
-            for (const auto &ch : currScope_->children()) {
-                const auto &syms = ch->symbols();
-                bool ok = true;
-                for (const auto &p : params) {
-                    if (syms.find(p.identifier) == syms.end()) { ok = false; break; }
-                }
-                if (ok) { funcScope = ch.get(); break; }
-            }
-        }
-        if (!funcScope && !currScope_->children().empty()) funcScope = currScope_->children().front().get();
+    auto it = scopeMap_->find(funcOrProc);
+    if (it != scopeMap_->end()) {
+        currScope_ = it->second;
+    } else {
+        throw std::runtime_error("MLIRGen: No semantic scope registered for '" + name + "'.");
     }
-    if (funcScope) currScope_ = funcScope;
 
     return func;
 }
 mlir::func::FuncOp MLIRGen::beginFunctionDefinitionWithConstants(
+    const ASTNode* funcOrProc,
     const std::string &name,
     const std::vector<VarInfo> &params,
     const CompleteType &returnType,
     Scope* &savedScope)
 {
-    auto func = beginFunctionDefinition(name, params, returnType, savedScope);
+    auto func = beginFunctionDefinition(funcOrProc, name, params, returnType, savedScope);
 
     // Bind parameters: use constant values if available
     bindFunctionParametersWithConstants(func, params);
@@ -278,20 +273,32 @@ void MLIRGen::visit(FileNode* node) {
     moduleBuilder->setInsertionPointToStart(module_.getBody());
 
     for (auto& n : node->stats) {
-        auto tdecl = std::dynamic_pointer_cast<TypedDecNode>(n);
-        if (!tdecl) continue;
-        // Globals must be const and have an initializer
-        if (tdecl->qualifier != "const" || !tdecl->init) {
-            continue; // semantics should enforce, skip silently here
+        auto globalTypedDec = std::dynamic_pointer_cast<TypedDecNode>(n);
+        auto globalInferredDec = std::dynamic_pointer_cast<InferredDecNode>(n);
+        if (!globalTypedDec && !globalInferredDec) continue; 
+        
+        CompleteType gType(BaseType::UNKNOWN);
+        mlir::Attribute initAttr;
+        std::string qualifier;
+        std::string name;
+
+        if (globalTypedDec) {
+            gType = globalTypedDec->type_alias ? globalTypedDec->type_alias->type : CompleteType(BaseType::UNKNOWN);
+            qualifier = globalTypedDec->qualifier;
+            initAttr = extractConstantValue(globalTypedDec->init, gType);
+            name = globalTypedDec->name;
+        } else if (globalInferredDec) {
+            gType = globalInferredDec->type;
+            qualifier = globalInferredDec->qualifier;
+            initAttr = extractConstantValue(globalInferredDec->init, gType);
+            name = globalInferredDec->name;
         }
-        // Build constant attribute
-        CompleteType gtype = tdecl->type_alias ? tdecl->type_alias->type : CompleteType(BaseType::UNKNOWN);
-        mlir::Attribute initAttr = extractConstantValue(tdecl->init, gtype);
-        if (!initAttr) {
-            throw std::runtime_error("Global initializer must be a compile-time constant for '" + tdecl->name + "'.");
+
+        if (qualifier == "var" || !initAttr) {
+            throw std::runtime_error("FATAL: Var global or missing initializer for '" + name + "'.");
         }
         // Create the LLVM global
-        (void) createGlobalVariable(tdecl->name, gtype, /*isConst=*/true, initAttr);
+        (void) createGlobalVariable(name, gType, /*isConst=*/true, initAttr);
     }
 
     moduleBuilder->restoreInsertionPoint(savedIP);
@@ -310,13 +317,13 @@ void MLIRGen::visit(FileNode* node) {
 // functions
 void MLIRGen::visit(FuncStatNode* node) {
     Scope* savedScope = nullptr;
-    beginFunctionDefinitionWithConstants(node->name, node->parameters, node->returnType, savedScope);
+    beginFunctionDefinitionWithConstants(node, node->name, node->parameters, node->returnType, savedScope);
     lowerFunctionOrProcedureBody(node->parameters, node->body, node->returnType, savedScope);
 }
 
 void MLIRGen::visit(FuncBlockNode* node) {
     Scope* savedScope = nullptr;
-    beginFunctionDefinitionWithConstants(node->name, node->parameters, node->returnType, savedScope);
+    beginFunctionDefinitionWithConstants(node, node->name, node->parameters, node->returnType, savedScope);
     lowerFunctionOrProcedureBody(node->parameters, node->body, node->returnType, savedScope);
 }
 
@@ -339,7 +346,7 @@ void MLIRGen::visit(FuncCallExpr* node) {
 
 void MLIRGen::visit(ProcedureNode* node) {
     Scope* savedScope = nullptr;
-    beginFunctionDefinitionWithConstants(node->name, node->params, node->returnType, savedScope);
+    beginFunctionDefinitionWithConstants(node, node->name, node->params, node->returnType, savedScope);
     lowerFunctionOrProcedureBody(node->params, node->body, node->returnType, savedScope);
 }
 
@@ -935,11 +942,11 @@ void MLIRGen::visit(LoopNode* node) {
 void MLIRGen::visit(BlockNode* node) {
     // Enter the corresponding semantic child scope if present
     Scope* saved = currScope_;
-    if (scopeMap_) {
-        auto it = scopeMap_->find(node);
-        if (it != scopeMap_->end()) {
-            currScope_ = it->second;
-        }
+    auto it = scopeMap_->find(node);
+    if (it != scopeMap_->end()) {
+        currScope_ = it->second;
+    } else {
+        throw std::runtime_error("FATAL: no corresponding scope found for BlockNode instance.");
     }
 
     bool inLoop = !loopContexts_.empty();
@@ -1404,60 +1411,63 @@ bool MLIRGen::tryEmitConstantForNode(ExprNode* node) {
 }
 
 void MLIRGen::allocaVar(VarInfo* varInfo) {
-    mlir::Block *entryBlock = allocaBuilder_.getBlock();
-    if (!entryBlock) {
-        entryBlock = builder_.getBlock();
-    }
-    if (!entryBlock) {
-        throw std::runtime_error("allocaVar: no available entry block for allocation");
+    // Find the parent function op
+    mlir::Operation *op = builder_.getInsertionBlock()->getParentOp();
+    mlir::func::FuncOp funcOp = nullptr;
+
+    while (op) {
+        if (auto f = llvm::dyn_cast<mlir::func::FuncOp>(op)) {
+            funcOp = f;
+            break;
+        }
+        op = op->getParentOp();
     }
 
-    mlir::OpBuilder::InsertionGuard guard(allocaBuilder_);
-    auto insertPos = entryBlock->begin();
-    while (insertPos != entryBlock->end() && llvm::isa<mlir::memref::AllocaOp>(&*insertPos)) {
-        ++insertPos;
+    if (!funcOp) {
+        throw std::runtime_error("allocaVar: could not find parent function for allocation");
     }
-    allocaBuilder_.setInsertionPoint(entryBlock, insertPos);
+
+    // Always allocate at the beginning of the entry block
+    mlir::Block &entry = funcOp.front();
+    mlir::OpBuilder entryBuilder(&entry, entry.begin());
 
     switch (varInfo->type.baseType) {
         case BaseType::BOOL:
-            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
+            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
                 loc_, mlir::MemRefType::get({}, builder_.getI1Type()));
             break;
         case BaseType::CHARACTER:
-            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
+            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
                 loc_, mlir::MemRefType::get({}, builder_.getI8Type()));
             break;
         case BaseType::INTEGER:
-            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
+            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
                 loc_, mlir::MemRefType::get({}, builder_.getI32Type()));
             break;
         case BaseType::REAL:
-            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
+            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
                 loc_, mlir::MemRefType::get({}, builder_.getF32Type()));
             break;
 
-        case (BaseType::TUPLE):
+        case BaseType::TUPLE: {
             if (varInfo->type.subTypes.size() < 2) {
                 throw SizeError(1, "Error: Tuple must have at least 2 elements.");
             }
-            for (CompleteType& subtype: varInfo->type.subTypes) {
-                VarInfo mlirSubtype = VarInfo(subtype);
-                mlirSubtype.isConst = varInfo->isConst; // Copy 'const'ness from parent
-
-                // Copy over type info into VarInfo's subtypes
-                varInfo->mlirSubtypes.emplace_back(
-                    mlirSubtype
-                );
+            for (CompleteType &subtype : varInfo->type.subTypes) {
+                VarInfo subVar(subtype);
+                subVar.isConst = varInfo->isConst;
+                varInfo->mlirSubtypes.emplace_back(subVar);
                 allocaVar(&varInfo->mlirSubtypes.back());
             }
             break;
+        }
 
-        default:
+        default: {
             std::string varName = varInfo->identifier.empty() ? "<temporary>" : varInfo->identifier;
-            throw std::runtime_error("allocaVar FATAL: unsupported type " +
-                                    std::to_string(static_cast<int>(varInfo->type.baseType)) +
-                                    " for variable '" + varName + "'");
+            throw std::runtime_error("allocaVar: unsupported type " +
+                                     std::to_string(static_cast<int>(varInfo->type.baseType)) +
+                                     " for variable '" + varName + "'");
+        }
     }
 }
 

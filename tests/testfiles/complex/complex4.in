@@ -1,0 +1,41 @@
+//CHECK_FILE:complex4.out
+
+const GLOBAL_INT = 10;
+const GLOBAL_CHAR = 'A';
+const GLOBAL_REAL = 2.5;
+
+procedure computeMixed(integer n, real r) {
+    integer n2 = n + GLOBAL_INT;
+    real r2 = (r * GLOBAL_REAL) / 2.0;
+
+    "mix: " -> std_output;
+    n -> std_output;
+    " + " -> std_output;
+    GLOBAL_INT -> std_output;
+    " = " -> std_output;
+    n2 -> std_output;
+    "\n" -> std_output;
+
+    "mix: " -> std_output;
+    r -> std_output;
+    " * " -> std_output;
+    GLOBAL_REAL -> std_output;
+    " / 2 = " -> std_output;
+    r2 -> std_output;
+    "\n" -> std_output;
+}
+
+procedure main() returns integer {
+    var integer x = 1;
+    var real y = 2.0;
+
+    loop while (x <= 3) {
+        call computeMixed(x, y);
+        x = x + 1;
+        y = y + 1.0;
+    }
+
+    "done\n" -> std_output;
+    return 0;
+}
+

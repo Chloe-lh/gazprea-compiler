@@ -102,16 +102,20 @@ public:
     mlir::func::FuncOp createFunctionDeclaration(const std::string &name,
                                                  const std::vector<VarInfo> &params,
                                                  const CompleteType &returnType);
-    mlir::func::FuncOp beginFunctionDefinition(const std::string &name,
-                                              const std::vector<VarInfo> &params,
-                                              const CompleteType &returnType,
-                                              Scope*& savedScope);
+    mlir::func::FuncOp beginFunctionDefinition(
+        const ASTNode* funcOrProc,
+        const std::string &name,
+        const std::vector<VarInfo> &params,
+        const CompleteType &returnType,
+        Scope*& savedScope
+    );
     // Bind parameters (store entry block args into each VarInfo's memref storage)
     void bindFunctionParameters(mlir::func::FuncOp func, const std::vector<VarInfo> &params);
     // use constant folding
     void bindFunctionParametersWithConstants(mlir::func::FuncOp func, const std::vector<VarInfo> &params);
     void lowerFunctionOrProcedureBody(const std::vector<VarInfo> &params, std::shared_ptr<BlockNode> body, const CompleteType &returnType, Scope* savedScope) ;
     mlir::func::FuncOp beginFunctionDefinitionWithConstants(
+        const ASTNode* funcOrProc,
         const std::string &name,
         const std::vector<VarInfo> &params,
         const CompleteType &returnType,

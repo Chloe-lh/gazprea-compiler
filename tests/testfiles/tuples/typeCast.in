@@ -10,7 +10,7 @@ procedure main() returns integer {
     tup2 = as<tuple(real, character, real)>(tup1);
     
     // Now tup2.1 is a real (42.0) instead of integer (42)
-    tup2.1 -> std_output;  // Prints: 42.0 (or 42.000000)
+    tup2.1 -> std_output;  
     
     return 0;
 }

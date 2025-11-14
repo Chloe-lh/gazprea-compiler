@@ -64,6 +64,8 @@ public:
   std::any
   visitFuncCallExpr(gazprea::GazpreaParser::FuncCallExprContext *ctx) override;
   std::any
+  visitParenExpr(gazprea::GazpreaParser::ParenExprContext *ctx) override;
+  std::any
   visitUnaryExpr(gazprea::GazpreaParser::UnaryExprContext *ctx) override;
   std::any visitNotExpr(gazprea::GazpreaParser::NotExprContext *ctx) override;
   std::any visitCompExpr(gazprea::GazpreaParser::CompExprContext *ctx) override;
