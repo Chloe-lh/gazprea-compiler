@@ -1399,60 +1399,63 @@ bool MLIRGen::tryEmitConstantForNode(ExprNode* node) {
 }
 
 void MLIRGen::allocaVar(VarInfo* varInfo) {
-    mlir::Block *entryBlock = allocaBuilder_.getBlock();
-    if (!entryBlock) {
-        entryBlock = builder_.getBlock();
-    }
-    if (!entryBlock) {
-        throw std::runtime_error("allocaVar: no available entry block for allocation");
+    // Find the parent function op
+    mlir::Operation *op = builder_.getInsertionBlock()->getParentOp();
+    mlir::func::FuncOp funcOp = nullptr;
+
+    while (op) {
+        if (auto f = llvm::dyn_cast<mlir::func::FuncOp>(op)) {
+            funcOp = f;
+            break;
+        }
+        op = op->getParentOp();
     }
 
-    mlir::OpBuilder::InsertionGuard guard(allocaBuilder_);
-    auto insertPos = entryBlock->begin();
-    while (insertPos != entryBlock->end() && llvm::isa<mlir::memref::AllocaOp>(&*insertPos)) {
-        ++insertPos;
+    if (!funcOp) {
+        throw std::runtime_error("allocaVar: could not find parent function for allocation");
     }
-    allocaBuilder_.setInsertionPoint(entryBlock, insertPos);
+
+    // Always allocate at the beginning of the entry block
+    mlir::Block &entry = funcOp.front();
+    mlir::OpBuilder entryBuilder(&entry, entry.begin());
 
     switch (varInfo->type.baseType) {
         case BaseType::BOOL:
-            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
+            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
                 loc_, mlir::MemRefType::get({}, builder_.getI1Type()));
             break;
         case BaseType::CHARACTER:
-            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
+            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
                 loc_, mlir::MemRefType::get({}, builder_.getI8Type()));
             break;
         case BaseType::INTEGER:
-            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
+            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
                 loc_, mlir::MemRefType::get({}, builder_.getI32Type()));
             break;
         case BaseType::REAL:
-            varInfo->value = allocaBuilder_.create<mlir::memref::AllocaOp>(
+            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
                 loc_, mlir::MemRefType::get({}, builder_.getF32Type()));
             break;
 
-        case (BaseType::TUPLE):
+        case BaseType::TUPLE: {
             if (varInfo->type.subTypes.size() < 2) {
                 throw SizeError(1, "Error: Tuple must have at least 2 elements.");
             }
-            for (CompleteType& subtype: varInfo->type.subTypes) {
-                VarInfo mlirSubtype = VarInfo(subtype);
-                mlirSubtype.isConst = varInfo->isConst; // Copy 'const'ness from parent
-
-                // Copy over type info into VarInfo's subtypes
-                varInfo->mlirSubtypes.emplace_back(
-                    mlirSubtype
-                );
+            for (CompleteType &subtype : varInfo->type.subTypes) {
+                VarInfo subVar(subtype);
+                subVar.isConst = varInfo->isConst;
+                varInfo->mlirSubtypes.emplace_back(subVar);
                 allocaVar(&varInfo->mlirSubtypes.back());
             }
             break;
+        }
 
-        default:
+        default: {
             std::string varName = varInfo->identifier.empty() ? "<temporary>" : varInfo->identifier;
-            throw std::runtime_error("allocaVar FATAL: unsupported type " +
-                                    std::to_string(static_cast<int>(varInfo->type.baseType)) +
-                                    " for variable '" + varName + "'");
+            throw std::runtime_error("allocaVar: unsupported type " +
+                                     std::to_string(static_cast<int>(varInfo->type.baseType)) +
+                                     " for variable '" + varName + "'");
+        }
     }
 }
 
