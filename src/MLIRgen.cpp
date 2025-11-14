@@ -273,20 +273,32 @@ void MLIRGen::visit(FileNode* node) {
     moduleBuilder->setInsertionPointToStart(module_.getBody());
 
     for (auto& n : node->stats) {
-        auto tdecl = std::dynamic_pointer_cast<TypedDecNode>(n);
-        if (!tdecl) continue;
-        // Globals must be const and have an initializer
-        if (tdecl->qualifier != "const" || !tdecl->init) {
-            continue; // semantics should enforce, skip silently here
+        auto globalTypedDec = std::dynamic_pointer_cast<TypedDecNode>(n);
+        auto globalInferredDec = std::dynamic_pointer_cast<InferredDecNode>(n);
+        if (!globalTypedDec && !globalInferredDec) continue; 
+        
+        CompleteType gType(BaseType::UNKNOWN);
+        mlir::Attribute initAttr;
+        std::string qualifier;
+        std::string name;
+
+        if (globalTypedDec) {
+            gType = globalTypedDec->type_alias ? globalTypedDec->type_alias->type : CompleteType(BaseType::UNKNOWN);
+            qualifier = globalTypedDec->qualifier;
+            initAttr = extractConstantValue(globalTypedDec->init, gType);
+            name = globalTypedDec->name;
+        } else if (globalInferredDec) {
+            gType = globalInferredDec->type;
+            qualifier = globalInferredDec->qualifier;
+            initAttr = extractConstantValue(globalInferredDec->init, gType);
+            name = globalInferredDec->name;
         }
-        // Build constant attribute
-        CompleteType gtype = tdecl->type_alias ? tdecl->type_alias->type : CompleteType(BaseType::UNKNOWN);
-        mlir::Attribute initAttr = extractConstantValue(tdecl->init, gtype);
-        if (!initAttr) {
-            throw std::runtime_error("Global initializer must be a compile-time constant for '" + tdecl->name + "'.");
+
+        if (qualifier == "var" || !initAttr) {
+            throw std::runtime_error("FATAL: Var global or missing initializer for '" + name + "'.");
         }
         // Create the LLVM global
-        (void) createGlobalVariable(tdecl->name, gtype, /*isConst=*/true, initAttr);
+        (void) createGlobalVariable(name, gType, /*isConst=*/true, initAttr);
     }
 
     moduleBuilder->restoreInsertionPoint(savedIP);
