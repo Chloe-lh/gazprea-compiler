@@ -26,8 +26,8 @@ procedure computeMixed(integer n, real r) {
 }
 
 procedure main() returns integer {
-    integer x = 1;
-    real y = 2.0;
+    var integer x = 1;
+    var real y = 2.0;
 
     loop while (x <= 3) {
         call computeMixed(x, y);
