@@ -1477,6 +1477,29 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
     allocaLiteral(&to); // Create new value container
 
     switch (from->type.baseType) {
+        case (BaseType::TUPLE):
+        {
+            // Reject casting tuple to non-tuple types
+            if (toType->baseType != BaseType::TUPLE) {
+                throw LiteralError(1, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+            }
+
+            // Ensure same len tuples
+            if (from->mlirSubtypes.size() != toType->subTypes.size()) throw LiteralError(1, std::string("Codegen: cannot cast mismatched sizes from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+
+            // Try to cast each subtype
+            try {
+                for (size_t i = 0; i < from->mlirSubtypes.size(); i++) {
+                    VarInfo subtypeCast = castType(&from->mlirSubtypes[i], &toType->subTypes[i]);
+                    mlir::Value subtypeVal = builder_.create<mlir::memref::LoadOp>(loc_, subtypeCast.value, mlir::ValueRange{});
+                    builder_.create<mlir::memref::StoreOp>(loc_, subtypeVal, to.mlirSubtypes[i].value, mlir::ValueRange{});
+                }
+            } catch (LiteralError le) {
+
+                throw LiteralError(1, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "':\n\n" + le.what());
+            }
+            break;
+        }
         case (BaseType::BOOL):
         {
             mlir::Value boolVal = builder_.create<mlir::memref::LoadOp>(loc_, from->value, mlir::ValueRange{}); // Load value
