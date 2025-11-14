@@ -1,0 +1,31 @@
+//CHECK_FILE:complex9.out
+
+// Tuple element access inside a loop and whole-tuple reassignment.
+
+const tuple(integer, character, real) BASE = (1, 'z', 0.0);
+
+procedure main() returns integer {
+    tuple(integer, character, real) t;
+    integer i = 0;
+
+    "tuple loop\n" -> std_output;
+
+    t = BASE;
+
+    loop while (i < 3) {
+        // Print the current first element
+        t.1 -> std_output;
+        "\n" -> std_output;
+
+        // Increment first element by rebuilding the tuple
+        t = (t.1 + 1, t.2, t.3);
+        i = i + 1;
+    }
+
+    // After three iterations, first element should be 4
+    (t.1 == 4) -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+

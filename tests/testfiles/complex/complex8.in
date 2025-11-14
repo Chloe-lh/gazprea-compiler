@@ -1,0 +1,34 @@
+//CHECK_FILE:complex8.out
+
+// Tuple equality, inequality, and tuple-to-tuple casts combined with scalars.
+
+const tuple(integer, character, real) BASE = (1, 'a', 1.25);
+
+procedure main() returns integer {
+    tuple(integer, character, real) t1;
+    tuple(integer, character, real) t2;
+    tuple(real, character, real) t3;
+
+    "tuple eq\n" -> std_output;
+
+    // Assign from global and literal; these should be equal.
+    t1 = BASE;
+    t2 = (1, 'a', 1.25);
+    (t1 == t2) -> std_output;
+    "\n" -> std_output;
+
+    // Change first field; now inequality should hold.
+    t2 = (2, 'a', 1.25);
+    (t1 != t2) -> std_output;
+    "\n" -> std_output;
+
+    // Cast BASE to a tuple with real in the first position.
+    t3 = as<tuple(real, character, real)>(BASE);
+    t3.1 -> std_output;
+    "\n" -> std_output;
+    t3.3 -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+
