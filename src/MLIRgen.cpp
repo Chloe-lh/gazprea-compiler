@@ -1417,8 +1417,8 @@ void MLIRGen::allocaVar(VarInfo* varInfo) {
         throw std::runtime_error("allocaVar: builder has no current block");
     }
 
-    // Find the parent function op
-    mlir::Operation *op = builder_.getInsertionBlock()->getParentOp();
+    // Find the parent function op from the current block
+    mlir::Operation *op = block->getParentOp();
     mlir::func::FuncOp funcOp = nullptr;
 
     while (op) {
