@@ -1488,20 +1488,29 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
             if (toType->baseType != BaseType::TUPLE) {
                 throw LiteralError(1, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
             }
-
             // Ensure same len tuples
-            if (from->mlirSubtypes.size() != toType->subTypes.size()) throw LiteralError(1, std::string("Codegen: cannot cast mismatched sizes from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+            if (from->type.subTypes.size() != toType->subTypes.size()) throw LiteralError(1, std::string("Codegen: cannot cast mismatched sizes from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
 
-            // Try to cast each subtype
+            // Ensure subtypes are alloca'd
+            if (from->mlirSubtypes.empty() || to.mlirSubtypes.empty()) {
+                throw std::runtime_error("FATAL: Un-alloca'd var in from and/or to subtypes.");
+            }
+
+            // Cast each element and store into the existing destination element storage
             try {
-                for (size_t i = 0; i < from->mlirSubtypes.size(); i++) {
-                    VarInfo subtypeCast = castType(&from->mlirSubtypes[i], &toType->subTypes[i]);
-                    mlir::Value subtypeVal = builder_.create<mlir::memref::LoadOp>(loc_, subtypeCast.value, mlir::ValueRange{});
-                    builder_.create<mlir::memref::StoreOp>(loc_, subtypeVal, to.mlirSubtypes[i].value, mlir::ValueRange{});
+                for (size_t i = 0; i < from->type.subTypes.size(); ++i) {
+                    VarInfo fromElem = from->mlirSubtypes[i];
+                    VarInfo castedElem = castType(&fromElem, &toType->subTypes[i]);
+                    mlir::Value elemVal = builder_.create<mlir::memref::LoadOp>(
+                        loc_, castedElem.value, mlir::ValueRange{}
+                    );
+                    builder_.create<mlir::memref::StoreOp>(
+                        loc_, elemVal, to.mlirSubtypes[i].value, mlir::ValueRange{}
+                    );
                 }
-            } catch (LiteralError le) {
-
-                throw LiteralError(1, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "':\n\n" + le.what());
+            } catch (LiteralError &le) {
+                throw LiteralError(1, std::string("Codegen: cannot cast from '") +
+                                         toString(from->type) + "' to '" + toString(*toType) + "':\n\n" + le.what());
             }
             break;
         }
