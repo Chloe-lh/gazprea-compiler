@@ -855,7 +855,7 @@ void SemanticAnalysisVisitor::visit(EqExpr* node) {
     // only automatic type mixing: int -> real OR int -> array/
     // permitted: boolean,character, int, real, tuple, struct, (array+vector+matrix(real, int)|same size), string
     // not permitted: nothing
-    const BaseType illegalTypes[] = {BaseType::BOOL, BaseType::CHARACTER, BaseType::TUPLE, BaseType::STRUCT, BaseType::STRING};
+    const BaseType illegalTypes[] = {BaseType::UNKNOWN};
     const CompleteType& leftOperandType = node->left->type;
     const CompleteType& rightOperandType = node->right->type;
 
