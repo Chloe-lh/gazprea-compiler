@@ -2150,20 +2150,19 @@ void MLIRGen::visit(EqExpr* node){
     VarInfo leftPromoted = castType(&leftInfo, &promotedType);
     VarInfo rightPromoted = castType(&rightInfo, &promotedType);
 
-    // Load the values
-    mlir::Value left = builder_.create<mlir::memref::LoadOp>(
-        loc_, leftPromoted.value, mlir::ValueRange{}
-    );
-    mlir::Value right = builder_.create<mlir::memref::LoadOp>(
-        loc_, rightPromoted.value, mlir::ValueRange{}
-    );
-
     mlir::Value result;
 
     if (promotedType.baseType == BaseType::TUPLE) {
         // Note: mlirTupleEquals needs the VarInfo with subtypes, not the loaded value
         result = mlirTupleEquals(leftPromoted, rightPromoted, loc_, builder_);
     } else {
+        // Load the scalar values from their memrefs
+        mlir::Value left = builder_.create<mlir::memref::LoadOp>(
+            loc_, leftPromoted.value, mlir::ValueRange{}
+        );
+        mlir::Value right = builder_.create<mlir::memref::LoadOp>(
+            loc_, rightPromoted.value, mlir::ValueRange{}
+        );
         result = mlirScalarEquals(left, right, loc_, builder_);
     }
 
