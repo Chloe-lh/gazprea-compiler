@@ -275,30 +275,61 @@ void MLIRGen::visit(FileNode* node) {
     for (auto& n : node->stats) {
         auto globalTypedDec = std::dynamic_pointer_cast<TypedDecNode>(n);
         auto globalInferredDec = std::dynamic_pointer_cast<InferredDecNode>(n);
-        if (!globalTypedDec && !globalInferredDec) continue; 
-        
+        auto globalTupleDec = std::dynamic_pointer_cast<TupleTypedDecNode>(n);
+
+        if (!globalTypedDec && !globalInferredDec && !globalTupleDec) continue;
+
         CompleteType gType(BaseType::UNKNOWN);
-        mlir::Attribute initAttr;
+        std::shared_ptr<ExprNode> initExpr;
         std::string qualifier;
         std::string name;
 
         if (globalTypedDec) {
             gType = globalTypedDec->type_alias ? globalTypedDec->type_alias->type : CompleteType(BaseType::UNKNOWN);
             qualifier = globalTypedDec->qualifier;
-            initAttr = extractConstantValue(globalTypedDec->init, gType);
+            initExpr = globalTypedDec->init;
             name = globalTypedDec->name;
         } else if (globalInferredDec) {
             gType = globalInferredDec->type;
             qualifier = globalInferredDec->qualifier;
-            initAttr = extractConstantValue(globalInferredDec->init, gType);
+            initExpr = globalInferredDec->init;
             name = globalInferredDec->name;
+        } else if (globalTupleDec) {
+            gType = globalTupleDec->type;
+            qualifier = globalTupleDec->qualifier;
+            initExpr = globalTupleDec->init;
+            name = globalTupleDec->name;
         }
 
-        if (qualifier == "var" || !initAttr) {
+        if (qualifier == "var" || !initExpr) {
             throw std::runtime_error("FATAL: Var global or missing initializer for '" + name + "'.");
         }
-        // Create the LLVM global
-        (void) createGlobalVariable(name, gType, /*isConst=*/true, initAttr);
+
+        // Tuple globals - represent each sub-element as standalone global constant
+        if (gType.baseType == BaseType::TUPLE) {
+            auto tupleLit = std::dynamic_pointer_cast<TupleLiteralNode>(initExpr);
+            if (!tupleLit) {
+                throw std::runtime_error("Global tuple '" + name + "' missing initializer.");
+            }
+            if (gType.subTypes.size() != tupleLit->elements.size()) {
+                throw std::runtime_error("Global tuple '" + name + "' len mismatch with literal.");
+            }
+            for (size_t i = 0; i < gType.subTypes.size(); ++i) {
+                mlir::Attribute elemAttr = extractConstantValue(tupleLit->elements[i], gType.subTypes[i]);
+                if (!elemAttr) {
+                    throw std::runtime_error("Global tuple '" + name + "' has non-constant element at index " + std::to_string(i) + ".");
+                }
+                std::string elemName = name + "$" + std::to_string(i);
+                (void) createGlobalVariable(elemName, gType.subTypes[i], /*isConst=*/  true, elemAttr);
+            }
+        } else {
+            // Scalar global
+            mlir::Attribute initAttr = extractConstantValue(initExpr, gType);
+            if (!initAttr) {
+                throw std::runtime_error("Missing constant initializer for global '" + name + "'.");
+            }
+            (void) createGlobalVariable(name, gType, /*isConst=*/true, initAttr);
+        }
     }
 
     moduleBuilder->restoreInsertionPoint(savedIP);
@@ -352,7 +383,6 @@ void MLIRGen::visit(ProcedureNode* node) {
 
 // Declarations / Globals helpers
 mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
-    // TODO: support tuples
     switch (type.baseType) {
         case BaseType::BOOL: return builder_.getI1Type();
         case BaseType::CHARACTER: return builder_.getI8Type();
@@ -364,7 +394,7 @@ mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
 }
 
 mlir::Attribute MLIRGen::extractConstantValue(std::shared_ptr<ExprNode> expr, const CompleteType& targetType) {
-    if (!expr) return nullptr;
+    if (!expr) throw std::runtime_error("FATAL: no initializer for global.");
     if (auto tn = std::dynamic_pointer_cast<TrueNode>(expr)) {
         return builder_.getIntegerAttr(builder_.getI1Type(), 1);
     }
@@ -380,16 +410,19 @@ mlir::Attribute MLIRGen::extractConstantValue(std::shared_ptr<ExprNode> expr, co
     if (auto rn = std::dynamic_pointer_cast<RealNode>(expr)) {
         return builder_.getFloatAttr(builder_.getF32Type(), rn->value);
     }
+    // Tuple literals are handled element-wise for tuple globals; this helper
+    // remains scalar-only.
+    (void)targetType;
     return nullptr;
 }
 
 mlir::Value MLIRGen::createGlobalVariable(const std::string& name, const CompleteType& type, bool isConst, mlir::Attribute initValue) {
-    mlir::Type elemTy = getLLVMType(type);
+    mlir::Type globalTy = getLLVMType(type);
     auto* moduleBuilder = backend_.getBuilder().get();
     auto savedIP = moduleBuilder->saveInsertionPoint();
     moduleBuilder->setInsertionPointToStart(module_.getBody());
     moduleBuilder->create<mlir::LLVM::GlobalOp>(
-        loc_, elemTy, isConst, mlir::LLVM::Linkage::Internal, name, initValue, 0);
+        loc_, globalTy, isConst, mlir::LLVM::Linkage::Internal, name, initValue, 0);
     moduleBuilder->restoreInsertionPoint(savedIP);
     return nullptr;
 }
@@ -1142,45 +1175,71 @@ void MLIRGen::visit(IdNode* node) {
     }
     
     if (needsAllocation) {
-        // Look up the global variable in the module
-        auto globalOp = module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->id);
-        if (!globalOp) {
-            // Not a global - ensure local variable is allocated
-            allocaVar(varInfo);
-            // For tuples, check mlirSubtypes; for others, check value
-            if (varInfo->type.baseType == BaseType::TUPLE) {
-                if (varInfo->mlirSubtypes.empty()) {
-                    throw std::runtime_error("visit(IdNode*): Failed to allocate tuple variable '" + node->id + "'");
+        if (varInfo->type.baseType == BaseType::TUPLE) {
+            // Tuple globals - represented as "<id>$<index>"
+            if (varInfo->mlirSubtypes.empty()) {
+                allocaVar(varInfo);
+            }
+
+            // ensure all sub-elements can be found with "<id>$<index>"
+            bool haveAllElementGlobals = true;
+            std::vector<mlir::LLVM::GlobalOp> elemGlobals;
+            elemGlobals.reserve(varInfo->mlirSubtypes.size());
+            for (size_t i = 0; i < varInfo->mlirSubtypes.size(); ++i) {
+                std::string elemName = node->id + "$" + std::to_string(i);
+                auto elemGlobal = module_.lookupSymbol<mlir::LLVM::GlobalOp>(elemName);
+                if (!elemGlobal) {
+                    haveAllElementGlobals = false;
+                    break;
                 }
-            } else {
+                elemGlobals.push_back(elemGlobal);
+            }
+
+            if (haveAllElementGlobals) {
+                for (size_t i = 0; i < elemGlobals.size(); ++i) {
+                    auto globalOp = elemGlobals[i];
+                    mlir::Value addr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
+                    mlir::Type elemTy = globalOp.getType();
+                    mlir::Value val = builder_.create<mlir::LLVM::LoadOp>(loc_, elemTy, addr);
+                    builder_.create<mlir::memref::StoreOp>(loc_, val, varInfo->mlirSubtypes[i].value, mlir::ValueRange{});
+                }
+                pushValue(*varInfo);
+                return;
+            }
+
+            // No matching global tuple, treat as local
+            allocaVar(varInfo);
+            if (varInfo->mlirSubtypes.empty()) {
+                throw std::runtime_error("visit(IdNode*): Failed to allocate tuple variable '" + node->id + "'");
+            }
+        } else {
+            // Scalar: try to resolve as a global first
+            auto globalOp = module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->id);
+            if (!globalOp) {
+                // Not a global - ensure local variable is allocated
+                allocaVar(varInfo);
                 if (!varInfo->value) {
                     throw std::runtime_error("visit(IdNode*): Failed to allocate variable '" + node->id + "'");
                 }
+            } else {
+                // Scalar global: load into a temporary VarInfo so downstream
+                // code can keep using memref-based paths.
+                mlir::Value globalAddr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
+                mlir::Type elementType = globalOp.getType();
+
+                VarInfo tempVarInfo = VarInfo(varInfo->type);
+                if (tempVarInfo.type.baseType == BaseType::UNKNOWN) {
+                    throw std::runtime_error("visit(IdNode*): Variable '" + node->id + "' has UNKNOWN type");
+                }
+                allocaLiteral(&tempVarInfo);
+
+                mlir::Value loadedValue = builder_.create<mlir::LLVM::LoadOp>(
+                    loc_, elementType, globalAddr);
+                builder_.create<mlir::memref::StoreOp>(loc_, loadedValue, tempVarInfo.value, mlir::ValueRange{});
+
+                pushValue(tempVarInfo);
+                return;
             }
-        } else {
-            // Get the address of the global variable
-            mlir::Value globalAddr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
-            
-            // Get the element type from the global (GlobalOp.getType() returns the element type)
-            mlir::Type elementType = globalOp.getType();
-            
-            // Create a temporary alloca to hold the loaded value
-            // This allows us to use the same memref-based code path
-            VarInfo tempVarInfo = VarInfo(varInfo->type);
-            if (tempVarInfo.type.baseType == BaseType::UNKNOWN) {
-                throw std::runtime_error("visit(IdNode*): Variable '" + node->id + "' has UNKNOWN type");
-            }
-            allocaLiteral(&tempVarInfo);
-            
-            // Load from global using LLVM::LoadOp
-            mlir::Value loadedValue = builder_.create<mlir::LLVM::LoadOp>(
-                loc_, elementType, globalAddr);
-            
-            // Store the loaded value into the temporary memref
-            builder_.create<mlir::memref::StoreOp>(loc_, loadedValue, tempVarInfo.value, mlir::ValueRange{});
-            
-            pushValue(tempVarInfo);
-            return;
         }
     }
 
