@@ -5,8 +5,8 @@
 const tuple(integer, character, real) BASE = (1, 'z', 0.0);
 
 procedure main() returns integer {
-    tuple(integer, character, real) t;
-    integer i = 0;
+    var tuple(integer, character, real) t;
+    var integer i = 0;
 
     "tuple loop\n" -> std_output;
 
