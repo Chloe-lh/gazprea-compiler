@@ -5,15 +5,31 @@
 const tuple(integer, character, real) BASE = (1, 'a', 1.25);
 
 procedure main() returns integer {
-    tuple(integer, character, real) t1;
-    tuple(integer, character, real) t2;
-    tuple(real, character, real) t3;
+    var tuple(integer, character, real) t1;
+    var tuple(integer, character, real) t2;
+    var tuple(real, character, real) t3;
 
-    "tuple eq\n" -> std_output;
+    "tuple eq\n---------\n" -> std_output;
 
     // Assign from global and literal; these should be equal.
     t1 = BASE;
     t2 = (1, 'a', 1.25);
+
+    "tuple t1 contents\n" -> std_output;
+    t1.1 -> std_output;
+    " " -> std_output;
+    t1.2 -> std_output;
+    " " -> std_output;
+    t1.3 -> std_output;
+    "\n" -> std_output;
+    "\ntuple t2 contents\n" -> std_output;
+    t2.1 -> std_output;
+    " " -> std_output;
+    t2.2 -> std_output;
+    " " -> std_output;
+    t2.3 -> std_output;
+    "\n" -> std_output;
+  
     (t1 == t2) -> std_output;
     "\n" -> std_output;
 
