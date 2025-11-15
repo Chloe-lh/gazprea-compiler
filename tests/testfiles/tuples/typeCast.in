@@ -4,7 +4,7 @@ procedure main() returns integer {
     // Declare a tuple with integer, character, real
     const tuple(integer, character, real) tup1 = (42, 'x', 3.14);
     
-    tuple(real, character, real) tup2;
+    var tuple(real, character, real) tup2;
     
     // Cast tup1 to match tup2's type
     tup2 = as<tuple(real, character, real)>(tup1);

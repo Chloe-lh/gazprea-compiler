@@ -2,7 +2,7 @@
 
 procedure main() returns integer {
     const tuple(integer, character, real) tup = (1, 'x', 3.14);
-    tuple(character, character, real) tup2;
+    var tuple(character, character, real) tup2;
 
     tup2 = ('a', 'b', 3.14);
     tup.1 -> std_output;
