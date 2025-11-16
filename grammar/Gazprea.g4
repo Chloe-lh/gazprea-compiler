@@ -52,8 +52,8 @@ builtin_type
     ;
 
 type_alias
-    : TYPEALIAS ID ID   #BasicTypeAlias
-    | TYPEALIAS tuple_dec ID  #TupleTypeAlias
+    : TYPEALIAS type ID END   #BasicTypeAlias
+    | TYPEALIAS tuple_dec ID END  #TupleTypeAlias
     ;
 
 
