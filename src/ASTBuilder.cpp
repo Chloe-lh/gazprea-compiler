@@ -426,8 +426,7 @@ std::any
 ASTBuilder::visitFuncCallExpr(GazpreaParser::FuncCallExprContext *ctx) {
   std::string funcName = ctx->ID()->getText();
   auto args = gazprea::builder_utils::collectArgs(
-      *this, std::vector<GazpreaParser::ExprContext *>(ctx->expr().begin(),
-                                                       ctx->expr().end()));
+      *this, ctx->expr());
   auto node = std::make_shared<FuncCallExpr>(funcName, std::move(args));
   return expr_any(std::move(node));
 }
