@@ -1,0 +1,5 @@
+//CHECK_FILE:./invalid_equal_comparison.out
+procedure main() returns integer{
+    const boolean b = 1 != 'c';
+    return 0;
+}

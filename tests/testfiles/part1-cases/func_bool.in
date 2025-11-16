@@ -1,0 +1,18 @@
+//CHECK_FILE:./func_bool.out
+function foo() returns boolean {
+    boolean b; 
+    return b;
+}
+
+function bar() returns boolean {
+    boolean b; 
+    return not b;
+}
+
+procedure main() returns integer {
+    const i = foo();
+    const j = bar();
+    i -> std_output;
+    j -> std_output;
+    return 0;
+}

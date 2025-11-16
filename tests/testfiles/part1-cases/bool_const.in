@@ -1,0 +1,7 @@
+//CHECK_FILE:./bool_const.out
+const a = true;
+
+procedure main() returns integer {
+    a -> std_output;
+    return 0;
+}

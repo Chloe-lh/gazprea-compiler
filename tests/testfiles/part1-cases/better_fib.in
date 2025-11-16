@@ -1,0 +1,33 @@
+//CHECK_FILE:./better_fib.out
+typealias tuple(integer, integer) point;
+
+procedure fib(integer n, var point p) returns integer{
+    var integer x;
+    var integer y;
+    if(n < 2) {
+        return n;
+    }
+
+    x = fib(n-1, p);
+    y = fib(n-2, p);
+    p.1 = x;
+    p.2 = y;
+
+    return x + y;
+}
+
+procedure main() returns integer{
+    var point p;
+    var integer val = fib(8, p);
+
+    val -> std_output;
+    '\n' -> std_output;
+
+    p.1-> std_output;
+    '\n' -> std_output;
+
+    p.2-> std_output;
+    '\n' -> std_output;
+
+    return 0;
+}

@@ -1,0 +1,22 @@
+//CHECK_FILE:./werecurse.out
+typealias integer joe;
+
+function rec_joe(joe n) returns joe {
+    var joe j;
+    if (n <= 0) {
+        return 10;
+    }
+
+    j = rec_joe(n-1);
+
+    j = j + n;
+
+    return j;
+}
+
+procedure main() returns joe {
+    var joe joe = rec_joe(3);
+    joe -> std_output;
+    '\n' -> std_output;
+    return 0;
+}

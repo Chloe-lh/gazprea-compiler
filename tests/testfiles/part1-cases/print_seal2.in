@@ -1,0 +1,6 @@
+//CHECK_FILE:./print_seal2.out
+procedure main() returns integer {
+    var real r = 42.;
+    r -> std_output;
+    return 0;
+}

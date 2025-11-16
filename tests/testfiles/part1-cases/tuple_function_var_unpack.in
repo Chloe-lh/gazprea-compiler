@@ -1,0 +1,25 @@
+//CHECK_FILE:./tuple_function_var_unpack.out
+function sometuplelol() returns tuple(boolean, integer, character, real) {
+    tuple(boolean, integer, character, real) t = (true, 10, 'n', 3.14);
+    return t;
+}
+
+procedure main() returns integer {
+    var boolean w;
+    var real x;
+    var character y;
+    var real z;
+
+    w, x, y, z = sometuplelol();
+
+    w -> std_output;
+    '\n' -> std_output;
+    x -> std_output;
+    '\n' -> std_output;
+    y -> std_output;
+    '\n' -> std_output;
+    z -> std_output;
+    '\n' -> std_output;
+
+    return 0;
+}

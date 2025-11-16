@@ -1,0 +1,18 @@
+//CHECK_FILE:./func_int.out
+function foo() returns integer {
+    integer i; 
+    return i;
+}
+
+function bar() returns integer {
+    var integer i = 1; 
+    return i;
+}
+
+procedure main() returns integer {
+    const i = foo();
+    const j = bar();
+    i -> std_output;
+    j -> std_output;
+    return 0;
+}

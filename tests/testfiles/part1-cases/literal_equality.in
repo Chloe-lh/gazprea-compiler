@@ -1,0 +1,7 @@
+//CHECK_FILE:./literal_equality.out
+procedure main() returns integer {
+    (1, 2, 3) == (1, 2, 3) -> std_output;
+    
+    
+	return 0;
+}

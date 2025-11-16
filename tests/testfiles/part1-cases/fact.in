@@ -1,0 +1,17 @@
+//CHECK_FILE:./fact.out
+function fact(integer n) returns integer {
+    if(n == 1) {
+        return 1;
+    }
+
+    return n * fact(n - 1);
+}
+
+procedure main() returns integer {
+    var integer x = fact(5);
+    
+    x -> std_output;
+    '\n' -> std_output;
+
+    return 0;
+}

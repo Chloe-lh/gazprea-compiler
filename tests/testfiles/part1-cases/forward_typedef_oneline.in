@@ -1,0 +1,15 @@
+//CHECK_FILE:./forward_typedef_oneline.out
+typealias integer joe;
+typealias real zig;
+
+function x(integer x) returns real;
+
+procedure main() returns integer {
+    var real deal = x(4);
+    deal -> std_output;
+    '\n' -> std_output;
+    return 0;
+}
+
+
+function x(joe x) returns zig = 3.4;

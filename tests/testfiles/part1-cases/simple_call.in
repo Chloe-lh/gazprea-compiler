@@ -1,0 +1,17 @@
+//CHECK_FILE:./simple_call.out
+procedure times_two(integer x) returns integer {
+  return 2 * x;
+}
+
+procedure print_newline() {
+    '\n' -> std_output;
+    return;
+}
+
+procedure main() returns integer {
+    var integer x = -times_two(5);
+    x -> std_output;
+    call print_newline();
+
+    return 0;
+}

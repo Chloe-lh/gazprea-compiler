@@ -1,0 +1,7 @@
+//CHECK_FILE:./real_const.out
+const a = 1.1;
+
+procedure main() returns integer {
+    a -> std_output;
+    return 0;
+}

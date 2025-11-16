@@ -1,0 +1,8 @@
+//CHECK_FILE:./int_arithmetic_1.out
+procedure main() returns integer {
+    var integer i = 3;
+    var integer j = 4;
+    var integer k = 5;
+    ((i + j) * k) -> std_output;
+    return 0;
+}

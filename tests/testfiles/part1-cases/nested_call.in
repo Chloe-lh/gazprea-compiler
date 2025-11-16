@@ -1,0 +1,14 @@
+//CHECK_FILE:./nested_call.out
+function b() returns integer = 2;
+
+function aaaahhhh(integer a) returns integer {
+    return b();
+}
+
+procedure main() returns integer {
+    var integer a = aaaahhhh(1);
+    a -> std_output;
+    '\n' -> std_output;
+    
+    return 0;
+}

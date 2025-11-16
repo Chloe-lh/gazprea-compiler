@@ -1,0 +1,14 @@
+//CHECK_FILE:./forward_global_mix.out
+function norm() returns real;
+
+const pi = 3.14159264;  // After header... can't hoist body up to header
+
+function norm() returns real {
+  return pi * 3;
+}
+
+procedure main() returns integer {
+    norm() -> std_output;
+    '\n' -> std_output;
+    return 0;
+}

@@ -1,0 +1,7 @@
+//CHECK_FILE:./bool_arith_10.out
+procedure main() returns integer {
+    var boolean a = true;
+    var boolean b = false;
+    not a xor b -> std_output;
+    return 0;
+}

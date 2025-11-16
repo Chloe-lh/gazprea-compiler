@@ -1,0 +1,12 @@
+//CHECK_FILE:./func_expr.out
+function foo() returns integer {
+    return 2;
+}
+
+procedure main() returns integer {
+    const real i = foo();
+    i -> std_output;
+    foo() + .5 -> std_output;
+    '\n' -> std_output;
+    return 0;
+}

@@ -1,0 +1,10 @@
+//CHECK_FILE:./all_type_tuple.out
+const a = ('a', 2, 3.1, true);
+
+procedure main() returns integer {
+    a.1 -> std_output;
+    a.2 -> std_output;
+    a.3 -> std_output;
+    a.4 -> std_output;
+    return 0;
+}
