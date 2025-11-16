@@ -373,9 +373,9 @@ std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
 }
 std::any
 ASTBuilder::visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) {
-  // Grammar: TYPEALIAS ID ID  -> alias the type named by ID(0) as ID(1)
-  std::string referenced = ctx->ID(0)->getText();
-  std::string aliasName = ctx->ID(1)->getText();
+  // Grammar: TYPEALIAS type ID
+  std::string referenced = ctx->type()->getText();
+  std::string aliasName = ctx->ID()->getText();
 
   CompleteType aliasedType(BaseType::UNKNOWN);
   if (referenced == "integer")
@@ -386,6 +386,7 @@ ASTBuilder::visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) {
     aliasedType = CompleteType(BaseType::BOOL);
   else if (referenced == "character")
     aliasedType = CompleteType(BaseType::CHARACTER);
+  else throw std::runtime_error("aliasing an alias not implemented");
 
   auto node = std::make_shared<TypeAliasDecNode>(aliasName, aliasedType);
   // Records the original referenced name so later passes can resolve it
