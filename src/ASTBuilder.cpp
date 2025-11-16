@@ -259,6 +259,18 @@ ASTBuilder::visitInferredTypeDec(GazpreaParser::InferredTypeDecContext *ctx) {
 }
 std::any
 ASTBuilder::visitTupleTypedDec(GazpreaParser::TupleTypedDecContext *ctx) {
+  std::string qualifier = "const"; // default to const
+  if (ctx->qualifier()) {
+    auto qualAny = visit(ctx->qualifier());
+    if (qualAny.has_value()) {
+      try {
+        qualifier = std::any_cast<std::string>(qualAny);
+      } catch (const std::bad_any_cast &) {
+        qualifier = "const";
+      }
+    }
+  }
+
   std::string id = ctx->ID()->getText();
   CompleteType tupleType = CompleteType(BaseType::UNKNOWN);
   if (ctx->tuple_dec()) {
@@ -281,7 +293,7 @@ ASTBuilder::visitTupleTypedDec(GazpreaParser::TupleTypedDecContext *ctx) {
     }
   }
 
-  auto node = std::make_shared<TupleTypedDecNode>(id, tupleType);
+  auto node = std::make_shared<TupleTypedDecNode>(id, qualifier, tupleType);
   node->init = init;
   return node_any(std::move(node));
 }
@@ -1063,6 +1075,18 @@ std::any ASTBuilder::visitStringExpr(GazpreaParser::StringExprContext *ctx) {
     }
   }
   auto node = std::make_shared<StringNode>(out);
+  return expr_any(std::move(node));
+}
+
+std::any ASTBuilder::visitParenExpr(GazpreaParser::ParenExprContext *ctx) {
+  std::shared_ptr<ExprNode> inner = nullptr;
+  if (ctx->expr()) {
+    auto anyInner = visit(ctx->expr());
+    if (anyInner.has_value()) {
+      inner = safe_any_cast_ptr<ExprNode>(anyInner);
+    }
+  }
+  auto node = std::make_shared<ParenExpr>(inner);
   return expr_any(std::move(node));
 }
 

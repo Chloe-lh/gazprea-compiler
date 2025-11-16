@@ -224,8 +224,10 @@ public:
 
 class TupleTypedDecNode : public DecNode {
 public:
+  std::string qualifier; // optional
   std::shared_ptr<ExprNode> init;
-  TupleTypedDecNode(const std::string &name, CompleteType tupleType);
+  TupleTypedDecNode(const std::string &name, const std::string &qualifier,
+                    CompleteType tupleType);
   void accept(ASTVisitor &visitor) override;
 };
 

@@ -1,0 +1,36 @@
+//CHECK_FILE:complex11.out
+
+// Tuple alias used with a loop and tuple reassignment.
+
+typealias tuple(integer, character, real) Triple
+
+const tuple(integer, character, real) BASE = (10, 'z', 0.5);
+
+procedure main() returns integer {
+    var Triple t;
+    var integer i = 0;
+
+    t = BASE;
+
+    "tuple alias loop\n" -> std_output;
+
+    loop while (i < 3) {
+        t.1 -> std_output;
+        " " -> std_output;
+        t.2 -> std_output;
+        " " -> std_output;
+        t.3 -> std_output;
+        "\n" -> std_output;
+
+        t = (t.1 + 1, t.2, t.3 + 0.5);
+        i = i + 1;
+    }
+
+    // After three iterations, first element should be 13 and third 2.0
+    (t.1 == 13) -> std_output;
+    "\n" -> std_output;
+    (t.3 == 2.0) -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}

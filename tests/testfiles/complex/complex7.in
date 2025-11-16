@@ -1,0 +1,30 @@
+//CHECK_FILE:complex7.out
+
+// Uses a helper procedure with var parameters to step a Fibonacci sequence,
+// plus a loop bounded by a global constant.
+
+const GLOBAL_STEPS = 5;
+
+procedure stepFib(var integer a, var integer b) {
+    integer next = a + b;
+    a = b;
+    b = next;
+}
+
+procedure main() returns integer {
+    var integer a = 0;
+    var integer b = 1;
+    var integer i = 0;
+
+    "fib\n" -> std_output;
+
+    loop while (i < GLOBAL_STEPS) {
+        b -> std_output;
+        "\n" -> std_output;
+        call stepFib(a, b);
+        i = i + 1;
+    }
+
+    return 0;
+}
+

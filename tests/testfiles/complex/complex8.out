@@ -1,0 +1,11 @@
+tuple eq
+---------
+tuple t1 contents
+1 a 1.25
+
+tuple t2 contents
+1 a 1.25
+T
+T
+1
+1.25

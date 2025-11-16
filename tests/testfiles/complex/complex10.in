@@ -1,0 +1,29 @@
+//CHECK_FILE:complex10.out
+
+// Define functions that use tuples internally. We do not call these
+// functions yet (function-call codegen is not implemented), but their
+// presence exercises tuple handling in function definitions.
+
+const tuple(integer, character, real) GLOB = (5, 'q', 1.5);
+
+function firstPlus(integer x) returns integer {
+    integer s = GLOB.1 + x;
+    return s;
+}
+
+function charGap() returns integer {
+    const tuple(character, character) t = ('a', 'd');
+    integer d = as<integer>(t.2) - as<integer>(t.1);
+    return d;
+}
+
+procedure main() returns integer {
+    "functions using tuples\n" -> std_output;
+
+    // Keep runtime behavior simple and deterministic; this test is mainly
+    // about compiling tuple-using function definitions successfully.
+    42 -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}

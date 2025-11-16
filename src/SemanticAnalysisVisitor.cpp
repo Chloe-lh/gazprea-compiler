@@ -287,8 +287,19 @@ void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
     // on the declaration node as a CompleteType
     CompleteType& varType = node->type;
 
+    // const by default
+    bool isConst = true;
+    if (node->qualifier == "var") {
+        isConst = false;
+    } else if (node->qualifier == "const" || node->qualifier.empty()) {
+    } else {
+        throw std::runtime_error(
+            "Semantic Analysis: Invalid qualifier provided for tuple declaration '" +
+            node->qualifier + "'.");
+    }
+
     // Ensure not already declared in scope
-    current_->declareVar(node->name, varType, false);
+    current_->declareVar(node->name, varType, isConst);
 
     // Ensure init expr type matches with var type (if provided)
     if (node->init != nullptr) {
@@ -855,7 +866,7 @@ void SemanticAnalysisVisitor::visit(EqExpr* node) {
     // only automatic type mixing: int -> real OR int -> array/
     // permitted: boolean,character, int, real, tuple, struct, (array+vector+matrix(real, int)|same size), string
     // not permitted: nothing
-    const BaseType illegalTypes[] = {BaseType::BOOL, BaseType::CHARACTER, BaseType::TUPLE, BaseType::STRUCT, BaseType::STRING};
+    const BaseType illegalTypes[] = {BaseType::UNKNOWN};
     const CompleteType& leftOperandType = node->left->type;
     const CompleteType& rightOperandType = node->right->type;
 

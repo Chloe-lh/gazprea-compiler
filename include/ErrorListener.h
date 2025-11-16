@@ -10,8 +10,16 @@ class ErrorListener : public antlr4::BaseErrorListener {
         std::reverse(rule_stack.begin(), rule_stack.end());
         std::ostringstream oss;
         oss << "Syntax error at line " << line << ":" << charPositionInLine << "\n"
-            << "Message: " << msg << "\n"
-            << "Rule stack: ";
+            << "Message: " << msg << "\n";
+
+        // Error hints
+        // 1. Invoking a procedure without 'call'
+        if (msg.find("expecting '\u002D>'") != std::string::npos || msg.find("expecting '->'") != std::string::npos) {
+            oss << "Hint: To invoke a procedure as a statement, use 'call <name>(args);'.\n";
+            oss << "      Expressions can only be used with '-> std_output;' or in assignments.\n";
+        }
+
+        oss << "Rule stack: ";
         for (auto &rule : rule_stack) {
             oss << rule << " ";
         }

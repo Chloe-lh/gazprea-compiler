@@ -1,0 +1,36 @@
+//CHECK_FILE:complex5.out
+
+const GLOBAL_INT = 10;
+const GLOBAL_REAL = 2.5;
+
+procedure main() returns integer {
+    const tuple(integer, character, real) t = (2, 'z', 1.25);
+
+    "tuple math\n" -> std_output;
+
+    // arithmetic using tuple fields and globals
+    (t.1 + GLOBAL_INT) -> std_output;
+    "\n" -> std_output;
+    (t.3 + GLOBAL_REAL) -> std_output;
+    "\n" -> std_output;
+
+    // equality and inequality on tuple fields
+    (t.1 == 2) -> std_output;
+    "\n" -> std_output;
+    (t.2 != 'a') -> std_output;
+    "\n" -> std_output;
+
+    // casting character to integer
+    as<integer>(t.2) -> std_output;
+    "\n" -> std_output;
+
+    // conditional based on tuple field
+    if (t.1 < GLOBAL_INT) {
+        "lt\n" -> std_output;
+    } else {
+        "ge\n" -> std_output;
+    }
+
+    return 0;
+}
+

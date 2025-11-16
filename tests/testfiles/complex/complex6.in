@@ -1,0 +1,44 @@
+//CHECK_FILE:complex6.out
+
+// Nested loops, procedure calls, break and continue.
+
+procedure printPair(integer i, integer j) {
+    "(" -> std_output;
+    i -> std_output;
+    "," -> std_output;
+    j -> std_output;
+    ")\n" -> std_output;
+}
+
+procedure main() returns integer {
+    var integer i = 1;
+
+    // Outer loop over rows
+    loop while (i <= 3) {
+        var integer j = 1;
+
+        // Inner loop over columns
+        loop while (j <= 3) {
+            // Skip the (2,2) pair using continue
+            if (i == 2 and j == 2) {
+                "skip (2,2)\n" -> std_output;
+                j = j + 1;
+                continue;
+            }
+
+            // Break the inner loop early when i = 3 and j = 1
+            if (i == 3 and j == 1) {
+                "break inner at i=3\n" -> std_output;
+                break;
+            }
+
+            call printPair(i, j);
+            j = j + 1;
+        }
+
+        i = i + 1;
+    }
+
+    return 0;
+}
+
