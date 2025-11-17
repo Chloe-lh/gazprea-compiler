@@ -228,7 +228,7 @@ void ConstantFoldingVisitor::visit(FuncBlockNode *node){
     if(node->body) node->body->accept(*this);
     popScope();
 }
-void ConstantFoldingVisitor::visit(ProcedureNode *node) {
+void ConstantFoldingVisitor::visit(ProcedureBlockNode *node) {
     pushScope();     // new scope for parameters + locals
 
     // Parameters are represented as VarInfo in the AST and do not have

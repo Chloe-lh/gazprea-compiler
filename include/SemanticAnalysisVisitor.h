@@ -18,7 +18,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         virtual void visit(FuncStatNode* node) override; 
         virtual void visit(FuncPrototypeNode* node) override;
         virtual void visit(FuncBlockNode* node) override;
-        virtual void visit(ProcedureNode* node) override;
+        virtual void visit(ProcedureBlockNode* node) override;
         
         // Declarations
         virtual void visit(TypedDecNode* node) override;

@@ -360,13 +360,13 @@ public:
   void accept(ASTVisitor &visitor) override;
 };
 
-class ProcedureNode : public ASTNode {
+class ProcedureBlockNode : public ASTNode {
 public:
   std::string name;
   std::vector<VarInfo> params;
   CompleteType returnType; // optional
   std::shared_ptr<BlockNode> body;
-  ProcedureNode(const std::string &name, const std::vector<VarInfo> &params,
+  ProcedureBlockNode(const std::string &name, const std::vector<VarInfo> &params,
                 CompleteType returnType, std::shared_ptr<BlockNode> body);
   void accept(ASTVisitor &visitor) override;
 };

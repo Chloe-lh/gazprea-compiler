@@ -53,7 +53,7 @@ void IfNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void LoopNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
 // Extended nodes
-void ProcedureNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void ProcedureBlockNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TypeAliasNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TupleTypeAliasNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TupleLiteralNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
@@ -139,7 +139,7 @@ FuncBlockNode::FuncBlockNode(const std::string &name,
                nullptr) {}
 
 // Extended nodes
-ProcedureNode::ProcedureNode(const std::string &name,
+ProcedureBlockNode::ProcedureBlockNode(const std::string &name,
                              const std::vector<VarInfo> &params,
                              CompleteType returnType,
                              std::shared_ptr<BlockNode> body)

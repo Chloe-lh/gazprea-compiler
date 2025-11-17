@@ -27,7 +27,7 @@ public:
     void visit(FuncStatNode* node) override;
     void visit(FuncPrototypeNode* node) override;
     void visit(FuncBlockNode* node) override;
-    void visit(ProcedureNode* node) override;
+    void visit(ProcedureBlockNode* node) override;
 
     // Declarations
     void visit(TypedDecNode* node) override;

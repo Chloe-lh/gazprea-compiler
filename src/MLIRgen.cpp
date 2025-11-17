@@ -336,7 +336,7 @@ void MLIRGen::visit(FileNode* node) {
 
     // Second pass: lower procedures/functions
     for (auto& n : node->stats) {
-        if (std::dynamic_pointer_cast<ProcedureNode>(n) ||
+        if (std::dynamic_pointer_cast<ProcedureBlockNode>(n) ||
             std::dynamic_pointer_cast<FuncStatNode>(n) ||
             std::dynamic_pointer_cast<FuncBlockNode>(n) ||
             std::dynamic_pointer_cast<FuncPrototypeNode>(n)) {
@@ -375,7 +375,7 @@ void MLIRGen::visit(FuncCallExpr* node) {
     // TODO: handle function calls
 }
 
-void MLIRGen::visit(ProcedureNode* node) {
+void MLIRGen::visit(ProcedureBlockNode* node) {
     Scope* savedScope = nullptr;
     beginFunctionDefinitionWithConstants(node, node->name, node->params, node->returnType, savedScope);
     lowerFunctionOrProcedureBody(node->params, node->body, node->returnType, savedScope);

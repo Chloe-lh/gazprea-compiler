@@ -251,7 +251,7 @@ void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
 }
 
 /* TODO add error line numbers */
-void SemanticAnalysisVisitor::visit(ProcedureNode* node) {
+void SemanticAnalysisVisitor::visit(ProcedureBlockNode* node) {
     // Resolve any alias-based return type first
     node->returnType = resolveUnresolvedType(current_, node->returnType);
 

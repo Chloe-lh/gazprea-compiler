@@ -634,7 +634,7 @@ std::any ASTBuilder::visitProcedure(GazpreaParser::ProcedureContext *ctx) {
     }
   }
 
-  auto node = std::make_shared<ProcedureNode>(funcName, varParams, returnType,
+  auto node = std::make_shared<ProcedureBlockNode>(funcName, varParams, returnType,
                                               body);
   return node_any(std::move(node));
 }

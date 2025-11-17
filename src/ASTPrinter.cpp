@@ -466,8 +466,8 @@ void ASTPrinter::visit(FuncBlockNode *node) {
   indent--;
 }
 
-void ASTPrinter::visit(ProcedureNode *node) {
-  printTreeLine("ProcedureNode", "name: " + node->name);
+void ASTPrinter::visit(ProcedureBlockNode *node) {
+  printTreeLine("ProcedureBlockNode", "name: " + node->name);
   indent++;
 
   pushChildContext(false);
