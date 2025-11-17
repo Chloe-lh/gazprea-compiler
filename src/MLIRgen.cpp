@@ -521,6 +521,57 @@ void MLIRGen::visit(AssignStatNode* node) {
     assignTo(&from, to);
 }
 
+void MLIRGen::visit(DestructAssignStatNode* node) {
+    if (!node->expr) {
+        throw std::runtime_error("FATAL: No expression for destructuring assignment.");
+    }
+
+    // Evaluate RHS tuple expression
+    node->expr->accept(*this);
+    VarInfo fromTuple = popValue();
+
+    if (fromTuple.type.baseType != BaseType::TUPLE) {
+        throw AssignError(1, "Codegen: destructuring assignment requires a tuple expression on the right-hand side.");
+    }
+
+    if (fromTuple.type.subTypes.size() != node->names.size()) {
+        throw AssignError(1, "Codegen: tuple arity mismatch in destructuring assignment.");
+    }
+
+    // Build a synthetic destination tuple whose elements refer to the actual target variables' storage in order to reuse assignTo's tuple elementwise logic without allocating new storage
+    CompleteType destType(BaseType::TUPLE);
+    destType.subTypes.reserve(node->names.size());
+
+    VarInfo destTuple(destType);
+    destTuple.isConst = false;
+
+    for (size_t i = 0; i < node->names.size(); ++i) {
+        const std::string &name = node->names[i];
+        VarInfo* target = currScope_->resolveVar(name);
+        if (!target) {
+            throw SymbolError(1, "Codegen: variable '" + name + "' not defined in destructuring assignment.");
+        }
+        if (target->isConst) {
+            throw AssignError(1, "Codegen: cannot assign to const variable '" + name + "' in destructuring assignment.");
+        }
+
+        // Ensure scalar storage exists
+        if (target->type.baseType != BaseType::TUPLE && !target->value) {
+            allocaVar(target);
+        }
+
+        destType.subTypes.push_back(target->type);
+        VarInfo elem(target->type);
+        elem.isConst = target->isConst;
+        elem.value = target->value;
+        destTuple.mlirSubtypes.push_back(elem);
+    }
+
+    destTuple.type = destType;
+
+    assignTo(&fromTuple, &destTuple);
+}
+
 void MLIRGen::visit(OutputStatNode* node) {
     
     if (!node->expr) {

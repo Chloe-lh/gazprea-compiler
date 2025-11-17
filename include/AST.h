@@ -259,6 +259,13 @@ public:
   AssignStatNode(const std::string &name, std::shared_ptr<ExprNode> expr);
   void accept(ASTVisitor &visitor) override;
 };
+class DestructAssignStatNode : public StatNode {
+public:
+  std::vector<std::string> names;
+  std::shared_ptr<ExprNode> expr;
+  DestructAssignStatNode(std::vector<std::string> names, std::shared_ptr<ExprNode> expr);
+  void accept(ASTVisitor &visitor) override;
+};
 class OutputStatNode : public StatNode {
 public:
   std::shared_ptr<ExprNode> expr;

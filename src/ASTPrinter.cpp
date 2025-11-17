@@ -319,6 +319,25 @@ void ASTPrinter::visit(AssignStatNode *node) {
   indent--;
 }
 
+void ASTPrinter::visit(DestructAssignStatNode *node) {
+  std::string targets;
+  for (size_t i = 0; i < node->names.size(); ++i) {
+    if (i > 0)
+      targets += ", ";
+    targets += node->names[i];
+  }
+  printTreeLine("DestructAssignStatNode", "targets: " + targets);
+  indent++;
+  pushChildContext(true);
+  if (node->expr) {
+    node->expr->accept(*this);
+  } else {
+    printTreeLine("ERROR: null expression");
+  }
+  popChildContext();
+  indent--;
+}
+
 void ASTPrinter::visit(OutputStatNode *node) {
   if (!node) {
     printTreeLine("OutputStatNode", "ERROR: null node");

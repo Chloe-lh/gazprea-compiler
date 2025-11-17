@@ -280,6 +280,14 @@ void ConstantFoldingVisitor::visit(InferredDecNode *node){
         removeConst(node->name); // reassign state
     }
   }
+  void ConstantFoldingVisitor::visit(DestructAssignStatNode *node){
+    if (node->expr) {
+        node->expr->accept(*this);
+        for (const auto &name : node->names) {
+            removeConst(name);
+        }
+    }
+  }
   void ConstantFoldingVisitor::visit(OutputStatNode *node){ if(node->expr) node->expr->accept(*this);}
   void ConstantFoldingVisitor::visit(InputStatNode *node){}
   void ConstantFoldingVisitor::visit(BreakStatNode *node){}

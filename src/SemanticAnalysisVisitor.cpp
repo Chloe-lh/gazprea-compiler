@@ -433,6 +433,42 @@ void SemanticAnalysisVisitor::visit(AssignStatNode* node) {
     node->type = varType;
 }
 
+void SemanticAnalysisVisitor::visit(DestructAssignStatNode* node) {
+    if (!node->expr) {
+        throw AssignError(1, "Semantic Analysis: missing expression in destructuring assignment.");
+    }
+
+    // Analyse RHS first to know its tuple shape
+    node->expr->accept(*this);
+    CompleteType rhsType = resolveUnresolvedType(current_, node->expr->type);
+
+    if (rhsType.baseType != BaseType::TUPLE) {
+        throw AssignError(1, "Semantic Analysis: destructuring assignment requires a tuple expression on the right-hand side.");
+    }
+
+    if (rhsType.subTypes.size() != node->names.size()) {
+        throw AssignError(1, "Semantic Analysis: tuple arity mismatch in destructuring assignment.");
+    }
+
+    // Check each target variable
+    for (size_t i = 0; i < node->names.size(); ++i) {
+        const std::string &name = node->names[i];
+        VarInfo* varInfo = current_->resolveVar(name);
+        if (!varInfo) {
+            throw SymbolError(1, "Semantic Analysis: variable '" + name + "' not defined in destructuring assignment.");
+        }
+        if (varInfo->isConst) {
+            throw AssignError(1, "Semantic Analysis: cannot assign to const variable '" + name + "' in destructuring assignment.");
+        }
+
+        CompleteType varType = resolveUnresolvedType(current_, varInfo->type);
+        CompleteType elemType = resolveUnresolvedType(current_, rhsType.subTypes[i]);
+        handleAssignError(name, varType, elemType);
+    }
+
+    node->type = CompleteType(BaseType::UNKNOWN);
+}
+
 void SemanticAnalysisVisitor::visit(OutputStatNode* node) {
     node->expr->accept(*this); // handle expr
     node->type = CompleteType(BaseType::UNKNOWN); // streams do not have a type

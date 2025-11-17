@@ -403,6 +403,22 @@ std::any ASTBuilder::visitAssignStat(GazpreaParser::AssignStatContext *ctx) {
   auto node = std::make_shared<AssignStatNode>(name, expr);
   return stat_any(std::move(node));
 }
+std::any ASTBuilder::visitDestructAssignStat(
+    GazpreaParser::DestructAssignStatContext *ctx) {
+  std::vector<std::string> names;
+  auto idList = ctx->ID();
+  names.reserve(idList.size());
+  for (auto *idTok : idList) {
+    if (idTok) {
+      names.push_back(idTok->getText());
+    }
+  }
+  auto exprAny = visit(ctx->expr());
+  auto expr = safe_any_cast_ptr<ExprNode>(exprAny);
+  auto node =
+      std::make_shared<DestructAssignStatNode>(std::move(names), expr);
+  return stat_any(std::move(node));
+}
 std::any ASTBuilder::visitBreakStat(GazpreaParser::BreakStatContext *ctx) {
   auto node = std::make_shared<BreakStatNode>();
   return stat_any(std::move(node));
