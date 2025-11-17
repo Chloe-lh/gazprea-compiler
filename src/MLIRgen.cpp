@@ -371,8 +371,159 @@ void MLIRGen::visit(FuncPrototypeNode* node) {
     }
 }
 
+
+/*
+Handles both functions AND procedures when called as an expression.
+*/
 void MLIRGen::visit(FuncCallExpr* node) {
-    // TODO: handle function calls
+    if (!currScope_) {
+        throw std::runtime_error("FuncCallExpr: no current scope");
+    }
+    if (!node) {
+        throw std::runtime_error("FuncCallExpr: null node");
+    }
+
+    // Evaluate argument expressions and collect their VarInfo
+    std::vector<VarInfo> argInfos;
+    argInfos.reserve(node->args.size());
+    for (const auto &argExpr : node->args) {
+        if (!argExpr) {
+            throw std::runtime_error("FuncCallExpr: null argument expression");
+        }
+        argExpr->accept(*this);
+        if (v_stack_.empty()) {
+            throw std::runtime_error("FuncCallExpr: argument evaluation did not produce a value");
+        }
+        VarInfo argInfo = popValue();
+        argInfos.push_back(argInfo);
+    }
+
+    // Build type-only VarInfo list for callee resolution
+    std::vector<VarInfo> typeOnlyArgs;
+    typeOnlyArgs.reserve(argInfos.size());
+    for (const auto &argInfo : argInfos) {
+        typeOnlyArgs.emplace_back(VarInfo{"", argInfo.type, true});
+    }
+
+    // Try resolve as function first
+    FuncInfo *funcInfo = nullptr;
+    ProcInfo *procInfo = nullptr;
+
+    try {
+        funcInfo = currScope_->resolveFunc(node->funcName, typeOnlyArgs);
+    } catch (const CompileTimeException &) {
+        funcInfo = nullptr;
+    }
+
+    bool isFunction = funcInfo != nullptr;
+
+    if (!isFunction) {
+        // Not a function; try resolving as a procedure used as expression.
+        try {
+            procInfo = currScope_->resolveProc(node->funcName, typeOnlyArgs);
+        } catch (const CompileTimeException &) {
+            procInfo = nullptr;
+        }
+
+        if (!procInfo) {
+            throw std::runtime_error("FuncCallExpr: callee '" + node->funcName + "' not found as function or procedure during codegen");
+        }
+        // safety check - should not happen
+        if (procInfo->procReturn.baseType == BaseType::UNKNOWN) {
+            throw std::runtime_error("FuncCallExpr: procedure '" + node->funcName + "' used as expression but has no return type (codegen)");
+        }
+    } else {
+        // For functions, semantic analysis ensures a concrete return type.
+        if (funcInfo->funcReturn.baseType == BaseType::UNKNOWN) {
+            throw std::runtime_error("FuncCallExpr: function '" + node->funcName + "' has UNKNOWN return type in codegen");
+        }
+    }
+
+    // Look up the callee function op in the module
+    mlir::func::FuncOp calleeFunc =
+        module_.lookupSymbol<mlir::func::FuncOp>(node->funcName);
+    if (!calleeFunc) {
+        throw std::runtime_error("FuncCallExpr: callee function '" + node->funcName + "' not found in module");
+    }
+
+    // Build argument values for MLIR call
+    std::vector<mlir::Value> callArgs;
+    callArgs.reserve(argInfos.size());
+
+    const auto &paramInfos =
+        isFunction ? funcInfo->params : procInfo->params;
+
+    for (size_t i = 0; i < argInfos.size() && i < paramInfos.size(); ++i) {
+        const auto &param = paramInfos[i];
+        const auto &argInfo = argInfos[i];
+
+        if (!param.isConst) {
+            // var parameter: pass memref directly
+            if (!argInfo.value) {
+                throw std::runtime_error("FuncCallExpr: var parameter requires mutable argument (variable), but argument has no value");
+            }
+            mlir::Type argType = argInfo.value.getType();
+            if (!argType.isa<mlir::MemRefType>()) {
+                throw std::runtime_error("FuncCallExpr: var parameter requires mutable argument (variable) with memref type");
+            }
+            callArgs.push_back(argInfo.value);
+        } else {
+            // const parameter: pass scalar value
+            mlir::Value argVal;
+            if (!argInfo.value) {
+                throw std::runtime_error("FuncCallExpr: argument has no value");
+            }
+            mlir::Type argType = argInfo.value.getType();
+            if (argType.isa<mlir::MemRefType>()) {
+                argVal = builder_.create<mlir::memref::LoadOp>(loc_, argInfo.value, mlir::ValueRange{});
+            } else {
+                argVal = argInfo.value;
+            }
+            callArgs.push_back(argVal);
+        }
+    }
+
+    auto funcType = calleeFunc.getFunctionType();
+    if (funcType.getNumInputs() != callArgs.size()) {
+        throw std::runtime_error("FuncCallExpr: argument count mismatch for callee '" +
+                                 node->funcName + "'");
+    }
+
+    // Verify each argument type matches the function signature
+    for (size_t i = 0; i < callArgs.size(); ++i) {
+        mlir::Type expectedType = funcType.getInput(i);
+        mlir::Type actualType = callArgs[i].getType();
+        if (expectedType != actualType) {
+            throw std::runtime_error("FuncCallExpr: type mismatch for argument " + std::to_string(i) + " in call to '" + node->funcName + "'");
+        }
+    }
+
+    if (!builder_.getBlock()) {
+        throw std::runtime_error("FuncCallExpr: builder has no current block");
+    }
+
+    auto callOp =
+        builder_.create<mlir::func::CallOp>(loc_, calleeFunc, callArgs);
+
+    // Handle return value (must exist for expression use)
+    if (funcType.getNumResults() == 0) {
+        throw std::runtime_error("FuncCallExpr: callee '" + node->funcName +
+                                 "' used as expression but has no return value");
+    }
+    if (funcType.getNumResults() != 1) {
+        throw std::runtime_error("FuncCallExpr: multiple return values not supported for callee '" +
+                                 node->funcName + "'");
+    }
+
+    mlir::Value retVal = callOp.getResult(0);
+
+    // Wrap returned scalar in a VarInfo with allocated memref storage
+    VarInfo resultVar(node->type);
+    allocaLiteral(&resultVar);
+    builder_.create<mlir::memref::StoreOp>(loc_, retVal, resultVar.value,
+                                           mlir::ValueRange{});
+
+    pushValue(resultVar);
 }
 
 void MLIRGen::visit(ProcedureBlockNode* node) {
