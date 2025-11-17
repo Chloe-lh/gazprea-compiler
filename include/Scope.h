@@ -18,6 +18,7 @@ struct VarInfo {
 
     VarInfo(CompleteType completeType): type(completeType) {}
     VarInfo(std::string identifier, CompleteType completeType, bool isConst): identifier(identifier), type(completeType), isConst(isConst) {}
+    VarInfo(std::string aliasName): type(CompleteType(BaseType::UNRESOLVED)) {}
 };
 
 struct FuncInfo {

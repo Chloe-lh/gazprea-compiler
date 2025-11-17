@@ -15,8 +15,9 @@ std::string toString(BaseType type) {
         case BaseType::STRUCT:     return "struct";
         case BaseType::ARRAY:      return "array";
         case BaseType::MATRIX:     return "matrix";
+        case BaseType::UNRESOLVED: return "unresolved";
     }
-    return "unknown";
+    throw std::runtime_error("toString: FATAL: No string representation found for type");
 }
 
 std::string toString(const CompleteType& type) {

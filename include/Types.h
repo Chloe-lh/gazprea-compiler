@@ -7,6 +7,7 @@
 
 // Base Types
 enum class BaseType {
+    UNRESOLVED,
     UNKNOWN,
     BOOL,
     CHARACTER,
@@ -39,10 +40,13 @@ inline constexpr BaseType compositeTypes[] = {
 struct CompleteType {
     BaseType baseType;
     std::vector<CompleteType> subTypes;
+    std::string aliasName = "";
 
     CompleteType(BaseType baseType) : baseType(baseType) {}
     CompleteType(BaseType baseType, std::vector<CompleteType> subTypes)
         : baseType(baseType), subTypes(std::move(subTypes)) {}
+    CompleteType(std::string aliasName)
+        : baseType(BaseType::UNRESOLVED), aliasName(aliasName) {} // constructor for type aliases - actual type resolved during semantic analysis
 
 
     bool operator==(const CompleteType& other) const noexcept {

@@ -362,14 +362,16 @@ std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
   if (ctx->STRING())
     return CompleteType(BaseType::STRING);
   if (ctx->ID())
-    return CompleteType(BaseType::UNKNOWN);
+    // Store the alias name, but leaves the type as BaseType::UNRESOLVED, which will be resolved during semantic analysis
+    return CompleteType(ctx->ID()->getText());
   if (ctx->INTEGER())
     return CompleteType(BaseType::INTEGER);
   if (ctx->REAL())
     return CompleteType(BaseType::REAL);
   if (ctx->CHARACTER())
     return CompleteType(BaseType::CHARACTER);
-  return CompleteType(BaseType::UNKNOWN);
+
+  throw std::runtime_error("ASTBuilder::visitType: FATAL: Type with no known case.");
 }
 std::any
 ASTBuilder::visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) {
