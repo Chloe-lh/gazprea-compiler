@@ -389,7 +389,7 @@ mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
         case BaseType::INTEGER: return builder_.getI32Type();
         case BaseType::REAL: return builder_.getF32Type();
         default:
-            throw std::runtime_error("Unsupported global type: " + toString(type));
+            throw std::runtime_error("getLLVMType: Unsupported type: " + toString(type));
     }
 }
 
