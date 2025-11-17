@@ -211,6 +211,7 @@ public:
 class IdNode : public ExprNode {
 public:
   const std::string id;
+  VarInfo *binding = nullptr; // bound VarInfo from semantic analysis
   explicit IdNode(const std::string &id);
   void accept(ASTVisitor &visitor) override;
 };
@@ -403,6 +404,7 @@ class TupleAccessNode : public ExprNode {
 public:
   std::string tupleName;
   int index;
+  VarInfo *binding = nullptr; // bound tuple variable from semantic analysis
   TupleAccessNode(const std::string &tupleName, int index);
   void accept(ASTVisitor &visitor) override;
 };

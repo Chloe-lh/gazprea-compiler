@@ -1250,28 +1250,59 @@ void MLIRGen::visit(TupleAccessNode* node) {
         throw std::runtime_error("TupleAccessNode: no current scope");
     }
 
-    // Reuse IdNode handling so that tuple globals ("<name>$<index>") are initialized into vars
-    IdNode baseId(node->tupleName);
-    baseId.accept(*this);
+    VarInfo* tupleVarInfo = node->binding;
+    if (!tupleVarInfo) {
+        throw std::runtime_error("TupleAccessNode: no bound tuple variable for '" + node->tupleName + "'");
+    }
 
-    VarInfo tupleVarInfo = popValue();
-
-    if (tupleVarInfo.type.baseType != BaseType::TUPLE) {
+    if (tupleVarInfo->type.baseType != BaseType::TUPLE) {
         throw std::runtime_error("TupleAccessNode: Variable '" + node->tupleName + "' is not a tuple.");
     }
 
-    if (tupleVarInfo.mlirSubtypes.empty()) {
+    // Ensure tuple storage exists and, if this is a global const tuple, populate
+    // its elements from the per-element globals "<name>$<index>".
+    if (tupleVarInfo->mlirSubtypes.empty()) {
+        // Allocate element memrefs for the tuple variable
+        allocaVar(tupleVarInfo);
+
+        // Attempt to initialise from tuple element globals (for global consts)
+        bool haveAllElementGlobals = true;
+        std::vector<mlir::LLVM::GlobalOp> elemGlobals;
+        elemGlobals.reserve(tupleVarInfo->mlirSubtypes.size());
+        for (size_t i = 0; i < tupleVarInfo->mlirSubtypes.size(); ++i) {
+            std::string elemName = node->tupleName + "$" + std::to_string(i);
+            auto elemGlobal = module_.lookupSymbol<mlir::LLVM::GlobalOp>(elemName);
+            if (!elemGlobal) {
+                haveAllElementGlobals = false;
+                break;
+            }
+            elemGlobals.push_back(elemGlobal);
+        }
+
+        if (haveAllElementGlobals) {
+            for (size_t i = 0; i < elemGlobals.size(); ++i) {
+                auto globalOp = elemGlobals[i];
+                mlir::Value addr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
+                mlir::Type elemTy = globalOp.getType();
+                mlir::Value val = builder_.create<mlir::LLVM::LoadOp>(loc_, elemTy, addr);
+                builder_.create<mlir::memref::StoreOp>(
+                    loc_, val, tupleVarInfo->mlirSubtypes[i].value, mlir::ValueRange{});
+            }
+        }
+    }
+
+    if (tupleVarInfo->mlirSubtypes.empty()) {
         throw std::runtime_error("TupleAccessNode: Tuple variable '" + node->tupleName + "' has no allocated subtypes.");
     }
 
     // Validate index (1-based)
-    if (node->index < 1 || node->index > tupleVarInfo.mlirSubtypes.size()) {
+    if (node->index < 1 || node->index > tupleVarInfo->mlirSubtypes.size()) {
         throw std::runtime_error("TupleAccessNode: Index " + std::to_string(node->index) +
-            " out of range for tuple of size " + std::to_string(tupleVarInfo.mlirSubtypes.size()));
+            " out of range for tuple of size " + std::to_string(tupleVarInfo->mlirSubtypes.size()));
     }
 
     // Get the element at the specified index (convert from 1-based to 0-based)
-    VarInfo elementVarInfo = tupleVarInfo.mlirSubtypes[node->index - 1];
+    VarInfo elementVarInfo = tupleVarInfo->mlirSubtypes[node->index - 1];
 
     if (!elementVarInfo.value) {
         throw std::runtime_error("TupleAccessNode: Element at index " + std::to_string(node->index) + 
@@ -1355,8 +1386,13 @@ void MLIRGen::visit(IdNode* node) {
     if (!currScope_) {
         throw std::runtime_error("visit(IdNode*): no current scope");
     }
-    
-    VarInfo* varInfo = currScope_->resolveVar(node->id);
+
+    // Prefer the binding established during semantic analysis to honour
+    // declaration order and shadowing (e.g., parameter vs local with same name).
+    VarInfo* varInfo = node->binding;
+    if (!varInfo) {
+        throw std::runtime_error("visit(IdNode*): IdNode did not receive bound variable");
+    }
 
     if (!varInfo) {
         throw SymbolError(1, "Semantic Analysis: Variable '" + node->id + "' not defined.");

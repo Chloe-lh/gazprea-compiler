@@ -896,8 +896,9 @@ void SemanticAnalysisVisitor::visit(StringNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(IdNode* node) {
-    VarInfo varInfo = *current_->resolveVar(node->id); // handles no-declr
-    node->type = varInfo.type;
+    VarInfo* varInfo = current_->resolveVar(node->id); // handles no-declr
+    node->type = varInfo->type;
+    node->binding = varInfo;
 }
 
 void SemanticAnalysisVisitor::visit(TupleLiteralNode* node) {
@@ -936,6 +937,9 @@ void SemanticAnalysisVisitor::visit(TupleAccessNode* node) {
         return; 
     }
 
+    // Bind this access node to the underlying tuple variable so codegen
+    // doesn't need to re-resolve names and can honour declaration order.
+    node->binding = varInfo;
     node->type = varInfo->type.subTypes[node->index - 1];
 }
 
