@@ -4,6 +4,8 @@
 #include <unordered_map>
 #include <memory>
 
+// Helper for resolving alias types that were marked BaseType::UNRESOLVED during building
+CompleteType resolveUnresolvedType(Scope *scope, const CompleteType &t);
 
 class SemanticAnalysisVisitor: public ASTVisitor {
     public:
