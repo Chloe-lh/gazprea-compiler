@@ -540,7 +540,7 @@ void SemanticAnalysisVisitor::visit(CallStatNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(FuncCallExpr* node) {
-    // Evaluate argument expressions and build a signature to resolve the function
+    // Evaluate argument expressions and build a signature to resolve the callee
     std::vector<VarInfo> args;
     args.reserve(node->args.size());
     for (const auto& e : node->args) {
@@ -550,21 +550,42 @@ void SemanticAnalysisVisitor::visit(FuncCallExpr* node) {
         args.push_back(VarInfo{"", argType, true});
     }
 
-    // Resolve function by name + signature
+    // Try resolving as function
+    // -----------------------
     FuncInfo* finfo = nullptr;
     try {
         finfo = current_->resolveFunc(node->funcName, args);
     } catch (...) {
-        throw SymbolError(1, "Semantic Analysis: Unknown function '" + node->funcName + "' in expression.");
+        finfo = nullptr;
+    }
+    if (finfo) {
+        // Function call in expression
+        node->type = finfo->funcReturn;
+        node->resolvedFunc = *finfo; // cache resolved info for later passes
+        return;
     }
 
-    // Assign the resolved return type to the expression node and cache resolved info
-    if (finfo) {
-        node->type = finfo->funcReturn;
-        node->resolvedFunc = *finfo; // copy resolved info for later passes
-    } else {
-        node->type = CompleteType(BaseType::UNKNOWN);
+    // Then try resolving as procedure
+    // -----------------------
+    ProcInfo* pinfo = nullptr;
+    try {
+        pinfo = current_->resolveProc(node->funcName, args);
+    } catch (...) {
+        pinfo = nullptr;
     }
+
+    if (pinfo) {
+        // Procedures may have a return type; only those may appear in expressions.
+        if (pinfo->procReturn.baseType == BaseType::UNKNOWN) {
+            throw TypeError(1, "Semantic Analysis: procedure '" + node->funcName +
+                                  "' used as expression but has no return type.");
+        }
+        node->type = pinfo->procReturn;
+        return;
+    }
+
+    throw SymbolError(1, "Semantic Analysis: Unknown function/procedure '" +
+                            node->funcName + "' in expression.");
 }
 
 void SemanticAnalysisVisitor::visit(IfNode* node) {
