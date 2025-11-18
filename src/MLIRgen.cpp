@@ -30,10 +30,7 @@ MLIRGen::MLIRGen(BackEnd& backend)
       loc_(backend.getLoc()),
       root_(nullptr),
       currScope_(nullptr),
-      scopeMap_(nullptr),
-      currentReturnFlag_(nullptr),
-      currentReturnValue_(nullptr),
-      currentFunctionHasReturn_(false) {
+      scopeMap_(nullptr) {
 }
 
 MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<const ASTNode*, Scope*>* scopeMap)
@@ -45,10 +42,7 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<co
       loc_(backend.getLoc()),
       root_(rootScope),
       currScope_(nullptr),
-      scopeMap_(scopeMap),
-      currentReturnFlag_(nullptr),
-      currentReturnValue_(nullptr),
-      currentFunctionHasReturn_(false) {
+      scopeMap_(scopeMap) {
     // Ensure printf and global strings are created upfront
     if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("printf")) {
         auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
@@ -137,31 +131,6 @@ mlir::func::FuncOp MLIRGen::beginFunctionDefinitionWithConstants(
 
     // Bind parameters: use constant values if available
     bindFunctionParametersWithConstants(func, params);
-
-    // Initialise function-level return tracking.
-    // Allocate a boolean "active" flag (true = still executing, false = returned).
-    {
-        CompleteType boolType(BaseType::BOOL);
-        VarInfo flagVar(boolType);
-        allocaVar(&flagVar);
-        mlir::Type i1Ty = builder_.getI1Type();
-        auto trueAttr = builder_.getIntegerAttr(i1Ty, 1);
-        auto trueConst =
-            builder_.create<mlir::arith::ConstantOp>(loc_, i1Ty, trueAttr);
-        builder_.create<mlir::memref::StoreOp>(
-            loc_, trueConst.getResult(), flagVar.value, mlir::ValueRange{});
-        currentReturnFlag_ = flagVar.value;
-    }
-
-    // If the function has a non-void return type, allocate storage for the
-    // return value.
-    currentReturnValue_ = nullptr;
-    currentFunctionHasReturn_ = false;
-    if (returnType.baseType != BaseType::UNKNOWN) {
-        VarInfo retVar(returnType);
-        allocaVar(&retVar);
-        currentReturnValue_ = retVar.value;
-    }
 
     return func;
 }
