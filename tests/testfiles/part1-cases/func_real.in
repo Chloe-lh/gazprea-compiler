@@ -1,0 +1,24 @@
+//CHECK_FILE:./func_real.out
+function foo() returns real {
+    real r; 
+    return r;
+}
+
+function bar() returns real {
+    var real r = 1; 
+    return 1;
+}
+
+function baz() returns real {
+    return 2;
+}
+
+procedure main() returns integer {
+    const i = foo();
+    const j = bar();
+    const k = baz();
+    i -> std_output;
+    j -> std_output;
+    k -> std_output;
+    return 0;
+}

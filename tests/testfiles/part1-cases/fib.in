@@ -1,0 +1,16 @@
+//CHECK_FILE:./fib.out
+function fib(integer n) returns integer{
+    if(n < 2) {
+        return n;
+    }
+
+    return fib(n-1) + fib(n-2);
+}
+
+procedure main() returns integer{
+    var integer val = fib(8);
+    val -> std_output;
+    '\n' -> std_output;
+
+    return 0;
+}

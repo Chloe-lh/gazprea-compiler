@@ -27,6 +27,7 @@ class ASTVisitor;
 // forward declarations
 class BlockNode;
 class TypeAliasNode;
+class TupleAccessNode;
 
 class ASTNode { // virtual class
 public:
@@ -211,6 +212,7 @@ public:
 class IdNode : public ExprNode {
 public:
   const std::string id;
+  VarInfo *binding = nullptr; // bound VarInfo from semantic analysis
   explicit IdNode(const std::string &id);
   void accept(ASTVisitor &visitor) override;
 };
@@ -257,6 +259,21 @@ public:
   std::string name;
   std::shared_ptr<ExprNode> expr;
   AssignStatNode(const std::string &name, std::shared_ptr<ExprNode> expr);
+  void accept(ASTVisitor &visitor) override;
+};
+class DestructAssignStatNode : public StatNode {
+public:
+  std::vector<std::string> names;
+  std::shared_ptr<ExprNode> expr;
+  DestructAssignStatNode(std::vector<std::string> names, std::shared_ptr<ExprNode> expr);
+  void accept(ASTVisitor &visitor) override;
+};
+class TupleAccessAssignStatNode : public StatNode {
+public:
+  std::shared_ptr<TupleAccessNode> target;
+  std::shared_ptr<ExprNode> expr;
+  TupleAccessAssignStatNode(std::shared_ptr<TupleAccessNode> target,
+                            std::shared_ptr<ExprNode> expr);
   void accept(ASTVisitor &visitor) override;
 };
 class OutputStatNode : public StatNode {
@@ -360,13 +377,13 @@ public:
   void accept(ASTVisitor &visitor) override;
 };
 
-class ProcedureNode : public ASTNode {
+class ProcedureBlockNode : public ASTNode {
 public:
   std::string name;
   std::vector<VarInfo> params;
   CompleteType returnType; // optional
   std::shared_ptr<BlockNode> body;
-  ProcedureNode(const std::string &name, const std::vector<VarInfo> &params,
+  ProcedureBlockNode(const std::string &name, const std::vector<VarInfo> &params,
                 CompleteType returnType, std::shared_ptr<BlockNode> body);
   void accept(ASTVisitor &visitor) override;
 };
@@ -396,6 +413,7 @@ class TupleAccessNode : public ExprNode {
 public:
   std::string tupleName;
   int index;
+  VarInfo *binding = nullptr; // bound tuple variable from semantic analysis
   TupleAccessNode(const std::string &tupleName, int index);
   void accept(ASTVisitor &visitor) override;
 };

@@ -1,0 +1,27 @@
+//CHECK_FILE:./multiple_forward_decls.out
+procedure beans() returns integer;
+procedure rebeans() returns integer;
+
+procedure main() returns integer {
+    var integer a = beans();
+    a -> std_output;
+    '\n' -> std_output;
+    a = rebeans();
+    a -> std_output;
+    '\n' -> std_output;
+    return 0;
+}
+
+procedure beans() returns integer {
+    var integer a = 1;
+    a -> std_output;
+    '\n' -> std_output;
+    return 0;
+}
+
+procedure rebeans() returns integer {
+    var integer a = 307;
+    a -> std_output;
+    '\n' -> std_output;
+    return 0;
+}

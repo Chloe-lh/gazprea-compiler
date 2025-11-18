@@ -1,0 +1,21 @@
+//CHECK_FILE:./logical.out
+
+procedure main() returns integer {
+
+    const ones_bits = as<boolean>(15);
+    const one_one_bit = as<boolean>(8);
+    
+    const x1 = ones_bits xor one_one_bit;
+    const x2 = ones_bits or one_one_bit;
+    const x3 = ones_bits and one_one_bit;
+    const x4 = not ones_bits and one_one_bit;
+    
+    x1 -> std_output;
+    x2 -> std_output;
+    x3 -> std_output;
+    x4 -> std_output;
+    
+    
+
+    return 0;
+}

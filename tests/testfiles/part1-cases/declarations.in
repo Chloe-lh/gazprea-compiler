@@ -1,0 +1,31 @@
+//CHECK_FILE:./declarations.out
+procedure times_two(integer x) returns integer {
+    return 2 * x;
+}
+
+procedure times_three(real x) returns real {
+  return 2.0 * x;
+}
+
+procedure newline() returns character {
+    return '\n';
+}
+
+procedure is_true(boolean val) returns boolean {
+    return val == true;
+}
+
+procedure print_ln(integer val) {
+    val -> std_output;
+    '\n' -> std_output;
+}
+
+procedure print_ln(boolean val) {
+    val -> std_output;
+    '\n' -> std_output;
+    return;
+}
+
+procedure main() returns integer {
+    return 0;
+}

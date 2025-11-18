@@ -9,6 +9,35 @@
 #include <set>
 
 
+// Resolve a CompleteType whose baseType is UNRESOLVED using the current scope's
+// global type alias table. Throws bug if UNRESOLVED and no alias name provided
+CompleteType resolveUnresolvedType(Scope *scope, const CompleteType &t) {
+    if (!scope) {
+        return t;
+    }
+
+    // First, resolve this level if it's an unresolved alias.
+    CompleteType result = t;
+    if (result.baseType == BaseType::UNRESOLVED) {
+        if (result.aliasName.empty()) {
+            throw std::runtime_error(
+                "Semantic Analysis: encountered UNRESOLVED type with no alias name.");
+        }
+        // Scope::resolveAlias will throw SymbolError if the alias is not defined.
+        CompleteType *aliased = scope->resolveAlias(result.aliasName);
+        result = *aliased;
+    }
+
+    // Recursively normalise any composite subtypes as well.
+    if (!result.subTypes.empty()) {
+        for (auto &sub : result.subTypes) {
+            sub = resolveUnresolvedType(scope, sub);
+        }
+    }
+
+    return result;
+}
+
 Scope* SemanticAnalysisVisitor::getRootScope() {
     return this->root_.get();
 }
@@ -40,7 +69,9 @@ void SemanticAnalysisVisitor::visit(FuncStatNode* node) {
     std::vector<VarInfo> params;
     params.reserve(node->parameters.size());
     std::unordered_set<std::string> paramNames;
-    for (const auto& v : node->parameters) {
+    for (size_t i = 0; i < node->parameters.size(); ++i) {
+        const auto& v = node->parameters[i];
+        VarInfo param = v;
         if (v.identifier.empty()) {
             // Should not happen
             throw std::runtime_error("Semantic Analysis: FATAL: parameter name required in function definition '" + node->name + "'.");
@@ -48,8 +79,17 @@ void SemanticAnalysisVisitor::visit(FuncStatNode* node) {
         if (!paramNames.insert(v.identifier).second) {
             throw SymbolError(1, "Semantic Analysis: duplicate parameter name '" + v.identifier + "' in function '" + node->name + "'.");
         }
-        params.push_back(v);
+        param.type = resolveUnresolvedType(current_, param.type);
+        params.push_back(param);
     }
+
+    // Push resolved types onto params (handling type aliasing)
+    for (size_t i = 0; i < node->parameters.size() && i < params.size(); ++i) {
+        node->parameters[i].type = params[i].type;
+    }
+
+    // Resolve alias in return type, if any.
+    node->returnType = resolveUnresolvedType(current_, node->returnType);
 
     try {
         current_->declareFunc(node->name, params, node->returnType);
@@ -64,7 +104,7 @@ void SemanticAnalysisVisitor::visit(FuncStatNode* node) {
     // Enter function scope, bind parameters
     enterScopeFor(node, false, &node->returnType);
     current_->setInFunctionTrue(); 
-    for (const auto& v : params) {
+    for (auto& v : params) {
         if (!v.isConst) { throw AssignError(1, "Non-const arg given as function parameter");}
         current_->declareVar(v.identifier, v.type, true);
     }
@@ -104,7 +144,7 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
 
     // Declared type is carried as a CompleteType on the alias node
     node->type_alias->accept(*this);
-    CompleteType& varType = node->type_alias->type;
+    CompleteType varType = resolveUnresolvedType(current_, node->type_alias->type);
 
     // Ensure not already declared in scope
     current_->declareVar(node->name, varType, isConst);
@@ -114,6 +154,7 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
         handleAssignError(node->name, varType, node->init->type);
     }
 
+    node->type_alias->type = varType;
     node->type = varType;
 }
 
@@ -123,10 +164,20 @@ void SemanticAnalysisVisitor::visit(FuncPrototypeNode* node) {
     // Convert parameter list to VarInfo (names may be empty for prototypes)
     std::vector<VarInfo> params;
     params.reserve(node->parameters.size());
-    for (const auto& v : node->parameters) {
+    for (size_t i = 0; i < node->parameters.size(); ++i) {
         // name may be empty or different for prototypes
-        params.push_back(v);
+        const auto& v = node->parameters[i];
+        VarInfo param = v;
+        param.type = resolveUnresolvedType(current_, param.type);
+        params.push_back(param);
     }
+
+    // Propagate resolved parameter types back to the AST node
+    for (size_t i = 0; i < node->parameters.size() && i < params.size(); ++i) {
+        node->parameters[i].type = params[i].type;
+    }
+
+    node->returnType = resolveUnresolvedType(current_, node->returnType);
 
     // Declare the function signature in the current (global) scope
     // Function prototypes may omit param names so we check that
@@ -146,7 +197,9 @@ void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
     std::vector<VarInfo> params;
     params.reserve(node->parameters.size());
     std::unordered_set<std::string> paramNames;
-    for (const auto& v : node->parameters) {
+    for (size_t i = 0; i < node->parameters.size(); ++i) {
+        const auto& v = node->parameters[i];
+        VarInfo param = v;
         if (v.identifier.empty()) { 
             // should not happen
             throw std::runtime_error("Semantic Analysis: FATAL: parameter name required in function definition '" + node->name + "'.");
@@ -154,8 +207,16 @@ void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
         if (!paramNames.insert(v.identifier).second) {
             throw SymbolError(1, "Semantic Analysis: duplicate parameter name '" + v.identifier + "' in function '" + node->name + "'.");
         }
-        params.push_back(v);
+        param.type = resolveUnresolvedType(current_, param.type);
+        params.push_back(param);
     }
+
+    // Propagate resolved parameter types back to the AST node
+    for (size_t i = 0; i < node->parameters.size() && i < params.size(); ++i) {
+        node->parameters[i].type = params[i].type;
+    }
+
+    node->returnType = resolveUnresolvedType(current_, node->returnType);
 
     // Declare or validate existing prototype declr
     try {
@@ -170,7 +231,7 @@ void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
     // Enter function scope, bind parameters
     enterScopeFor(node, false, &node->returnType);
     current_->setInFunctionTrue(); 
-    for (const auto& v : params) {
+    for (auto& v : params) {
         if (!v.isConst) { throw AssignError(1, "Non-const arg given as function parameter");}
         current_->declareVar(v.identifier, v.type, true);
     }
@@ -190,7 +251,10 @@ void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
 }
 
 /* TODO add error line numbers */
-void SemanticAnalysisVisitor::visit(ProcedureNode* node) {
+void SemanticAnalysisVisitor::visit(ProcedureBlockNode* node) {
+    // Resolve any alias-based return type first
+    node->returnType = resolveUnresolvedType(current_, node->returnType);
+
     // Special case: main() constraints
     if (node->name == "main") {
         if (seenMain_) {
@@ -210,7 +274,9 @@ void SemanticAnalysisVisitor::visit(ProcedureNode* node) {
     std::vector<VarInfo> params;
     params.reserve(node->params.size());
     std::unordered_set<std::string> paramNames;
-    for (const auto& v : node->params) {
+    for (size_t i = 0; i < node->params.size(); ++i) {
+        const auto& v = node->params[i];
+        VarInfo param = v;
         if (v.identifier.empty()) {
             // should not happen
             throw std::runtime_error("Semantic Analysis:FATAL: parameter name required in procedure '" + node->name + "'.");
@@ -218,7 +284,13 @@ void SemanticAnalysisVisitor::visit(ProcedureNode* node) {
         if (!paramNames.insert(v.identifier).second) {
             throw SymbolError(1, std::string("Semantic Analysis: duplicate parameter name '") + v.identifier + "' in procedure '" + node->name + "'.");
         }
-        params.push_back(v);
+        param.type = resolveUnresolvedType(current_, param.type);
+        params.push_back(param);
+    }
+
+    // Propagate resolved parameter types back to the AST node
+    for (size_t i = 0; i < node->params.size() && i < params.size(); ++i) {
+        node->params[i].type = params[i].type;
     }
 
     // Declare or validate existing declaration
@@ -233,7 +305,7 @@ void SemanticAnalysisVisitor::visit(ProcedureNode* node) {
 
     // Enter procedure scope, bind params
     enterScopeFor(node, false, &node->returnType);
-    for (const auto& v : params) {
+    for (auto& v : params) {
         current_->declareVar(v.identifier, v.type, v.isConst);
     }
 
@@ -267,7 +339,7 @@ void SemanticAnalysisVisitor::visit(InferredDecNode* node) {
         throw std::runtime_error("Semantic Analysis: Invalid qualifier provided for type inference '" + node->qualifier + "'.");
     }
 
-    CompleteType& varType = node->init->type; // no need to check promotability
+    CompleteType varType = resolveUnresolvedType(current_, node->init->type); // no need to check promotability
 
 
     // Ensure not already declared in scope
@@ -285,7 +357,7 @@ void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
     }
     // For tuple-typed declarations, the declared type is already present
     // on the declaration node as a CompleteType
-    CompleteType& varType = node->type;
+    CompleteType varType = resolveUnresolvedType(current_, node->type);
 
     // const by default
     bool isConst = true;
@@ -354,9 +426,47 @@ void SemanticAnalysisVisitor::visit(AssignStatNode* node) {
         throw AssignError(1, "Semantic Analysis: cannot assign to const variable '" + node->name + "'."); // TODO add line num
     }
 
-    handleAssignError(node->name, varInfo->type, node->expr->type);
+    CompleteType varType = resolveUnresolvedType(current_, varInfo->type);
+    CompleteType exprType = resolveUnresolvedType(current_, node->expr->type);
+    handleAssignError(node->name, varType, exprType);
 
-    node->type = varInfo->type;
+    node->type = varType;
+}
+
+void SemanticAnalysisVisitor::visit(DestructAssignStatNode* node) {
+    if (!node->expr) {
+        throw AssignError(1, "Semantic Analysis: missing expression in destructuring assignment.");
+    }
+
+    // Analyse RHS first to know its tuple shape
+    node->expr->accept(*this);
+    CompleteType rhsType = resolveUnresolvedType(current_, node->expr->type);
+
+    if (rhsType.baseType != BaseType::TUPLE) {
+        throw AssignError(1, "Semantic Analysis: destructuring assignment requires a tuple expression on the right-hand side.");
+    }
+
+    if (rhsType.subTypes.size() != node->names.size()) {
+        throw AssignError(1, "Semantic Analysis: tuple arity mismatch in destructuring assignment.");
+    }
+
+    // Check each target variable
+    for (size_t i = 0; i < node->names.size(); ++i) {
+        const std::string &name = node->names[i];
+        VarInfo* varInfo = current_->resolveVar(name);
+        if (!varInfo) {
+            throw SymbolError(1, "Semantic Analysis: variable '" + name + "' not defined in destructuring assignment.");
+        }
+        if (varInfo->isConst) {
+            throw AssignError(1, "Semantic Analysis: cannot assign to const variable '" + name + "' in destructuring assignment.");
+        }
+
+        CompleteType varType = resolveUnresolvedType(current_, varInfo->type);
+        CompleteType elemType = resolveUnresolvedType(current_, rhsType.subTypes[i]);
+        handleAssignError(name, varType, elemType);
+    }
+
+    node->type = CompleteType(BaseType::UNKNOWN);
 }
 
 void SemanticAnalysisVisitor::visit(OutputStatNode* node) {
@@ -413,7 +523,9 @@ void SemanticAnalysisVisitor::visit(CallStatNode* node) {
     args.reserve(node->call->args.size());
     for (const auto& e : node->call->args) {
         if (e) e->accept(*this);
-        args.push_back(VarInfo{"", e ? e->type : CompleteType(BaseType::UNKNOWN), true});
+        CompleteType argType = e ? resolveUnresolvedType(current_, e->type)
+                                 : CompleteType(BaseType::UNKNOWN);
+        args.push_back(VarInfo{"", argType, true});
     }
 
     // Resolve as procedure only. prevent calling a function via 'call'
@@ -427,30 +539,82 @@ void SemanticAnalysisVisitor::visit(CallStatNode* node) {
     node->type = CompleteType(BaseType::UNKNOWN);
 }
 
+void SemanticAnalysisVisitor::visit(TupleAccessAssignStatNode* node) {
+    if (!node->target || !node->expr) {
+        throw AssignError(1, "Semantic Analysis: malformed tuple access assignment.");
+    }
+
+    // Analyse LHS tuple access first (binds tuple variable + element type)
+    node->target->accept(*this);
+
+    if (!node->target->binding) {
+        throw std::runtime_error("Semantic Analysis: FATAL: TupleAccessNode missing binding in assignment.");
+    }
+
+    VarInfo* tupleVar = node->target->binding;
+    if (tupleVar->isConst) {
+        throw AssignError(1, "Semantic Analysis: cannot assign to element of const tuple '" +
+                                 node->target->tupleName + "'.");
+    }
+
+    // visit rhs
+    node->expr->accept(*this);
+
+    CompleteType elemType = resolveUnresolvedType(current_, node->target->type);
+    CompleteType exprType = resolveUnresolvedType(current_, node->expr->type);
+
+    handleAssignError(node->target->tupleName, elemType, exprType);
+
+    node->type = CompleteType(BaseType::UNKNOWN);
+}
+
 void SemanticAnalysisVisitor::visit(FuncCallExpr* node) {
-    // Evaluate argument expressions and build a signature to resolve the function
+    // Evaluate argument expressions and build a signature to resolve the callee
     std::vector<VarInfo> args;
     args.reserve(node->args.size());
     for (const auto& e : node->args) {
         if (e) e->accept(*this);
-        args.push_back(VarInfo{"", e ? e->type : CompleteType(BaseType::UNKNOWN), true});
+        CompleteType argType = e ? resolveUnresolvedType(current_, e->type)
+                                 : CompleteType(BaseType::UNKNOWN);
+        args.push_back(VarInfo{"", argType, true});
     }
 
-    // Resolve function by name + signature
+    // Try resolving as function
+    // -----------------------
     FuncInfo* finfo = nullptr;
     try {
         finfo = current_->resolveFunc(node->funcName, args);
     } catch (...) {
-        throw SymbolError(1, "Semantic Analysis: Unknown function '" + node->funcName + "' in expression.");
+        finfo = nullptr;
+    }
+    if (finfo) {
+        // Function call in expression
+        node->type = finfo->funcReturn;
+        node->resolvedFunc = *finfo; // cache resolved info for later passes
+        return;
     }
 
-    // Assign the resolved return type to the expression node and cache resolved info
-    if (finfo) {
-        node->type = finfo->funcReturn;
-        node->resolvedFunc = *finfo; // copy resolved info for later passes
-    } else {
-        node->type = CompleteType(BaseType::UNKNOWN);
+    // Then try resolving as procedure
+    // -----------------------
+    ProcInfo* pinfo = nullptr;
+    try {
+        pinfo = current_->resolveProc(node->funcName, args);
+    } catch (...) {
+        pinfo = nullptr;
     }
+
+    if (pinfo) {
+        // Procedures may have a return type; only those may appear in expressions.
+        if (pinfo->procReturn.baseType == BaseType::UNKNOWN) {
+            throw TypeError(1, "Semantic Analysis: procedure '" + node->funcName +
+                                  "' used as expression but has no return type.");
+        }
+        node->type = pinfo->procReturn;
+        return;
+    }
+
+    throw SymbolError(1, "Semantic Analysis: Unknown function/procedure '" +
+                            node->funcName + "' in expression.");
 }
 
 void SemanticAnalysisVisitor::visit(IfNode* node) {
@@ -761,8 +925,9 @@ void SemanticAnalysisVisitor::visit(StringNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(IdNode* node) {
-    VarInfo varInfo = *current_->resolveVar(node->id); // handles no-declr
-    node->type = varInfo.type;
+    VarInfo* varInfo = current_->resolveVar(node->id); // handles no-declr
+    node->type = varInfo->type;
+    node->binding = varInfo;
 }
 
 void SemanticAnalysisVisitor::visit(TupleLiteralNode* node) {
@@ -801,6 +966,9 @@ void SemanticAnalysisVisitor::visit(TupleAccessNode* node) {
         return; 
     }
 
+    // Bind this access node to the underlying tuple variable so codegen
+    // doesn't need to re-resolve names and can honour declaration order.
+    node->binding = varInfo;
     node->type = varInfo->type.subTypes[node->index - 1];
 }
 
@@ -949,20 +1117,24 @@ void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std:
 If empty string provided, prints non-variable promotion error msg
 */
 void SemanticAnalysisVisitor::handleAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType) {
+    // Normalise any alias-based types before checking compatibility.
+    CompleteType resolvedVarType = resolveUnresolvedType(current_, varType);
+    CompleteType resolvedExprType = resolveUnresolvedType(current_, exprType);
+
     // Encapsulate the type compatibility check here
-    if (promote(exprType, varType) != varType) {
+    if (promote(resolvedExprType, resolvedVarType) != resolvedVarType) {
         if (varName != "") {
             TypeError err(
                 1,
-                std::string("Semantic Analysis: Cannot assign type '") + toString(exprType) +
-                "' to variable '" + varName + "' of type '" + toString(varType) + "'."
+                std::string("Semantic Analysis: Cannot assign type '") + toString(resolvedExprType) +
+                "' to variable '" + varName + "' of type '" + toString(resolvedVarType) + "'."
             );
             throw err;
         } else {
             TypeError err(
                 1,
-                std::string("Semantic Analysis: Cannot assign type '") + toString(exprType) +
-                "' to expected type '" + toString(varType) + "'."
+                std::string("Semantic Analysis: Cannot assign type '") + toString(resolvedExprType) +
+                "' to expected type '" + toString(resolvedVarType) + "'."
             );
             throw err;
         }

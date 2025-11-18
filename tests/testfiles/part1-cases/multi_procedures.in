@@ -1,0 +1,24 @@
+//CHECK_FILE:./multi_procedures.out
+procedure beans() returns integer {
+    var integer a = 1;
+    a -> std_output;
+    '\n' -> std_output;
+    return a;
+}
+
+procedure rebeans() returns integer {
+    var integer a = 307;
+    a -> std_output;
+    '\n' -> std_output;
+    return a;
+}
+
+procedure main() returns integer {
+    var integer a = beans();
+    a -> std_output;
+    '\n' -> std_output;
+    a = rebeans();
+    a -> std_output;
+    '\n' -> std_output;
+    return 0;
+}

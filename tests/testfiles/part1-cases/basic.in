@@ -1,0 +1,20 @@
+//CHECK_FILE:./basic.out
+procedure main() returns integer {
+    var integer x;
+    var integer y;
+    var integer z;
+    var t = (1, 2, 3);
+
+    x, y, z = t;
+
+    x -> std_output;
+    '\n' -> std_output;
+
+    y -> std_output;
+    '\n' -> std_output;
+
+    z -> std_output;
+    '\n' -> std_output;
+
+    return 0;
+}

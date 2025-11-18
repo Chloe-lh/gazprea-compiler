@@ -1,0 +1,20 @@
+//CHECK_FILE:./tuples.out
+typealias tuple(integer, integer) point;
+
+function make_point(integer x, integer y) returns point {
+    var point t = (x,y);
+
+    return t;
+}
+
+procedure main() returns integer {
+    var point p = make_point(5, 10);
+
+    p.1 -> std_output;
+    '\n' -> std_output;
+
+    p.2 -> std_output;
+    '\n' -> std_output;
+
+    return 0;
+}

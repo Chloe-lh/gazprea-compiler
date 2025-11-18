@@ -1,0 +1,14 @@
+//CHECK_FILE:./forward_multiline.out
+procedure fact(integer x) returns integer;
+
+procedure fact(integer x) returns integer{
+    return 2 * x;
+}
+
+procedure main() returns integer {
+    var integer x = fact(2);
+    x -> std_output;
+    '\n' -> std_output;
+
+    return 0;
+}

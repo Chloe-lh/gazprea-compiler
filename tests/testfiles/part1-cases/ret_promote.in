@@ -1,0 +1,13 @@
+
+procedure test2() returns real {
+  return 3;
+}
+
+procedure main() returns integer {
+  const x = test2();
+  x + 0.1 -> std_output;
+  
+
+  '\n' -> std_output;
+  return 0;
+}

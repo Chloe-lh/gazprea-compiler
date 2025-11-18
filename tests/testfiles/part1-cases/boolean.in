@@ -1,0 +1,19 @@
+//CHECK_FILE:./boolean.out
+procedure main() returns integer {
+    tuple(boolean, boolean) t = (true, false);
+    
+    var t2 = as<tuple(boolean, boolean)>(t);
+    t == t2 -> std_output;
+    t2.1 -> std_output;
+    t2.2 -> std_output;
+    
+    t2 = as<tuple(boolean, boolean)>(('a', '\0'));
+    t2.1 -> std_output;
+    t2.2 -> std_output;
+    
+    t2 = as<tuple(boolean, boolean)>((67, 0));
+    t2.1 -> std_output;
+    t2.2 -> std_output;
+    
+	return 0;
+}

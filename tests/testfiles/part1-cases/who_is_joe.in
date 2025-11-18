@@ -1,0 +1,14 @@
+//CHECK_FILE:./who_is_joe.out
+typealias integer joe;
+
+function joe(joe joe) returns joe {
+    var joe joe = joe;
+    return joe;
+}
+
+procedure main() returns joe {
+    var joe joe = joe(20);
+    joe -> std_output;
+    '\n' -> std_output;
+    return 0;
+}

@@ -362,20 +362,22 @@ std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
   if (ctx->STRING())
     return CompleteType(BaseType::STRING);
   if (ctx->ID())
-    return CompleteType(BaseType::UNKNOWN);
+    // Store the alias name, but leaves the type as BaseType::UNRESOLVED, which will be resolved during semantic analysis
+    return CompleteType(ctx->ID()->getText());
   if (ctx->INTEGER())
     return CompleteType(BaseType::INTEGER);
   if (ctx->REAL())
     return CompleteType(BaseType::REAL);
   if (ctx->CHARACTER())
     return CompleteType(BaseType::CHARACTER);
-  return CompleteType(BaseType::UNKNOWN);
+
+  throw std::runtime_error("ASTBuilder::visitType: FATAL: Type with no known case.");
 }
 std::any
 ASTBuilder::visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) {
-  // Grammar: TYPEALIAS ID ID  -> alias the type named by ID(0) as ID(1)
-  std::string referenced = ctx->ID(0)->getText();
-  std::string aliasName = ctx->ID(1)->getText();
+  // Grammar: TYPEALIAS type ID
+  std::string referenced = ctx->type()->getText();
+  std::string aliasName = ctx->ID()->getText();
 
   CompleteType aliasedType(BaseType::UNKNOWN);
   if (referenced == "integer")
@@ -386,6 +388,7 @@ ASTBuilder::visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) {
     aliasedType = CompleteType(BaseType::BOOL);
   else if (referenced == "character")
     aliasedType = CompleteType(BaseType::CHARACTER);
+  else throw std::runtime_error("aliasing an alias not implemented");
 
   auto node = std::make_shared<TypeAliasDecNode>(aliasName, aliasedType);
   // Records the original referenced name so later passes can resolve it
@@ -398,6 +401,67 @@ std::any ASTBuilder::visitAssignStat(GazpreaParser::AssignStatContext *ctx) {
   auto exprAny = visit(ctx->expr());
   auto expr = safe_any_cast_ptr<ExprNode>(exprAny);
   auto node = std::make_shared<AssignStatNode>(name, expr);
+  return stat_any(std::move(node));
+}
+std::any ASTBuilder::visitDestructAssignStat(
+    GazpreaParser::DestructAssignStatContext *ctx) {
+  std::vector<std::string> names;
+  auto idList = ctx->ID();
+  names.reserve(idList.size());
+  for (auto *idTok : idList) {
+    if (idTok) {
+      names.push_back(idTok->getText());
+    }
+  }
+  auto exprAny = visit(ctx->expr());
+  auto expr = safe_any_cast_ptr<ExprNode>(exprAny);
+  auto node =
+      std::make_shared<DestructAssignStatNode>(std::move(names), expr);
+  return stat_any(std::move(node));
+}
+std::any ASTBuilder::visitTupleAccessAssignStat(
+    GazpreaParser::TupleAccessAssignStatContext *ctx) {
+  if (!ctx || !ctx->tuple_access() || !ctx->expr()) {
+    throw std::runtime_error("visitTupleAccessAssignStat: invalid context");
+  }
+
+  // Build the LHS TupleAccessNode directly from the tuple_access rule,
+  // mirroring visitTupleAccessExpr.
+  GazpreaParser::Tuple_accessContext *ta = ctx->tuple_access();
+  std::string tupleName;
+  int index = 0;
+
+  if (ta) {
+    if (ta->TUPACCESS()) {
+      std::string text = ta->TUPACCESS()->getText();
+      auto pos = text.find('.');
+      if (pos != std::string::npos) {
+        tupleName = text.substr(0, pos);
+        try {
+          index = std::stoi(text.substr(pos + 1));
+        } catch (...) {
+          index = 0;
+        }
+      }
+    } else {
+      if (ta->ID()) tupleName = ta->ID()->getText();
+      if (ta->INT()) {
+        try {
+          index = std::stoi(ta->INT()->getText());
+        } catch (const std::exception &) {
+          index = 0;
+        }
+      }
+    }
+  }
+
+  auto lhs = std::make_shared<TupleAccessNode>(tupleName, index);
+
+  auto rhsAny = visit(ctx->expr());
+  auto rhs = safe_any_cast_ptr<ExprNode>(rhsAny);
+
+  auto node =
+      std::make_shared<TupleAccessAssignStatNode>(std::move(lhs), std::move(rhs));
   return stat_any(std::move(node));
 }
 std::any ASTBuilder::visitBreakStat(GazpreaParser::BreakStatContext *ctx) {
@@ -425,8 +489,7 @@ std::any
 ASTBuilder::visitFuncCallExpr(GazpreaParser::FuncCallExprContext *ctx) {
   std::string funcName = ctx->ID()->getText();
   auto args = gazprea::builder_utils::collectArgs(
-      *this, std::vector<GazpreaParser::ExprContext *>(ctx->expr().begin(),
-                                                       ctx->expr().end()));
+      *this, ctx->expr());
   auto node = std::make_shared<FuncCallExpr>(funcName, std::move(args));
   return expr_any(std::move(node));
 }
@@ -632,7 +695,7 @@ std::any ASTBuilder::visitProcedure(GazpreaParser::ProcedureContext *ctx) {
     }
   }
 
-  auto node = std::make_shared<ProcedureNode>(funcName, varParams, returnType,
+  auto node = std::make_shared<ProcedureBlockNode>(funcName, varParams, returnType,
                                               body);
   return node_any(std::move(node));
 }

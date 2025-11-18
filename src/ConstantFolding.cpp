@@ -228,7 +228,7 @@ void ConstantFoldingVisitor::visit(FuncBlockNode *node){
     if(node->body) node->body->accept(*this);
     popScope();
 }
-void ConstantFoldingVisitor::visit(ProcedureNode *node) {
+void ConstantFoldingVisitor::visit(ProcedureBlockNode *node) {
     pushScope();     // new scope for parameters + locals
 
     // Parameters are represented as VarInfo in the AST and do not have
@@ -278,6 +278,23 @@ void ConstantFoldingVisitor::visit(InferredDecNode *node){
     if(node->expr){
         node->expr->accept(*this);
         removeConst(node->name); // reassign state
+    }
+  }
+  void ConstantFoldingVisitor::visit(DestructAssignStatNode *node){
+    if (node->expr) {
+        node->expr->accept(*this);
+        for (const auto &name : node->names) {
+            removeConst(name);
+        }
+    }
+  }
+  void ConstantFoldingVisitor::visit(TupleAccessAssignStatNode *node){
+    if (!node) return;
+    if (node->target) node->target->accept(*this);
+    if (node->expr) node->expr->accept(*this);
+    if (node->target) {
+        // conservative: forget any constant associated with the tuple variable
+        removeConst(node->target->tupleName);
     }
   }
   void ConstantFoldingVisitor::visit(OutputStatNode *node){ if(node->expr) node->expr->accept(*this);}

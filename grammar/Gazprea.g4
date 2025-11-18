@@ -21,7 +21,9 @@ dec
     ;
 
 stat
-    : tuple_access '->' STD_OUTPUT END            #OutputStat
+    : ID (COMMA ID)+ EQ expr END                #DestructAssignStat
+    | tuple_access EQ expr END                  #TupleAccessAssignStat     
+    | tuple_access '->' STD_OUTPUT END          #OutputStat
     | { this->_input->LA(2) == GazpreaParser::EQ }? ID EQ expr END   #AssignStat
     | expr '->' STD_OUTPUT END      #OutputStat
     | ID '<-' STD_INPUT  END        #InputStat
@@ -52,8 +54,8 @@ builtin_type
     ;
 
 type_alias
-    : TYPEALIAS ID ID   #BasicTypeAlias
-    | TYPEALIAS tuple_dec ID  #TupleTypeAlias
+    : TYPEALIAS type ID END   #BasicTypeAlias
+    | TYPEALIAS tuple_dec ID END  #TupleTypeAlias
     ;
 
 

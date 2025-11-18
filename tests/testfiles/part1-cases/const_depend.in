@@ -1,0 +1,8 @@
+//CHECK_FILE:./const_depend.out
+const a = 1;
+const b = 2;
+
+procedure main() returns integer {
+    b -> std_output;
+    return 0;
+}

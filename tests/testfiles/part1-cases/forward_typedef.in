@@ -1,0 +1,19 @@
+//CHECK_FILE:./forward_typedef.out
+procedure x(integer x) returns real;
+
+typealias integer joe;
+typealias real zig;
+
+procedure main() returns integer {
+    call x(4);
+    '\n' -> std_output;
+    return 0;
+}
+
+procedure x(joe x) returns zig {
+    var zig y;
+    x -> std_output;
+    y = 3.4;
+    y -> std_output;
+    return 3.4;
+}

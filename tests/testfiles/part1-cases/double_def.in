@@ -1,0 +1,6 @@
+//CHECK_FILE:./double_def.out
+procedure main() returns integer {
+    var integer i = 0;
+    var integer i = 0;
+    return 0;
+}

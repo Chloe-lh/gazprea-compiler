@@ -1,0 +1,7 @@
+//CHECK_FILE:./char_arith_3.out
+procedure main() returns integer {
+    var character a = 'a';
+    var character b = 'a';
+    a == b -> std_output;
+    return 0;
+}

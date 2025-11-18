@@ -1,0 +1,22 @@
+//CHECK_FILE:./proc_io.out
+typealias tuple(integer, integer) point;
+
+procedure make_point() returns point {
+    var point t;
+    t.1 = 67;
+    t.2 = 89;
+
+    return t;
+}
+
+procedure main() returns integer {
+    var point p = make_point();
+
+    p.1 -> std_output;
+    '\n' -> std_output;
+
+    p.2 -> std_output;
+    '\n' -> std_output;
+
+    return 0;
+}

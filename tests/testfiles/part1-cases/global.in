@@ -1,0 +1,12 @@
+//CHECK_FILE:./global.out
+function x() returns integer;
+
+procedure main() returns integer {
+    x() -> std_output;
+    '\n' -> std_output;
+    return 0;
+}
+
+const y = 3;
+
+function x() returns integer = y;

@@ -1,0 +1,6 @@
+//CHECK_FILE:./int_parenthesis_1.out
+procedure main() returns integer {
+    var integer i = 3;
+    (i) -> std_output;
+    return 0;
+}

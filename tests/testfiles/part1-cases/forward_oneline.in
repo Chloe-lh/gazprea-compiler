@@ -1,0 +1,11 @@
+//CHECK_FILE:./forward_oneline.out
+function fact(integer x) returns integer;
+
+function fact(integer x) returns integer = 2 * x;
+
+procedure main() returns integer {
+    fact(2) -> std_output;
+    '\n' -> std_output;
+
+    return 0;
+}

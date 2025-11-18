@@ -1,0 +1,11 @@
+//CHECK_FILE:./single_stat.out
+procedure main() returns integer {
+    var integer x = 10;
+    
+    if(x < 100) 
+        var integer x = 100;
+    
+    x -> std_output;
+    
+	return 0;
+}

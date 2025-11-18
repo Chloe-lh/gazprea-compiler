@@ -44,6 +44,8 @@ void FuncBlockNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 // Statements
 void CallStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void AssignStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void DestructAssignStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void TupleAccessAssignStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void OutputStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void InputStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void BreakStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
@@ -53,7 +55,7 @@ void IfNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void LoopNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
 // Extended nodes
-void ProcedureNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void ProcedureBlockNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TypeAliasNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TupleTypeAliasNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TupleLiteralNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
@@ -139,7 +141,7 @@ FuncBlockNode::FuncBlockNode(const std::string &name,
                nullptr) {}
 
 // Extended nodes
-ProcedureNode::ProcedureNode(const std::string &name,
+ProcedureBlockNode::ProcedureBlockNode(const std::string &name,
                              const std::vector<VarInfo> &params,
                              CompleteType returnType,
                              std::shared_ptr<BlockNode> body)
@@ -211,5 +213,12 @@ ReturnStatNode::ReturnStatNode(std::shared_ptr<ExprNode> expr)
 AssignStatNode::AssignStatNode(const std::string &name,
                                std::shared_ptr<ExprNode> expr)
     : name(name), expr(std::move(expr)) {}
+DestructAssignStatNode::DestructAssignStatNode(std::vector<std::string> names,
+                                               std::shared_ptr<ExprNode> expr)
+    : names(std::move(names)), expr(std::move(expr)) {}
+TupleAccessAssignStatNode::TupleAccessAssignStatNode(
+    std::shared_ptr<TupleAccessNode> target,
+    std::shared_ptr<ExprNode> expr)
+    : target(std::move(target)), expr(std::move(expr)) {}
 OutputStatNode::OutputStatNode(std::shared_ptr<ExprNode> expr)
     : expr(std::move(expr)) {}

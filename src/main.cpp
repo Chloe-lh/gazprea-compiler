@@ -42,16 +42,20 @@ int main(int argc, char **argv) {
   
   std::shared_ptr<FileNode> ast;
   try {
-    std::any astAny = builder.visitFile(tree);
-    // visitFile returns node_any (ASTNode*), need to cast via ASTNode first
-    auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(astAny);
-    ast = std::dynamic_pointer_cast<FileNode>(astNode);
-  } catch (const std::exception& e) {
-    std::cerr << "Error building AST: " << e.what() << std::endl;
-    return 1;
+      std::any astAny = builder.visitFile(tree);
+      // visitFile returns node_any (ASTNode*), need to cast via ASTNode first
+      auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(astAny);
+      ast = std::dynamic_pointer_cast<FileNode>(astNode);
+  } catch (const CompileTimeException &e) {
+      std::cerr << "Compile-time error building AST: " << e.what() << '\n';
+      return 1;
+  } catch (const std::exception &e) {
+      std::cerr << "Internal error building AST ("
+                << typeid(e).name() << "): " << e.what() << '\n';
+      return 1;
   } catch (...) {
-    std::cerr << "Unknown error building AST" << std::endl;
-    return 1;
+      std::cerr << "Unknown error building AST\n";
+      return 1;
   }
   
   if (!ast) {

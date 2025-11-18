@@ -336,7 +336,7 @@ void MLIRGen::visit(FileNode* node) {
 
     // Second pass: lower procedures/functions
     for (auto& n : node->stats) {
-        if (std::dynamic_pointer_cast<ProcedureNode>(n) ||
+        if (std::dynamic_pointer_cast<ProcedureBlockNode>(n) ||
             std::dynamic_pointer_cast<FuncStatNode>(n) ||
             std::dynamic_pointer_cast<FuncBlockNode>(n) ||
             std::dynamic_pointer_cast<FuncPrototypeNode>(n)) {
@@ -371,11 +371,162 @@ void MLIRGen::visit(FuncPrototypeNode* node) {
     }
 }
 
+
+/*
+Handles both functions AND procedures when called as an expression.
+*/
 void MLIRGen::visit(FuncCallExpr* node) {
-    // TODO: handle function calls
+    if (!currScope_) {
+        throw std::runtime_error("FuncCallExpr: no current scope");
+    }
+    if (!node) {
+        throw std::runtime_error("FuncCallExpr: null node");
+    }
+
+    // Evaluate argument expressions and collect their VarInfo
+    std::vector<VarInfo> argInfos;
+    argInfos.reserve(node->args.size());
+    for (const auto &argExpr : node->args) {
+        if (!argExpr) {
+            throw std::runtime_error("FuncCallExpr: null argument expression");
+        }
+        argExpr->accept(*this);
+        if (v_stack_.empty()) {
+            throw std::runtime_error("FuncCallExpr: argument evaluation did not produce a value");
+        }
+        VarInfo argInfo = popValue();
+        argInfos.push_back(argInfo);
+    }
+
+    // Build type-only VarInfo list for callee resolution
+    std::vector<VarInfo> typeOnlyArgs;
+    typeOnlyArgs.reserve(argInfos.size());
+    for (const auto &argInfo : argInfos) {
+        typeOnlyArgs.emplace_back(VarInfo{"", argInfo.type, true});
+    }
+
+    // Try resolve as function first
+    FuncInfo *funcInfo = nullptr;
+    ProcInfo *procInfo = nullptr;
+
+    try {
+        funcInfo = currScope_->resolveFunc(node->funcName, typeOnlyArgs);
+    } catch (const CompileTimeException &) {
+        funcInfo = nullptr;
+    }
+
+    bool isFunction = funcInfo != nullptr;
+
+    if (!isFunction) {
+        // Not a function; try resolving as a procedure used as expression.
+        try {
+            procInfo = currScope_->resolveProc(node->funcName, typeOnlyArgs);
+        } catch (const CompileTimeException &) {
+            procInfo = nullptr;
+        }
+
+        if (!procInfo) {
+            throw std::runtime_error("FuncCallExpr: callee '" + node->funcName + "' not found as function or procedure during codegen");
+        }
+        // safety check - should not happen
+        if (procInfo->procReturn.baseType == BaseType::UNKNOWN) {
+            throw std::runtime_error("FuncCallExpr: procedure '" + node->funcName + "' used as expression but has no return type (codegen)");
+        }
+    } else {
+        // For functions, semantic analysis ensures a concrete return type.
+        if (funcInfo->funcReturn.baseType == BaseType::UNKNOWN) {
+            throw std::runtime_error("FuncCallExpr: function '" + node->funcName + "' has UNKNOWN return type in codegen");
+        }
+    }
+
+    // Look up the callee function op in the module
+    mlir::func::FuncOp calleeFunc =
+        module_.lookupSymbol<mlir::func::FuncOp>(node->funcName);
+    if (!calleeFunc) {
+        throw std::runtime_error("FuncCallExpr: callee function '" + node->funcName + "' not found in module");
+    }
+
+    // Build argument values for MLIR call
+    std::vector<mlir::Value> callArgs;
+    callArgs.reserve(argInfos.size());
+
+    const auto &paramInfos =
+        isFunction ? funcInfo->params : procInfo->params;
+
+    for (size_t i = 0; i < argInfos.size() && i < paramInfos.size(); ++i) {
+        const auto &param = paramInfos[i];
+        const auto &argInfo = argInfos[i];
+
+        if (!param.isConst) {
+            // var parameter: pass memref directly
+            if (!argInfo.value) {
+                throw std::runtime_error("FuncCallExpr: var parameter requires mutable argument (variable), but argument has no value");
+            }
+            mlir::Type argType = argInfo.value.getType();
+            if (!argType.isa<mlir::MemRefType>()) {
+                throw std::runtime_error("FuncCallExpr: var parameter requires mutable argument (variable) with memref type");
+            }
+            callArgs.push_back(argInfo.value);
+        } else {
+            // const parameter: pass scalar value
+            mlir::Value argVal;
+            if (!argInfo.value) {
+                throw std::runtime_error("FuncCallExpr: argument has no value");
+            }
+            mlir::Type argType = argInfo.value.getType();
+            if (argType.isa<mlir::MemRefType>()) {
+                argVal = builder_.create<mlir::memref::LoadOp>(loc_, argInfo.value, mlir::ValueRange{});
+            } else {
+                argVal = argInfo.value;
+            }
+            callArgs.push_back(argVal);
+        }
+    }
+
+    auto funcType = calleeFunc.getFunctionType();
+    if (funcType.getNumInputs() != callArgs.size()) {
+        throw std::runtime_error("FuncCallExpr: argument count mismatch for callee '" +
+                                 node->funcName + "'");
+    }
+
+    // Verify each argument type matches the function signature
+    for (size_t i = 0; i < callArgs.size(); ++i) {
+        mlir::Type expectedType = funcType.getInput(i);
+        mlir::Type actualType = callArgs[i].getType();
+        if (expectedType != actualType) {
+            throw std::runtime_error("FuncCallExpr: type mismatch for argument " + std::to_string(i) + " in call to '" + node->funcName + "'");
+        }
+    }
+
+    if (!builder_.getBlock()) {
+        throw std::runtime_error("FuncCallExpr: builder has no current block");
+    }
+
+    auto callOp =
+        builder_.create<mlir::func::CallOp>(loc_, calleeFunc, callArgs);
+
+    // Handle return value (must exist for expression use)
+    if (funcType.getNumResults() == 0) {
+        throw std::runtime_error("FuncCallExpr: callee '" + node->funcName +
+                                 "' used as expression but has no return value");
+    }
+    if (funcType.getNumResults() != 1) {
+        throw std::runtime_error("FuncCallExpr: multiple return values not supported for callee '" +
+                                 node->funcName + "'");
+    }
+
+    mlir::Value retVal = callOp.getResult(0);
+
+    // Wrap returned scalar in a VarInfo with allocated memref storage
+    VarInfo resultVar(node->type);
+    allocaLiteral(&resultVar);
+    builder_.create<mlir::memref::StoreOp>(loc_, retVal, resultVar.value,
+                                           mlir::ValueRange{});
+
+    pushValue(resultVar);
 }
 
-void MLIRGen::visit(ProcedureNode* node) {
+void MLIRGen::visit(ProcedureBlockNode* node) {
     Scope* savedScope = nullptr;
     beginFunctionDefinitionWithConstants(node, node->name, node->params, node->returnType, savedScope);
     lowerFunctionOrProcedureBody(node->params, node->body, node->returnType, savedScope);
@@ -389,7 +540,7 @@ mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
         case BaseType::INTEGER: return builder_.getI32Type();
         case BaseType::REAL: return builder_.getF32Type();
         default:
-            throw std::runtime_error("Unsupported global type: " + toString(type));
+            throw std::runtime_error("getLLVMType: Unsupported type: " + toString(type));
     }
 }
 
@@ -519,6 +670,99 @@ void MLIRGen::visit(AssignStatNode* node) {
     }
 
     assignTo(&from, to);
+}
+
+void MLIRGen::visit(TupleAccessAssignStatNode* node) {
+    if (!node->target || !node->expr) {
+        throw std::runtime_error("TupleAccessAssignStatNode: missing target or expression");
+    }
+
+    // Evaluate RHS expression
+    node->expr->accept(*this);
+    VarInfo from = popValue();
+    if (from.type.baseType == BaseType::UNKNOWN) {
+        throw std::runtime_error("TupleAccessAssignStatNode: RHS has UNKNOWN type");
+    }
+
+    TupleAccessNode* target = node->target.get();
+    VarInfo* tupleVar = target->binding;
+    if (!tupleVar) {
+        throw std::runtime_error("TupleAccessAssignStatNode: target has no bound tuple variable");
+    }
+    if (tupleVar->type.baseType != BaseType::TUPLE) {
+        throw std::runtime_error("TupleAccessAssignStatNode: target variable '" +
+                                 target->tupleName + "' is not a tuple");
+    }
+
+    // Ensure tuple storage exists
+    if (tupleVar->mlirSubtypes.empty()) {
+        allocaVar(tupleVar);
+    }
+
+    if (target->index < 1 || static_cast<size_t>(target->index) > tupleVar->mlirSubtypes.size()) {
+        throw std::runtime_error("TupleAccessAssignStatNode: index out of range for tuple '" +
+                                 target->tupleName + "'");
+    }
+
+    VarInfo& elem = tupleVar->mlirSubtypes[target->index - 1];
+
+    // Promote RHS to element type if needed and store
+    VarInfo promoted = promoteType(&from, &elem.type);
+    mlir::Value loaded = builder_.create<mlir::memref::LoadOp>(
+        loc_, promoted.value, mlir::ValueRange{});
+    builder_.create<mlir::memref::StoreOp>(
+        loc_, loaded, elem.value, mlir::ValueRange{});
+}
+
+void MLIRGen::visit(DestructAssignStatNode* node) {
+    if (!node->expr) {
+        throw std::runtime_error("FATAL: No expression for destructuring assignment.");
+    }
+
+    // Evaluate RHS tuple expression
+    node->expr->accept(*this);
+    VarInfo fromTuple = popValue();
+
+    if (fromTuple.type.baseType != BaseType::TUPLE) {
+        throw AssignError(1, "Codegen: destructuring assignment requires a tuple expression on the right-hand side.");
+    }
+
+    if (fromTuple.type.subTypes.size() != node->names.size()) {
+        throw AssignError(1, "Codegen: tuple arity mismatch in destructuring assignment.");
+    }
+
+    // Build a synthetic destination tuple whose elements refer to the actual target variables' storage in order to reuse assignTo's tuple elementwise logic without allocating new storage
+    CompleteType destType(BaseType::TUPLE);
+    destType.subTypes.reserve(node->names.size());
+
+    VarInfo destTuple(destType);
+    destTuple.isConst = false;
+
+    for (size_t i = 0; i < node->names.size(); ++i) {
+        const std::string &name = node->names[i];
+        VarInfo* target = currScope_->resolveVar(name);
+        if (!target) {
+            throw SymbolError(1, "Codegen: variable '" + name + "' not defined in destructuring assignment.");
+        }
+        if (target->isConst) {
+            throw AssignError(1, "Codegen: cannot assign to const variable '" + name + "' in destructuring assignment.");
+        }
+
+        // Ensure scalar storage exists
+        if (target->type.baseType != BaseType::TUPLE && !target->value) {
+            allocaVar(target);
+        }
+
+        destType.subTypes.push_back(target->type);
+        VarInfo elem(target->type);
+        elem.isConst = target->isConst;
+        elem.value = target->value;
+        destTuple.mlirSubtypes.push_back(elem);
+    }
+
+    destTuple.type = destType;
+
+    assignTo(&fromTuple, &destTuple);
 }
 
 void MLIRGen::visit(OutputStatNode* node) {
@@ -1047,34 +1291,61 @@ void MLIRGen::visit(TupleAccessNode* node) {
     if (!currScope_) {
         throw std::runtime_error("TupleAccessNode: no current scope");
     }
-    
-    // Resolve the tuple variable
-    VarInfo* tupleVarInfo = currScope_->resolveVar(node->tupleName);
-    
+
+    VarInfo* tupleVarInfo = node->binding;
     if (!tupleVarInfo) {
-        throw SymbolError(1, "Semantic Analysis: Variable '" + node->tupleName + "' not defined.");
+        throw std::runtime_error("TupleAccessNode: no bound tuple variable for '" + node->tupleName + "'");
     }
-    
+
     if (tupleVarInfo->type.baseType != BaseType::TUPLE) {
         throw std::runtime_error("TupleAccessNode: Variable '" + node->tupleName + "' is not a tuple.");
     }
-    
-    // Ensure tuple storage is allocated
+
+    // Ensure tuple storage exists and, if this is a global const tuple, populate
+    // its elements from the per-element globals "<name>$<index>".
     if (tupleVarInfo->mlirSubtypes.empty()) {
+        // Allocate element memrefs for the tuple variable
         allocaVar(tupleVarInfo);
+
+        // Attempt to initialise from tuple element globals (for global consts)
+        bool haveAllElementGlobals = true;
+        std::vector<mlir::LLVM::GlobalOp> elemGlobals;
+        elemGlobals.reserve(tupleVarInfo->mlirSubtypes.size());
+        for (size_t i = 0; i < tupleVarInfo->mlirSubtypes.size(); ++i) {
+            std::string elemName = node->tupleName + "$" + std::to_string(i);
+            auto elemGlobal = module_.lookupSymbol<mlir::LLVM::GlobalOp>(elemName);
+            if (!elemGlobal) {
+                haveAllElementGlobals = false;
+                break;
+            }
+            elemGlobals.push_back(elemGlobal);
+        }
+
+        if (haveAllElementGlobals) {
+            for (size_t i = 0; i < elemGlobals.size(); ++i) {
+                auto globalOp = elemGlobals[i];
+                mlir::Value addr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
+                mlir::Type elemTy = globalOp.getType();
+                mlir::Value val = builder_.create<mlir::LLVM::LoadOp>(loc_, elemTy, addr);
+                builder_.create<mlir::memref::StoreOp>(
+                    loc_, val, tupleVarInfo->mlirSubtypes[i].value, mlir::ValueRange{});
+            }
+        }
     }
-    
+
+    if (tupleVarInfo->mlirSubtypes.empty()) {
+        throw std::runtime_error("TupleAccessNode: Tuple variable '" + node->tupleName + "' has no allocated subtypes.");
+    }
+
     // Validate index (1-based)
     if (node->index < 1 || node->index > tupleVarInfo->mlirSubtypes.size()) {
-        throw std::runtime_error("TupleAccessNode: Index " + std::to_string(node->index) + 
+        throw std::runtime_error("TupleAccessNode: Index " + std::to_string(node->index) +
             " out of range for tuple of size " + std::to_string(tupleVarInfo->mlirSubtypes.size()));
     }
-    
+
     // Get the element at the specified index (convert from 1-based to 0-based)
-    // Copy the VarInfo instead of using a reference to avoid issues with vector reallocation
     VarInfo elementVarInfo = tupleVarInfo->mlirSubtypes[node->index - 1];
-    
-    // Ensure the element has a valid value (should be set by allocaVar)
+
     if (!elementVarInfo.value) {
         throw std::runtime_error("TupleAccessNode: Element at index " + std::to_string(node->index) + 
             " of tuple '" + node->tupleName + "' has no allocated value.");
@@ -1157,8 +1428,13 @@ void MLIRGen::visit(IdNode* node) {
     if (!currScope_) {
         throw std::runtime_error("visit(IdNode*): no current scope");
     }
-    
-    VarInfo* varInfo = currScope_->resolveVar(node->id);
+
+    // Prefer the binding established during semantic analysis to honour
+    // declaration order and shadowing (e.g., parameter vs local with same name).
+    VarInfo* varInfo = node->binding;
+    if (!varInfo) {
+        throw std::runtime_error("visit(IdNode*): IdNode did not receive bound variable");
+    }
 
     if (!varInfo) {
         throw SymbolError(1, "Semantic Analysis: Variable '" + node->id + "' not defined.");

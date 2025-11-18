@@ -1,0 +1,16 @@
+//CHECK_FILE:./forward_declaration.out
+procedure beans() returns integer;
+
+procedure main() returns integer {
+    var integer a = beans();
+    a -> std_output;
+    '\n' -> std_output;
+    return 0;
+}
+
+procedure beans() returns integer {
+    var integer a = 1;
+    a -> std_output;
+    '\n' -> std_output;
+    return a;
+}

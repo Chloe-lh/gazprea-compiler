@@ -4,6 +4,8 @@
 #include <unordered_map>
 #include <memory>
 
+// Helper for resolving alias types that were marked BaseType::UNRESOLVED during building
+CompleteType resolveUnresolvedType(Scope *scope, const CompleteType &t);
 
 class SemanticAnalysisVisitor: public ASTVisitor {
     public:
@@ -16,7 +18,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         virtual void visit(FuncStatNode* node) override; 
         virtual void visit(FuncPrototypeNode* node) override;
         virtual void visit(FuncBlockNode* node) override;
-        virtual void visit(ProcedureNode* node) override;
+        virtual void visit(ProcedureBlockNode* node) override;
         
         // Declarations
         virtual void visit(TypedDecNode* node) override;
@@ -28,6 +30,8 @@ class SemanticAnalysisVisitor: public ASTVisitor {
 
         // Statements
         virtual void visit(AssignStatNode* node)    override;
+        virtual void visit(DestructAssignStatNode* node) override;
+        virtual void visit(TupleAccessAssignStatNode* node) override;
         virtual void visit(OutputStatNode* node)    override;
         virtual void visit(InputStatNode* node)     override;
         virtual void visit(BreakStatNode* node)     override;

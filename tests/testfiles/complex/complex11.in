@@ -2,7 +2,7 @@
 
 // Tuple alias used with a loop and tuple reassignment.
 
-typealias tuple(integer, character, real) Triple
+typealias tuple(integer, character, real) Triple;
 
 const tuple(integer, character, real) BASE = (10, 'z', 0.5);
 
