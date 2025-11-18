@@ -271,36 +271,29 @@ void MLIRGen::lowerFunctionOrProcedureBody(const std::vector<VarInfo> &params,
     
     auto &entry = funcOp.front();
 
-    // Emit a single return at the end of the entry block. return statements in the middle of the body use `currentReturnFlag_` to determine if return happens
-    builder_.setInsertionPointToEnd(&entry);
-    if (returnType.baseType == BaseType::UNKNOWN) {
-        builder_.create<mlir::func::ReturnOp>(loc_);
-    } else {
-        if (!currentFunctionHasReturn_) {
-            throw std::runtime_error("missing return in non-void function");
+    // Legacy behaviour: allow multiple func.return ops in function blocks.
+    // Check if ANY block in the function body has a return terminator.
+    bool hasReturn = false;
+    for (auto &block : funcOp.getBody().getBlocks()) {
+        if (!block.empty() &&
+            block.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+            if (llvm::isa<mlir::func::ReturnOp>(block.back())) {
+                hasReturn = true;
+                break;
+            }
         }
-        if (!currentReturnValue_) {
-            throw std::runtime_error(
-                "internal error: no return storage for non-void function");
-        }
-
-        // build function return type signature
-        mlir::Value retVal;
-        if (returnType.baseType == BaseType::TUPLE) {
-            mlir::Type structTy = getLLVMType(returnType);
-            retVal = builder_.create<mlir::LLVM::LoadOp>(
-                loc_, structTy, currentReturnValue_);
-        } else {
-            retVal = builder_.create<mlir::memref::LoadOp>(
-                loc_, currentReturnValue_, mlir::ValueRange{});
-        }
-        builder_.create<mlir::func::ReturnOp>(loc_, retVal);
     }
 
-    // Reset function-level return tracking
-    currentReturnFlag_ = nullptr;
-    currentReturnValue_ = nullptr;
-    currentFunctionHasReturn_ = false;
+    // Set insertion point to the end of the entry block
+    builder_.setInsertionPointToEnd(&entry);
+
+    // If no return was found, add one
+    if (!hasReturn) {
+        if (returnType.baseType == BaseType::UNKNOWN)
+            builder_.create<mlir::func::ReturnOp>(loc_);
+        else
+            throw std::runtime_error("missing return in non-void function");
+    }
 
     currScope_ = savedScope;
 }
@@ -1022,49 +1015,41 @@ void MLIRGen::visit(OutputStatNode* node) {
 
 // Not necessary. For part 2
 void MLIRGen::visit(InputStatNode* node) { throw std::runtime_error("InputStatNode not implemented"); }
+
 void MLIRGen::visit(BreakStatNode* node) {
     if (loopContexts_.empty()) {
         throw std::runtime_error("BreakStatNode: break statement outside of loop");
     }
-    // Set the break flag to false, which will cause the loop to exit
     auto& loopCtx = loopContexts_.back();
-    mlir::Type i1Type = builder_.getI1Type();
-    auto falseAttr = builder_.getIntegerAttr(i1Type, 0);
-    auto falseConst = builder_.create<mlir::arith::ConstantOp>(loc_, i1Type, falseAttr);
-    builder_.create<mlir::memref::StoreOp>(loc_, falseConst.getResult(), loopCtx.breakFlag, mlir::ValueRange{});
-    // Note: We can't directly yield from the loop body here since we're inside an if region
-    // The break flag will cause the loop to exit on the next condition check
-    // This means statements after the if will still execute in the current iteration
-    // This is a known limitation of using MLIR SCF for imperative break statements
+    if (!loopCtx.exitBlock) {
+        throw std::runtime_error("BreakStatNode: loop context missing exit block");
+    }
+    // Branch to the loop's exit block
+    builder_.create<mlir::cf::BranchOp>(loc_, loopCtx.exitBlock);
 }
 
 void MLIRGen::visit(ContinueStatNode* node) {
     if (loopContexts_.empty()) {
         throw std::runtime_error("ContinueStatNode: continue statement outside of loop");
     }
-    // Set the continue flag to false to skip remaining statements in the loop body.
-    // The flag will be reset to true at the start of the next iteration.
     auto& loopCtx = loopContexts_.back();
-    mlir::Type i1Type = builder_.getI1Type();
-    auto falseAttr = builder_.getIntegerAttr(i1Type, 0);
-    auto falseConst = builder_.create<mlir::arith::ConstantOp>(loc_, i1Type, falseAttr);
-    builder_.create<mlir::memref::StoreOp>(loc_, falseConst.getResult(), loopCtx.continueFlag, mlir::ValueRange{});
+    if (!loopCtx.continueBlock) {
+        throw std::runtime_error("ContinueStatNode: loop context missing continue block");
+    }
+    // Branch to the loop's continue block (typically the condition block or
+    // directly to the loop body for plain loops).
+    builder_.create<mlir::cf::BranchOp>(loc_, loopCtx.continueBlock);
 }
 
 void MLIRGen::visit(ReturnStatNode* node) {
-    if (!currentReturnFlag_) throw std::runtime_error("visit(ReturnStatNode*): currentReturnFlag not initalized!");
-
     const CompleteType* retTy = currScope_ ? currScope_->getReturnType() : nullptr;
+    if (!retTy) {
+        throw std::runtime_error("visit(ReturnStatNode*): no enclosing function");
+    }
 
-    // Handle 'void' returning function. Sets flag to skip rest of lines in function.
+    // Void return: emit direct func.return with no operands.
     if (retTy->baseType == BaseType::UNKNOWN) {
-        mlir::Type i1Ty = builder_.getI1Type();
-        auto falseAttr = builder_.getIntegerAttr(i1Ty, 0);
-        auto falseConst = builder_.create<mlir::arith::ConstantOp>(loc_, i1Ty, falseAttr);
-        builder_.create<mlir::memref::StoreOp>(
-            loc_, falseConst.getResult(), currentReturnFlag_,
-            mlir::ValueRange{});
-        currentFunctionHasReturn_ = true;
+        builder_.create<mlir::func::ReturnOp>(loc_);
         return;
     }
     if (!node->expr) {
@@ -1076,34 +1061,17 @@ void MLIRGen::visit(ReturnStatNode* node) {
     if (v.type.baseType == BaseType::UNKNOWN) {
         throw std::runtime_error("visit(ReturnStatNode*): return expression has UNKNOWN type");
     }
-    if (!currentReturnValue_) {
-        throw std::runtime_error("visit(ReturnStatNode*): No `currentReturnValue_` initialized when evaluating return.");
-    }
-
-    // Handle functions w/ return type. Different cases for memref types (scalars) and ptr->struct (tuples).
     VarInfo promoted = promoteType(&v, const_cast<CompleteType*>(retTy));
+    mlir::Value retVal;
     if (retTy->baseType == BaseType::TUPLE) {
         mlir::Type structTy = getLLVMType(*retTy);
-        mlir::Value structVal = builder_.create<mlir::LLVM::LoadOp>(
+        retVal = builder_.create<mlir::LLVM::LoadOp>(
             loc_, structTy, promoted.value);
-        builder_.create<mlir::LLVM::StoreOp>(
-            loc_, structVal, currentReturnValue_);
     } else {
-        mlir::Value loaded = builder_.create<mlir::memref::LoadOp>(
+        retVal = builder_.create<mlir::memref::LoadOp>(
             loc_, promoted.value, mlir::ValueRange{});
-        builder_.create<mlir::memref::StoreOp>(
-            loc_, loaded, currentReturnValue_, mlir::ValueRange{});
     }
-
-    // Set return flags to ensure further lines are skipped.
-    mlir::Type i1Ty = builder_.getI1Type();
-    auto falseAttr = builder_.getIntegerAttr(i1Ty, 0);
-    auto falseConst =
-        builder_.create<mlir::arith::ConstantOp>(loc_, i1Ty, falseAttr);
-    builder_.create<mlir::memref::StoreOp>(
-        loc_, falseConst.getResult(), currentReturnFlag_,
-        mlir::ValueRange{});
-    currentFunctionHasReturn_ = true;
+    builder_.create<mlir::func::ReturnOp>(loc_, retVal);
 }
 void MLIRGen::visit(CallStatNode* node) {
     if (!node || !node->call) {
@@ -1235,7 +1203,6 @@ void MLIRGen::visit(CallStatNode* node) {
     // Since this is a call statement, we just discard the result
 }
 void MLIRGen::visit(IfNode* node) {
-    
     // Evaluate the condition expression in the current block
     node->cond->accept(*this);
     VarInfo condVarInfo = popValue();
@@ -1244,161 +1211,174 @@ void MLIRGen::visit(IfNode* node) {
     mlir::Value conditionValue = builder_.create<mlir::memref::LoadOp>(
         loc_, condVarInfo.value, mlir::ValueRange{});
 
-    // Determine if we have an else branch
     bool hasElse = (node->elseBlock != nullptr) || (node->elseStat != nullptr);
-    
-    // Create the scf.if operation
-    auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, conditionValue, hasElse);
 
-    // Build the 'then' region
-    auto& thenBlock = ifOp.getThenRegion().front();
-    
-    // Set insertion point to the start of the then block
-    builder_.setInsertionPointToStart(&thenBlock);
-    
-    // Visit the then branch
+    // Current block and parent region where new blocks will be inserted.
+    mlir::Block *currentBlock = builder_.getBlock();
+    if (!currentBlock) {
+        throw std::runtime_error("IfNode: builder has no current block");
+    }
+    mlir::Region *region = currentBlock->getParent();
+    if (!region) {
+        throw std::runtime_error("IfNode: current block has no parent region");
+    }
+
+    // Create then/else/merge blocks in the same region.
+    auto *thenBlock = new mlir::Block();
+    region->push_back(thenBlock);
+
+    mlir::Block *elseBlock = nullptr;
+    if (hasElse) {
+        elseBlock = new mlir::Block();
+        region->push_back(elseBlock);
+    }
+
+    auto *mergeBlock = new mlir::Block();
+    region->push_back(mergeBlock);
+
+    // Conditional branch from the current block.
+    if (hasElse) {
+        builder_.create<mlir::cf::CondBranchOp>(
+            loc_, conditionValue,
+            thenBlock, mlir::ValueRange{},
+            elseBlock, mlir::ValueRange{});
+    } else {
+        builder_.create<mlir::cf::CondBranchOp>(
+            loc_, conditionValue,
+            thenBlock, mlir::ValueRange{},
+            mergeBlock, mlir::ValueRange{});
+    }
+
+    // Then branch.
+    builder_.setInsertionPointToStart(thenBlock);
     if (node->thenBlock) {
         node->thenBlock->accept(*this);
     } else if (node->thenStat) {
         node->thenStat->accept(*this);
     }
-    
-    // Insert yield only if there isn't already a terminator (e.g., from break/continue)
-    if (thenBlock.empty() 
-    || !thenBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-        builder_.setInsertionPointToEnd(&thenBlock);
-        builder_.create<mlir::scf::YieldOp>(loc_);
+    if (thenBlock->empty() ||
+        !thenBlock->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+        builder_.setInsertionPointToEnd(thenBlock);
+        builder_.create<mlir::cf::BranchOp>(loc_, mergeBlock);
     }
 
-
-    // Build the 'else' region if it exists
+    // Else branch (if present).
     if (hasElse) {
-        auto& elseBlock = ifOp.getElseRegion().front();
-        
-        // Set insertion point to the start of the else block
-        builder_.setInsertionPointToStart(&elseBlock);
-        
-        // Visit the else branch
+        builder_.setInsertionPointToStart(elseBlock);
         if (node->elseBlock) {
             node->elseBlock->accept(*this);
         } else if (node->elseStat) {
             node->elseStat->accept(*this);
         }
-        
-        // Insert yield only if there isn't already a terminator (e.g., from break/continue)
-        if (elseBlock.empty() 
-        || !elseBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-            builder_.setInsertionPointToEnd(&elseBlock);
-            builder_.create<mlir::scf::YieldOp>(loc_);
+        if (elseBlock->empty() ||
+            !elseBlock->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+            builder_.setInsertionPointToEnd(elseBlock);
+            builder_.create<mlir::cf::BranchOp>(loc_, mergeBlock);
         }
     }
 
-    // Restore insertion point after the if operation
-    builder_.setInsertionPointAfter(ifOp);
+    // Continue inserting after the if in the merge block.
+    builder_.setInsertionPointToStart(mergeBlock);
 }
 void MLIRGen::visit(LoopNode* node) {
     if (!node->body) {
         throw std::runtime_error("LoopNode: loop body is null");
     }
 
-    // Create a break flag (true = continue, false = break)
-    CompleteType boolType = CompleteType(BaseType::BOOL);
-    VarInfo breakFlagVar = VarInfo(boolType);
-    allocaVar(&breakFlagVar);
-    mlir::Type i1Type = builder_.getI1Type();
-    auto trueAttr = builder_.getIntegerAttr(i1Type, 1);
-    auto trueConst = builder_.create<mlir::arith::ConstantOp>(loc_, i1Type, trueAttr);
-    builder_.create<mlir::memref::StoreOp>(loc_, trueConst.getResult(), breakFlagVar.value, mlir::ValueRange{});
-    
-    // Create a continue flag (true = execute body, false = skip to next iteration)
-    VarInfo continueFlagVar = VarInfo(boolType);
-    allocaVar(&continueFlagVar);
-    builder_.create<mlir::memref::StoreOp>(loc_, trueConst.getResult(), continueFlagVar.value, mlir::ValueRange{});
-    
-    // Create scf.while operation (empty initially)
-    auto whileOp = builder_.create<mlir::scf::WhileOp>(loc_, mlir::TypeRange{}, mlir::ValueRange{});
-    
-    // Save insertion point AFTER creating the loop 
-    auto savedIPAfterLoop = builder_.saveInsertionPoint();
-    
-    // Build the "before" region (condition check)
-    mlir::Region& beforeRegion = whileOp.getBefore();
-    mlir::Block* beforeBlock = new mlir::Block();
-    beforeRegion.push_back(beforeBlock);
-    
-    {
-        auto savedIP = builder_.saveInsertionPoint();
-        builder_.setInsertionPointToStart(beforeBlock);
-        
-        mlir::Value condValue;
-        mlir::Value breakFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, breakFlagVar.value, mlir::ValueRange{});
-        
-        if (node->kind == LoopKind::While && node->cond) {
-            // Re-evaluate condition in the before region
-            node->cond->accept(*this);
-            VarInfo condVarInfo = popValue();
-            mlir::Value condVal = builder_.create<mlir::memref::LoadOp>(loc_, condVarInfo.value, mlir::ValueRange{});
-            // Combine condition with break flag: loop continues if condition is true AND break flag is true
-            condValue = builder_.create<mlir::arith::AndIOp>(loc_, condVal, breakFlagVal);
-        } else {
-            // Plain loop: continue if break flag is true
-            condValue = breakFlagVal;
-        }
-
-        // Also stop the loop once the function has returned (if return
-        // tracking is active).
-        if (currentReturnFlag_) {
-            mlir::Value activeVal = builder_.create<mlir::memref::LoadOp>(
-                loc_, currentReturnFlag_, mlir::ValueRange{});
-            condValue = builder_.create<mlir::arith::AndIOp>(
-                loc_, condValue, activeVal);
-        }
-        
-        // Yield the condition value
-        builder_.create<mlir::scf::ConditionOp>(loc_, condValue, mlir::ValueRange{});
-        
-        builder_.restoreInsertionPoint(savedIP);
+    mlir::Block *preBlock = builder_.getBlock();
+    if (!preBlock) {
+        throw std::runtime_error("LoopNode: builder has no current block");
     }
-    
-    // Build the "after" region (loop body)
-    mlir::Region& afterRegion = whileOp.getAfter();
-    mlir::Block* afterBlock = new mlir::Block();
-    afterRegion.push_back(afterBlock);
-    
-    {
-        auto savedIP = builder_.saveInsertionPoint();
-        builder_.setInsertionPointToStart(afterBlock);
-        
-        // Reset continue flag to true at the start of each iteration
-        auto trueConstAfter = builder_.create<mlir::arith::ConstantOp>(loc_, i1Type, trueAttr);
-        builder_.create<mlir::memref::StoreOp>(loc_, trueConstAfter.getResult(), continueFlagVar.value, mlir::ValueRange{});
-
-        // Push loop context for break/continue
-        LoopContext loopCtx;
-        loopCtx.exitBlock = nullptr;
-        loopCtx.continueBlock = nullptr;
-        loopCtx.breakFlag = breakFlagVar.value;
-        loopCtx.continueFlag = continueFlagVar.value;
-        loopContexts_.push_back(loopCtx);
-        
-        // Visit the loop body.
-        if (node->body) {
-            node->body->accept(*this);
-        }
-        
-        // Pop loop context
-        loopContexts_.pop_back();
-
-        // The 'after' region of the while loop also needs a terminator.
-        if (afterBlock->empty() || !afterBlock->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-            builder_.create<mlir::scf::YieldOp>(loc_);
-        }
-        
-        builder_.restoreInsertionPoint(savedIP);
+    mlir::Region *region = preBlock->getParent();
+    if (!region) {
+        throw std::runtime_error("LoopNode: current block has no parent region");
     }
-    
-    // Restore insertion point to after the loop was created
-    builder_.restoreInsertionPoint(savedIPAfterLoop);
+
+    // Create blocks for the loop structure.
+    auto *bodyBlock = new mlir::Block();
+    region->push_back(bodyBlock);
+
+    auto *exitBlock = new mlir::Block();
+    region->push_back(exitBlock);
+
+    mlir::Block *condBlock = nullptr;
+    if (node->kind == LoopKind::While || node->kind == LoopKind::WhilePost) {
+        condBlock = new mlir::Block();
+        region->push_back(condBlock);
+    }
+
+    // Initial branch from the pre-loop block.
+    if (node->kind == LoopKind::While) {
+        builder_.create<mlir::cf::BranchOp>(loc_, condBlock);
+    } else { // Plain and WhilePost: execute body first.
+        builder_.create<mlir::cf::BranchOp>(loc_, bodyBlock);
+    }
+
+    // For pre-check while, emit the condition block now.
+    if (node->kind == LoopKind::While && node->cond) {
+        builder_.setInsertionPointToStart(condBlock);
+        node->cond->accept(*this);
+        VarInfo condVarInfo = popValue();
+        mlir::Value condVal = builder_.create<mlir::memref::LoadOp>(
+            loc_, condVarInfo.value, mlir::ValueRange{});
+        builder_.create<mlir::cf::CondBranchOp>(
+            loc_, condVal,
+            bodyBlock, mlir::ValueRange{},
+            exitBlock, mlir::ValueRange{});
+    }
+
+    // Enter loop body.
+    builder_.setInsertionPointToStart(bodyBlock);
+    LoopContext loopCtx;
+    loopCtx.exitBlock = exitBlock;
+    loopCtx.continueBlock =
+        (node->kind == LoopKind::Plain ? bodyBlock : condBlock);
+    loopContexts_.push_back(loopCtx);
+
+    node->body->accept(*this);
+
+    loopContexts_.pop_back();
+
+    // After the body, if the current block is not yet terminated, branch to the appropriate continuation (condition or body) or emit the post condition for WhilePost.
+    mlir::Block *curBlock = builder_.getBlock();
+    auto needsTerminator = [&](mlir::Block *b) {
+        return b && (b->empty() ||
+                     !b->back().hasTrait<mlir::OpTrait::IsTerminator>());
+    };
+
+    if (node->kind == LoopKind::Plain) {
+        if (needsTerminator(curBlock)) {
+            builder_.create<mlir::cf::BranchOp>(loc_, bodyBlock);
+        }
+    } else if (node->kind == LoopKind::While) {
+        if (needsTerminator(curBlock)) {
+            builder_.create<mlir::cf::BranchOp>(loc_, condBlock);
+        }
+    } else if (node->kind == LoopKind::WhilePost) {
+        if (!condBlock) {
+            throw std::runtime_error(
+                "LoopNode: WhilePost loop missing condition block");
+        }
+        if (needsTerminator(curBlock)) {
+            builder_.create<mlir::cf::BranchOp>(loc_, condBlock);
+        }
+        builder_.setInsertionPointToStart(condBlock);
+        if (!node->cond) {
+            throw std::runtime_error(
+                "LoopNode: WhilePost kind requires a condition");
+        }
+        node->cond->accept(*this);
+        VarInfo condVarInfo = popValue();
+        mlir::Value condVal = builder_.create<mlir::memref::LoadOp>(
+            loc_, condVarInfo.value, mlir::ValueRange{});
+        builder_.create<mlir::cf::CondBranchOp>(
+            loc_, condVal,
+            bodyBlock, mlir::ValueRange{},
+            exitBlock, mlir::ValueRange{});
+    }
+
+    // Continue inserting after the loop in the exit block.
+    builder_.setInsertionPointToStart(exitBlock);
 }
 
 void MLIRGen::visit(BlockNode* node) {
@@ -1411,105 +1391,25 @@ void MLIRGen::visit(BlockNode* node) {
         throw std::runtime_error("FATAL: no corresponding scope found for BlockNode instance.");
     }
 
-    bool inLoop = !loopContexts_.empty();
-
-    // Process declarations, wrapping each in a conditional if we're in a loop
+    // Process declarations
     for (const auto& d : node->decs) {
         if (d) {
-            if (inLoop) {
-                auto& loopCtx = loopContexts_.back();
-                mlir::Value breakFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.breakFlag, mlir::ValueRange{});
-                mlir::Value continueFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.continueFlag, mlir::ValueRange{});
-                mlir::Value shouldExecute = builder_.create<mlir::arith::AndIOp>(loc_, breakFlagVal, continueFlagVal);
-                // Also gate execution on the function's active flag, if present.
-                if (currentReturnFlag_) {
-                    mlir::Value activeVal = builder_.create<mlir::memref::LoadOp>(
-                        loc_, currentReturnFlag_, mlir::ValueRange{});
-                    shouldExecute = builder_.create<mlir::arith::AndIOp>(
-                        loc_, shouldExecute, activeVal);
-                }
-                
-                auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, shouldExecute, false);
-                builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
-                
-                d->accept(*this);
-                
-                if (ifOp.getThenRegion().front().empty() || !ifOp.getThenRegion().front().back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-                    builder_.create<mlir::scf::YieldOp>(loc_);
-                }
-                
-                builder_.setInsertionPointAfter(ifOp);
-            } else if (currentReturnFlag_) {
-                // Outside loops, gate declarations on the function's active flag.
-                mlir::Value activeVal = builder_.create<mlir::memref::LoadOp>(
-                    loc_, currentReturnFlag_, mlir::ValueRange{});
-                auto ifOp =
-                    builder_.create<mlir::scf::IfOp>(loc_, activeVal, false);
-                auto &thenBlock = ifOp.getThenRegion().front();
-                builder_.setInsertionPointToStart(&thenBlock);
-                d->accept(*this);
-                if (thenBlock.empty() ||
-                    !thenBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-                    builder_.setInsertionPointToEnd(&thenBlock);
-                    builder_.create<mlir::scf::YieldOp>(loc_);
-                }
-                builder_.setInsertionPointAfter(ifOp);
-            } else {
-                d->accept(*this);
-            }
+            d->accept(*this);
         }
     }
     
     // After processing declarations, prevent further declarations in this block
     currScope_->disableDeclarations();
     
-    // Process statements, wrapping each in a conditional if we're in a loop
+    // Process statements; stop once we hit a terminator in the current block.
     for (const auto& s : node->stats) {
         if (s) {
-            if (inLoop) {
-                auto& loopCtx = loopContexts_.back();
-                mlir::Value breakFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.breakFlag, mlir::ValueRange{});
-                mlir::Value continueFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.continueFlag, mlir::ValueRange{});
-                mlir::Value shouldExecute = builder_.create<mlir::arith::AndIOp>(loc_, breakFlagVal, continueFlagVal);
-                // Also gate execution on the function's active flag, if present.
-                if (currentReturnFlag_) {
-                    mlir::Value activeVal = builder_.create<mlir::memref::LoadOp>(
-                        loc_, currentReturnFlag_, mlir::ValueRange{});
-                    shouldExecute = builder_.create<mlir::arith::AndIOp>(
-                        loc_, shouldExecute, activeVal);
-                }
-                
-                auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, shouldExecute, false);
-                builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
-                
-                s->accept(*this);
-                
-                auto &thenBlock = ifOp.getThenRegion().front();
-                if (thenBlock.empty() ||
-                    !thenBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-                    builder_.setInsertionPointToEnd(&thenBlock);
-                    builder_.create<mlir::scf::YieldOp>(loc_);
-                }
-
-                builder_.setInsertionPointAfter(ifOp);
-            } else if (currentReturnFlag_) {
-                // Outside loops, gate statements on the function's active flag.
-                mlir::Value activeVal = builder_.create<mlir::memref::LoadOp>(
-                    loc_, currentReturnFlag_, mlir::ValueRange{});
-                auto ifOp =
-                    builder_.create<mlir::scf::IfOp>(loc_, activeVal, false);
-                auto &thenBlock = ifOp.getThenRegion().front();
-                builder_.setInsertionPointToStart(&thenBlock);
-                s->accept(*this);
-                if (thenBlock.empty() ||
-                    !thenBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-                    builder_.setInsertionPointToEnd(&thenBlock);
-                    builder_.create<mlir::scf::YieldOp>(loc_);
-                }
-                builder_.setInsertionPointAfter(ifOp);
-            } else {
-                s->accept(*this);
+            mlir::Block *block = builder_.getBlock();
+            if (block && !block->empty() &&
+                block->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+                break;
             }
+            s->accept(*this);
         }
     }
 
