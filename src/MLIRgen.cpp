@@ -305,7 +305,7 @@ void MLIRGen::visit(FileNode* node) {
             throw std::runtime_error("FATAL: Var global or missing initializer for '" + name + "'.");
         }
 
-        // Tuple globals - represent each sub-element as standalone global constant
+        // Tuple globals - represent as a single LLVM struct global
         if (gType.baseType == BaseType::TUPLE) {
             auto tupleLit = std::dynamic_pointer_cast<TupleLiteralNode>(initExpr);
             if (!tupleLit) {
@@ -314,14 +314,47 @@ void MLIRGen::visit(FileNode* node) {
             if (gType.subTypes.size() != tupleLit->elements.size()) {
                 throw std::runtime_error("Global tuple '" + name + "' len mismatch with literal.");
             }
+
+            // Ensure each element is a constant we can lower.
+            std::vector<mlir::Attribute> elemAttrs;
+            elemAttrs.reserve(gType.subTypes.size());
             for (size_t i = 0; i < gType.subTypes.size(); ++i) {
-                mlir::Attribute elemAttr = extractConstantValue(tupleLit->elements[i], gType.subTypes[i]);
+                mlir::Attribute elemAttr =
+                    extractConstantValue(tupleLit->elements[i], gType.subTypes[i]);
                 if (!elemAttr) {
-                    throw std::runtime_error("Global tuple '" + name + "' has non-constant element at index " + std::to_string(i) + ".");
+                    throw std::runtime_error(
+                        "Global tuple '" + name +
+                        "' has non-constant element at index " +
+                        std::to_string(i) + ".");
                 }
-                std::string elemName = name + "$" + std::to_string(i);
-                (void) createGlobalVariable(elemName, gType.subTypes[i], /*isConst=*/  true, elemAttr);
+                elemAttrs.push_back(elemAttr);
             }
+
+            // Create the LLVM struct global with an initializer region.
+            mlir::Type structTy = getLLVMType(gType);
+            auto global = moduleBuilder->create<mlir::LLVM::GlobalOp>(
+                loc_, structTy, true, mlir::LLVM::Linkage::Internal, name, mlir::Attribute(), 0);
+
+            mlir::Region &initRegion = global.getInitializerRegion();
+            auto *block = new mlir::Block();
+            initRegion.push_back(block);
+            moduleBuilder->setInsertionPointToStart(block);
+
+            mlir::Value structVal =
+                moduleBuilder->create<mlir::LLVM::UndefOp>(loc_, structTy);
+            for (size_t i = 0; i < gType.subTypes.size(); ++i) {
+                mlir::Type elemTy = getLLVMType(gType.subTypes[i]);
+                mlir::Attribute elemAttr = elemAttrs[i];
+                mlir::Value elemConst =
+                    moduleBuilder->create<mlir::LLVM::ConstantOp>(
+                        loc_, elemTy, elemAttr);
+                llvm::SmallVector<int64_t, 1> pos{
+                    static_cast<int64_t>(i)};
+                structVal = moduleBuilder->create<mlir::LLVM::InsertValueOp>(
+                    loc_, structVal, elemConst, pos);
+            }
+
+            moduleBuilder->create<mlir::LLVM::ReturnOp>(loc_, structVal);
         } else {
             // Scalar global
             mlir::Attribute initAttr = extractConstantValue(initExpr, gType);
@@ -1327,44 +1360,16 @@ void MLIRGen::visit(TupleAccessNode* node) {
         throw std::runtime_error("TupleAccessNode: Variable '" + node->tupleName + "' is not a tuple.");
     }
 
-    // Ensure tuple storage exists and, if this is a global const tuple, populate
-    // its struct value from the per-element globals "<name>$<index>".
+    // Handle tuple as global if found in global lookup
     if (!tupleVarInfo->value) {
-        // Allocate storage for the tuple struct
-        allocaVar(tupleVarInfo);
-
-        size_t numElems = tupleVarInfo->type.subTypes.size();
-        bool haveAllElementGlobals = true;
-        std::vector<mlir::LLVM::GlobalOp> elemGlobals;
-        elemGlobals.reserve(numElems);
-        for (size_t i = 0; i < numElems; ++i) {
-            std::string elemName = node->tupleName + "$" + std::to_string(i);
-            auto elemGlobal = module_.lookupSymbol<mlir::LLVM::GlobalOp>(elemName);
-            if (!elemGlobal) {
-                haveAllElementGlobals = false;
-                break;
-            }
-            elemGlobals.push_back(elemGlobal);
-        }
-
-        if (haveAllElementGlobals) {
-            mlir::Type structTy = getLLVMType(tupleVarInfo->type);
-            mlir::Value structVal =
-                builder_.create<mlir::LLVM::UndefOp>(loc_, structTy);
-            for (size_t i = 0; i < elemGlobals.size(); ++i) {
-                auto globalOp = elemGlobals[i];
-                mlir::Value addr =
-                    builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
-                mlir::Type elemTy = globalOp.getType();
-                mlir::Value val =
-                    builder_.create<mlir::LLVM::LoadOp>(loc_, elemTy, addr);
-                llvm::SmallVector<int64_t, 1> pos{
-                    static_cast<int64_t>(i)};
-                structVal = builder_.create<mlir::LLVM::InsertValueOp>(
-                    loc_, structVal, val, pos);
-            }
-            builder_.create<mlir::LLVM::StoreOp>(
-                loc_, structVal, tupleVarInfo->value);
+        auto globalOp =
+            module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->tupleName);
+        if (globalOp) {
+            tupleVarInfo->value =
+                builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
+        } else {
+            // Local but unallocated tuple
+            allocaVar(tupleVarInfo);
         }
     }
 
@@ -1443,44 +1448,19 @@ void MLIRGen::visit(IdNode* node) {
     
     if (needsAllocation) {
         if (varInfo->type.baseType == BaseType::TUPLE) {
-            // Tuple globals are represented as per-element LLVM globals
-            // "<id>$<index>". Allocate storage for the tuple struct and, if
-            // such globals exist, assemble the struct from them.
-            allocaVar(varInfo);
-
-            size_t numElems = varInfo->type.subTypes.size();
-            bool haveAllElementGlobals = true;
-            std::vector<mlir::LLVM::GlobalOp> elemGlobals;
-            elemGlobals.reserve(numElems);
-            for (size_t i = 0; i < numElems; ++i) {
-                std::string elemName = node->id + "$" + std::to_string(i);
-                auto elemGlobal =
-                    module_.lookupSymbol<mlir::LLVM::GlobalOp>(elemName);
-                if (!elemGlobal) {
-                    haveAllElementGlobals = false;
-                    break;
+            // Tuple: try to resolve as a global struct first; otherwise,allocate local storage.
+            auto globalOp =
+                module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->id);
+            if (globalOp) {
+                varInfo->value =
+                    builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
+            } else {
+                allocaVar(varInfo);
+                if (!varInfo->value) {
+                    throw std::runtime_error(
+                        "visit(IdNode*): Failed to allocate tuple variable '" +
+                        node->id + "'");
                 }
-                elemGlobals.push_back(elemGlobal);
-            }
-
-            if (haveAllElementGlobals) {
-                mlir::Type structTy = getLLVMType(varInfo->type);
-                mlir::Value structVal =
-                    builder_.create<mlir::LLVM::UndefOp>(loc_, structTy);
-                for (size_t i = 0; i < elemGlobals.size(); ++i) {
-                    auto globalOp = elemGlobals[i];
-                    mlir::Value addr = builder_.create<mlir::LLVM::AddressOfOp>(
-                        loc_, globalOp);
-                    mlir::Type elemTy = globalOp.getType();
-                    mlir::Value val = builder_.create<mlir::LLVM::LoadOp>(
-                        loc_, elemTy, addr);
-                    llvm::SmallVector<int64_t, 1> pos{
-                        static_cast<int64_t>(i)};
-                    structVal = builder_.create<mlir::LLVM::InsertValueOp>(
-                        loc_, structVal, val, pos);
-                }
-                builder_.create<mlir::LLVM::StoreOp>(
-                    loc_, structVal, varInfo->value);
             }
         } else {
             // Scalar: try to resolve as a global first
