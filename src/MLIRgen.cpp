@@ -271,28 +271,41 @@ void MLIRGen::lowerFunctionOrProcedureBody(const std::vector<VarInfo> &params,
     
     auto &entry = funcOp.front();
 
-    // Legacy behaviour: allow multiple func.return ops in function blocks.
-    // Check if ANY block in the function body has a return terminator.
+    // First pass: find at least one func.return and remember its block so we can later patch unterminated blocks.
     bool hasReturn = false;
+    mlir::Block *firstReturnBlock = nullptr;
     for (auto &block : funcOp.getBody().getBlocks()) {
         if (!block.empty() &&
             block.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
             if (llvm::isa<mlir::func::ReturnOp>(block.back())) {
                 hasReturn = true;
-                break;
+                if (!firstReturnBlock)
+                    firstReturnBlock = &block;
             }
         }
     }
 
-    // Set insertion point to the end of the entry block
+    // If there was no return, add a default one at the end of the entry
+    // block for void functions
     builder_.setInsertionPointToEnd(&entry);
-
-    // If no return was found, add one
     if (!hasReturn) {
-        if (returnType.baseType == BaseType::UNKNOWN)
+        if (returnType.baseType == BaseType::UNKNOWN) {
             builder_.create<mlir::func::ReturnOp>(loc_);
-        else
+            hasReturn = true;
+            firstReturnBlock = &entry;
+        } else {
             throw std::runtime_error("missing return in non-void function");
+        }
+    }
+
+    // Ensure every block in the function ends with a terminator. For any empty or unterminated block, branch to block w/ function return
+    mlir::Block *exitBlock = firstReturnBlock ? firstReturnBlock : &entry;
+    for (auto &block : funcOp.getBody().getBlocks()) {
+        if (block.empty() ||
+            !block.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+            builder_.setInsertionPointToEnd(&block);
+            builder_.create<mlir::cf::BranchOp>(loc_, exitBlock);
+        }
     }
 
     currScope_ = savedScope;
