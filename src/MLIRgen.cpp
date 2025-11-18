@@ -513,36 +513,56 @@ void MLIRGen::visit(FuncCallExpr* node) {
         const auto &param = paramInfos[i];
         const auto &argInfo = argInfos[i];
 
-        if (!param.isConst) {
-            // var parameter: pass memref directly
+        if (param.type.baseType == BaseType::TUPLE) {
+            // tuple uses ptr to llvm struct repr
             if (!argInfo.value) {
-                throw std::runtime_error("FuncCallExpr: var parameter requires mutable argument (variable), but argument has no value");
+                throw std::runtime_error(
+                    "FuncCallExpr: tuple argument has no value");
             }
-            mlir::Type argType = argInfo.value.getType();
-            if (!argType.isa<mlir::MemRefType>()) {
-                throw std::runtime_error("FuncCallExpr: var parameter requires mutable argument (variable) with memref type");
-            }
-            callArgs.push_back(argInfo.value);
-        } else {
-            // const parameter: pass scalar value
-            mlir::Value argVal;
-            if (!argInfo.value) {
-                throw std::runtime_error("FuncCallExpr: argument has no value");
-            }
-            mlir::Type argType = argInfo.value.getType();
-            if (argType.isa<mlir::MemRefType>()) {
-                argVal = builder_.create<mlir::memref::LoadOp>(loc_, argInfo.value, mlir::ValueRange{});
+            if (!param.isConst) {           // var tuple, pass ptr in
+                callArgs.push_back(argInfo.value);
             } else {
-                argVal = argInfo.value;
+                // const tuple, pass by value
+                mlir::Type structTy = getLLVMType(param.type);
+                mlir::Value structVal = builder_.create<mlir::LLVM::LoadOp>(
+                    loc_, structTy, argInfo.value);
+                callArgs.push_back(structVal);
             }
-            callArgs.push_back(argVal);
+        } else {
+            if (!param.isConst) {
+                // Scalar var parameter: pass memref directly.
+                if (!argInfo.value) {
+                    throw std::runtime_error(
+                        "FuncCallExpr: var parameter requires mutable argument (variable), but argument has no value");
+                }
+                mlir::Type argType = argInfo.value.getType();
+                if (!argType.isa<mlir::MemRefType>()) {
+                    throw std::runtime_error(
+                        "FuncCallExpr: var parameter requires mutable argument (variable) with memref type");
+                }
+                callArgs.push_back(argInfo.value);
+            } else {
+                // Scalar const parameter: pass loaded value.
+                if (!argInfo.value) {
+                    throw std::runtime_error(
+                        "FuncCallExpr: argument has no value");
+                }
+                mlir::Value argVal;
+                mlir::Type argType = argInfo.value.getType();
+                if (argType.isa<mlir::MemRefType>()) {
+                    argVal = builder_.create<mlir::memref::LoadOp>(
+                        loc_, argInfo.value, mlir::ValueRange{});
+                } else {
+                    argVal = argInfo.value;
+                }
+                callArgs.push_back(argVal);
+            }
         }
     }
 
     auto funcType = calleeFunc.getFunctionType();
     if (funcType.getNumInputs() != callArgs.size()) {
-        throw std::runtime_error("FuncCallExpr: argument count mismatch for callee '" +
-                                 node->funcName + "'");
+        throw std::runtime_error("FuncCallExpr: argument count mismatch for callee '" + node->funcName + "'");
     }
 
     // Verify each argument type matches the function signature
@@ -573,11 +593,17 @@ void MLIRGen::visit(FuncCallExpr* node) {
 
     mlir::Value retVal = callOp.getResult(0);
 
-    // Wrap returned scalar in a VarInfo with allocated memref storage
+    // Wrap returned value in a VarInfo with appropriate storage.
     VarInfo resultVar(node->type);
     allocaLiteral(&resultVar);
-    builder_.create<mlir::memref::StoreOp>(loc_, retVal, resultVar.value,
-                                           mlir::ValueRange{});
+    if (node->type.baseType == BaseType::TUPLE) {
+        // For tuple returns, resultVar.value is an !llvm.ptr; store the
+        // returned struct into it.
+        builder_.create<mlir::LLVM::StoreOp>(loc_, retVal, resultVar.value);
+    } else {
+        builder_.create<mlir::memref::StoreOp>(loc_, retVal, resultVar.value,
+                                               mlir::ValueRange{});
+    }
 
     pushValue(resultVar);
 }
@@ -1077,32 +1103,48 @@ void MLIRGen::visit(CallStatNode* node) {
     for (size_t i = 0; i < argInfos.size() && i < procInfo->params.size(); ++i) {
         const auto& param = procInfo->params[i];
         const auto& argInfo = argInfos[i];
-        
-        // For var parameters, pass the memref directly (by reference)
-        // For const parameters, pass the value (load if needed)
-        if (!param.isConst) {
-            // var parameter: pass memref directly
+
+        if (param.type.baseType == BaseType::TUPLE) {
             if (!argInfo.value) {
-                throw std::runtime_error("CallStatNode: var parameter requires mutable argument (variable), but argument has no value");
+                throw std::runtime_error(
+                    "CallStatNode: tuple argument has no value");
             }
-            mlir::Type argType = argInfo.value.getType();
-            if (!argType.isa<mlir::MemRefType>()) {
-                throw std::runtime_error("CallStatNode: var parameter requires mutable argument (variable) with memref type");
-            }
-            callArgs.push_back(argInfo.value);
-        } else {
-            // const parameter: load value if it's a memref
-            mlir::Value argVal;
-            if (!argInfo.value) {
-                throw std::runtime_error("CallStatNode: argument has no value");
-            }
-            mlir::Type argType = argInfo.value.getType();
-            if (argType.isa<mlir::MemRefType>()) {
-                argVal = builder_.create<mlir::memref::LoadOp>(loc_, argInfo.value, mlir::ValueRange{});
+            if (!param.isConst) {
+                // var tuple: argument is pointer to struct, pass directly
+                callArgs.push_back(argInfo.value);
             } else {
-                argVal = argInfo.value;
+                // const tuple: pass struct by value
+                mlir::Type structTy = getLLVMType(param.type);
+                mlir::Value structVal = builder_.create<mlir::LLVM::LoadOp>(
+                    loc_, structTy, argInfo.value);
+                callArgs.push_back(structVal);
             }
-            callArgs.push_back(argVal);
+        } else {
+            if (!param.isConst) {
+                // var parameter: pass memref directly
+                if (!argInfo.value) {
+                    throw std::runtime_error("CallStatNode: var parameter requires mutable argument (variable), but argument has no value");
+                }
+                mlir::Type argType = argInfo.value.getType();
+                if (!argType.isa<mlir::MemRefType>()) {
+                    throw std::runtime_error("CallStatNode: var parameter requires mutable argument (variable) with memref type");
+                }
+                callArgs.push_back(argInfo.value);
+            } else {
+                // const parameter: load value if it's a memref
+                if (!argInfo.value) {
+                    throw std::runtime_error("CallStatNode: argument has no value");
+                }
+                mlir::Value argVal;
+                mlir::Type argType = argInfo.value.getType();
+                if (argType.isa<mlir::MemRefType>()) {
+                    argVal = builder_.create<mlir::memref::LoadOp>(
+                        loc_, argInfo.value, mlir::ValueRange{});
+                } else {
+                    argVal = argInfo.value;
+                }
+                callArgs.push_back(argVal);
+            }
         }
     }
     
