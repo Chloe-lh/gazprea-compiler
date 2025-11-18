@@ -37,6 +37,7 @@ public:
   // Statements
   void visit(AssignStatNode *node) override;
   void visit(DestructAssignStatNode *node) override;
+  void visit(TupleAccessAssignStatNode *node) override;
   void visit(OutputStatNode *node) override;
   void visit(InputStatNode *node) override;
   void visit(BreakStatNode *node) override;

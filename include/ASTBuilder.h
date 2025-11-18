@@ -36,6 +36,8 @@ public:
   visitAssignStat(gazprea::GazpreaParser::AssignStatContext *ctx) override;
   std::any visitDestructAssignStat(
       gazprea::GazpreaParser::DestructAssignStatContext *ctx) override;
+  std::any visitTupleAccessAssignStat(
+      gazprea::GazpreaParser::TupleAccessAssignStatContext *ctx) override;
   std::any
   visitBreakStat(gazprea::GazpreaParser::BreakStatContext *ctx) override;
   std::any

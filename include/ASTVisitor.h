@@ -25,6 +25,7 @@ public:
   // Statements
   virtual void visit(AssignStatNode *node) = 0;
   virtual void visit(DestructAssignStatNode *node) = 0;
+  virtual void visit(TupleAccessAssignStatNode *node) = 0;
   virtual void visit(OutputStatNode *node) = 0;
   virtual void visit(InputStatNode *node) = 0;
   virtual void visit(BreakStatNode *node) = 0;

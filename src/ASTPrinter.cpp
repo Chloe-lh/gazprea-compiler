@@ -338,6 +338,23 @@ void ASTPrinter::visit(DestructAssignStatNode *node) {
   indent--;
 }
 
+void ASTPrinter::visit(TupleAccessAssignStatNode *node) {
+  std::string targetStr = node->target
+                              ? node->target->tupleName + "." +
+                                    std::to_string(node->target->index)
+                              : "<null>";
+  printTreeLine("TupleAccessAssignStatNode", "target: " + targetStr);
+  indent++;
+  pushChildContext(true);
+  if (node->expr) {
+    node->expr->accept(*this);
+  } else {
+    printTreeLine("ERROR: null expression");
+  }
+  popChildContext();
+  indent--;
+}
+
 void ASTPrinter::visit(OutputStatNode *node) {
   if (!node) {
     printTreeLine("OutputStatNode", "ERROR: null node");

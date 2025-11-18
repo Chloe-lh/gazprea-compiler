@@ -539,6 +539,35 @@ void SemanticAnalysisVisitor::visit(CallStatNode* node) {
     node->type = CompleteType(BaseType::UNKNOWN);
 }
 
+void SemanticAnalysisVisitor::visit(TupleAccessAssignStatNode* node) {
+    if (!node->target || !node->expr) {
+        throw AssignError(1, "Semantic Analysis: malformed tuple access assignment.");
+    }
+
+    // Analyse LHS tuple access first (binds tuple variable + element type)
+    node->target->accept(*this);
+
+    if (!node->target->binding) {
+        throw std::runtime_error("Semantic Analysis: FATAL: TupleAccessNode missing binding in assignment.");
+    }
+
+    VarInfo* tupleVar = node->target->binding;
+    if (tupleVar->isConst) {
+        throw AssignError(1, "Semantic Analysis: cannot assign to element of const tuple '" +
+                                 node->target->tupleName + "'.");
+    }
+
+    // visit rhs
+    node->expr->accept(*this);
+
+    CompleteType elemType = resolveUnresolvedType(current_, node->target->type);
+    CompleteType exprType = resolveUnresolvedType(current_, node->expr->type);
+
+    handleAssignError(node->target->tupleName, elemType, exprType);
+
+    node->type = CompleteType(BaseType::UNKNOWN);
+}
+
 void SemanticAnalysisVisitor::visit(FuncCallExpr* node) {
     // Evaluate argument expressions and build a signature to resolve the callee
     std::vector<VarInfo> args;

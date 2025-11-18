@@ -288,6 +288,15 @@ void ConstantFoldingVisitor::visit(InferredDecNode *node){
         }
     }
   }
+  void ConstantFoldingVisitor::visit(TupleAccessAssignStatNode *node){
+    if (!node) return;
+    if (node->target) node->target->accept(*this);
+    if (node->expr) node->expr->accept(*this);
+    if (node->target) {
+        // conservative: forget any constant associated with the tuple variable
+        removeConst(node->target->tupleName);
+    }
+  }
   void ConstantFoldingVisitor::visit(OutputStatNode *node){ if(node->expr) node->expr->accept(*this);}
   void ConstantFoldingVisitor::visit(InputStatNode *node){}
   void ConstantFoldingVisitor::visit(BreakStatNode *node){}

@@ -45,6 +45,7 @@ void FuncBlockNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void CallStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void AssignStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void DestructAssignStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void TupleAccessAssignStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void OutputStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void InputStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void BreakStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
@@ -215,5 +216,9 @@ AssignStatNode::AssignStatNode(const std::string &name,
 DestructAssignStatNode::DestructAssignStatNode(std::vector<std::string> names,
                                                std::shared_ptr<ExprNode> expr)
     : names(std::move(names)), expr(std::move(expr)) {}
+TupleAccessAssignStatNode::TupleAccessAssignStatNode(
+    std::shared_ptr<TupleAccessNode> target,
+    std::shared_ptr<ExprNode> expr)
+    : target(std::move(target)), expr(std::move(expr)) {}
 OutputStatNode::OutputStatNode(std::shared_ptr<ExprNode> expr)
     : expr(std::move(expr)) {}

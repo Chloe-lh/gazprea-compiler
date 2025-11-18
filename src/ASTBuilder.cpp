@@ -419,6 +419,51 @@ std::any ASTBuilder::visitDestructAssignStat(
       std::make_shared<DestructAssignStatNode>(std::move(names), expr);
   return stat_any(std::move(node));
 }
+std::any ASTBuilder::visitTupleAccessAssignStat(
+    GazpreaParser::TupleAccessAssignStatContext *ctx) {
+  if (!ctx || !ctx->tuple_access() || !ctx->expr()) {
+    throw std::runtime_error("visitTupleAccessAssignStat: invalid context");
+  }
+
+  // Build the LHS TupleAccessNode directly from the tuple_access rule,
+  // mirroring visitTupleAccessExpr.
+  GazpreaParser::Tuple_accessContext *ta = ctx->tuple_access();
+  std::string tupleName;
+  int index = 0;
+
+  if (ta) {
+    if (ta->TUPACCESS()) {
+      std::string text = ta->TUPACCESS()->getText();
+      auto pos = text.find('.');
+      if (pos != std::string::npos) {
+        tupleName = text.substr(0, pos);
+        try {
+          index = std::stoi(text.substr(pos + 1));
+        } catch (...) {
+          index = 0;
+        }
+      }
+    } else {
+      if (ta->ID()) tupleName = ta->ID()->getText();
+      if (ta->INT()) {
+        try {
+          index = std::stoi(ta->INT()->getText());
+        } catch (const std::exception &) {
+          index = 0;
+        }
+      }
+    }
+  }
+
+  auto lhs = std::make_shared<TupleAccessNode>(tupleName, index);
+
+  auto rhsAny = visit(ctx->expr());
+  auto rhs = safe_any_cast_ptr<ExprNode>(rhsAny);
+
+  auto node =
+      std::make_shared<TupleAccessAssignStatNode>(std::move(lhs), std::move(rhs));
+  return stat_any(std::move(node));
+}
 std::any ASTBuilder::visitBreakStat(GazpreaParser::BreakStatContext *ctx) {
   auto node = std::make_shared<BreakStatNode>();
   return stat_any(std::move(node));

@@ -672,6 +672,48 @@ void MLIRGen::visit(AssignStatNode* node) {
     assignTo(&from, to);
 }
 
+void MLIRGen::visit(TupleAccessAssignStatNode* node) {
+    if (!node->target || !node->expr) {
+        throw std::runtime_error("TupleAccessAssignStatNode: missing target or expression");
+    }
+
+    // Evaluate RHS expression
+    node->expr->accept(*this);
+    VarInfo from = popValue();
+    if (from.type.baseType == BaseType::UNKNOWN) {
+        throw std::runtime_error("TupleAccessAssignStatNode: RHS has UNKNOWN type");
+    }
+
+    TupleAccessNode* target = node->target.get();
+    VarInfo* tupleVar = target->binding;
+    if (!tupleVar) {
+        throw std::runtime_error("TupleAccessAssignStatNode: target has no bound tuple variable");
+    }
+    if (tupleVar->type.baseType != BaseType::TUPLE) {
+        throw std::runtime_error("TupleAccessAssignStatNode: target variable '" +
+                                 target->tupleName + "' is not a tuple");
+    }
+
+    // Ensure tuple storage exists
+    if (tupleVar->mlirSubtypes.empty()) {
+        allocaVar(tupleVar);
+    }
+
+    if (target->index < 1 || static_cast<size_t>(target->index) > tupleVar->mlirSubtypes.size()) {
+        throw std::runtime_error("TupleAccessAssignStatNode: index out of range for tuple '" +
+                                 target->tupleName + "'");
+    }
+
+    VarInfo& elem = tupleVar->mlirSubtypes[target->index - 1];
+
+    // Promote RHS to element type if needed and store
+    VarInfo promoted = promoteType(&from, &elem.type);
+    mlir::Value loaded = builder_.create<mlir::memref::LoadOp>(
+        loc_, promoted.value, mlir::ValueRange{});
+    builder_.create<mlir::memref::StoreOp>(
+        loc_, loaded, elem.value, mlir::ValueRange{});
+}
+
 void MLIRGen::visit(DestructAssignStatNode* node) {
     if (!node->expr) {
         throw std::runtime_error("FATAL: No expression for destructuring assignment.");

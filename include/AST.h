@@ -27,6 +27,7 @@ class ASTVisitor;
 // forward declarations
 class BlockNode;
 class TypeAliasNode;
+class TupleAccessNode;
 
 class ASTNode { // virtual class
 public:
@@ -265,6 +266,14 @@ public:
   std::vector<std::string> names;
   std::shared_ptr<ExprNode> expr;
   DestructAssignStatNode(std::vector<std::string> names, std::shared_ptr<ExprNode> expr);
+  void accept(ASTVisitor &visitor) override;
+};
+class TupleAccessAssignStatNode : public StatNode {
+public:
+  std::shared_ptr<TupleAccessNode> target;
+  std::shared_ptr<ExprNode> expr;
+  TupleAccessAssignStatNode(std::shared_ptr<TupleAccessNode> target,
+                            std::shared_ptr<ExprNode> expr);
   void accept(ASTVisitor &visitor) override;
 };
 class OutputStatNode : public StatNode {
