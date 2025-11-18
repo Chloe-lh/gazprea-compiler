@@ -152,4 +152,15 @@ private:
     };
     std::vector<LoopContext> loopContexts_;
 
+    // Function-level return tracking for early returns when using scf.
+    // When inside a function/procedure:
+    //  - currentReturnFlag_ is a memref<i1> that is true while the
+    //    function is "active" and set to false by any return statement.
+    //  - currentReturnValue_ is storage for the return value when the
+    //    function has a non-void return type.
+    //  - currentFunctionHasReturn_ is set when we see at least one return.
+    mlir::Value currentReturnFlag_;
+    mlir::Value currentReturnValue_;
+    bool currentFunctionHasReturn_ = false;
+
 };
