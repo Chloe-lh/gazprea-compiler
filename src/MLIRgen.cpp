@@ -305,7 +305,7 @@ void MLIRGen::visit(FileNode* node) {
             throw std::runtime_error("FATAL: Var global or missing initializer for '" + name + "'.");
         }
 
-        // Tuple globals - represent each sub-element as standalone global constant
+        // Tuple globals - represent as a single LLVM struct global
         if (gType.baseType == BaseType::TUPLE) {
             auto tupleLit = std::dynamic_pointer_cast<TupleLiteralNode>(initExpr);
             if (!tupleLit) {
@@ -314,14 +314,47 @@ void MLIRGen::visit(FileNode* node) {
             if (gType.subTypes.size() != tupleLit->elements.size()) {
                 throw std::runtime_error("Global tuple '" + name + "' len mismatch with literal.");
             }
+
+            // Ensure each element is a constant we can lower.
+            std::vector<mlir::Attribute> elemAttrs;
+            elemAttrs.reserve(gType.subTypes.size());
             for (size_t i = 0; i < gType.subTypes.size(); ++i) {
-                mlir::Attribute elemAttr = extractConstantValue(tupleLit->elements[i], gType.subTypes[i]);
+                mlir::Attribute elemAttr =
+                    extractConstantValue(tupleLit->elements[i], gType.subTypes[i]);
                 if (!elemAttr) {
-                    throw std::runtime_error("Global tuple '" + name + "' has non-constant element at index " + std::to_string(i) + ".");
+                    throw std::runtime_error(
+                        "Global tuple '" + name +
+                        "' has non-constant element at index " +
+                        std::to_string(i) + ".");
                 }
-                std::string elemName = name + "$" + std::to_string(i);
-                (void) createGlobalVariable(elemName, gType.subTypes[i], /*isConst=*/  true, elemAttr);
+                elemAttrs.push_back(elemAttr);
             }
+
+            // Create the LLVM struct global with an initializer region.
+            mlir::Type structTy = getLLVMType(gType);
+            auto global = moduleBuilder->create<mlir::LLVM::GlobalOp>(
+                loc_, structTy, true, mlir::LLVM::Linkage::Internal, name, mlir::Attribute(), 0);
+
+            mlir::Region &initRegion = global.getInitializerRegion();
+            auto *block = new mlir::Block();
+            initRegion.push_back(block);
+            moduleBuilder->setInsertionPointToStart(block);
+
+            mlir::Value structVal =
+                moduleBuilder->create<mlir::LLVM::UndefOp>(loc_, structTy);
+            for (size_t i = 0; i < gType.subTypes.size(); ++i) {
+                mlir::Type elemTy = getLLVMType(gType.subTypes[i]);
+                mlir::Attribute elemAttr = elemAttrs[i];
+                mlir::Value elemConst =
+                    moduleBuilder->create<mlir::LLVM::ConstantOp>(
+                        loc_, elemTy, elemAttr);
+                llvm::SmallVector<int64_t, 1> pos{
+                    static_cast<int64_t>(i)};
+                structVal = moduleBuilder->create<mlir::LLVM::InsertValueOp>(
+                    loc_, structVal, elemConst, pos);
+            }
+
+            moduleBuilder->create<mlir::LLVM::ReturnOp>(loc_, structVal);
         } else {
             // Scalar global
             mlir::Attribute initAttr = extractConstantValue(initExpr, gType);
@@ -539,6 +572,17 @@ mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
         case BaseType::CHARACTER: return builder_.getI8Type();
         case BaseType::INTEGER: return builder_.getI32Type();
         case BaseType::REAL: return builder_.getF32Type();
+        case BaseType::TUPLE: {
+            if (type.subTypes.empty()) {
+                throw std::runtime_error("getLLVMType: empty tuple type is invalid");
+            }
+            llvm::SmallVector<mlir::Type, 4> elemTys;
+            elemTys.reserve(type.subTypes.size());
+            for (const auto &st : type.subTypes) {
+                elemTys.push_back(getLLVMType(st));
+            }
+            return mlir::LLVM::LLVMStructType::getLiteral(&context_, elemTys);
+        }
         default:
             throw std::runtime_error("getLLVMType: Unsupported type: " + toString(type));
     }
@@ -630,8 +674,8 @@ void MLIRGen::visit(TupleTypedDecNode* node) {
     // Resolve variable declared by semantic analysis
     VarInfo* declaredVar = currScope_->resolveVar(node->name);
 
-    // Ensure storage for tuple elements exists
-    if (declaredVar->mlirSubtypes.empty()) {
+    // Ensure storage for tuple value exists
+    if (!declaredVar->value) {
         allocaVar(declaredVar);
     }
 
@@ -695,23 +739,35 @@ void MLIRGen::visit(TupleAccessAssignStatNode* node) {
     }
 
     // Ensure tuple storage exists
-    if (tupleVar->mlirSubtypes.empty()) {
+    if (!tupleVar->value) {
         allocaVar(tupleVar);
     }
 
-    if (target->index < 1 || static_cast<size_t>(target->index) > tupleVar->mlirSubtypes.size()) {
+    if (target->index < 1 || static_cast<size_t>(target->index) > tupleVar->type.subTypes.size()) {
         throw std::runtime_error("TupleAccessAssignStatNode: index out of range for tuple '" +
                                  target->tupleName + "'");
     }
 
-    VarInfo& elem = tupleVar->mlirSubtypes[target->index - 1];
+    // Compute element type (1-based index in AST)
+    size_t elemIndex = static_cast<size_t>(target->index - 1);
+    CompleteType elemType = tupleVar->type.subTypes[elemIndex];
 
-    // Promote RHS to element type if needed and store
-    VarInfo promoted = promoteType(&from, &elem.type);
-    mlir::Value loaded = builder_.create<mlir::memref::LoadOp>(
+    // Promote RHS to element type if needed
+    VarInfo promoted = promoteType(&from, &elemType);
+    mlir::Value elemVal = builder_.create<mlir::memref::LoadOp>(
         loc_, promoted.value, mlir::ValueRange{});
-    builder_.create<mlir::memref::StoreOp>(
-        loc_, loaded, elem.value, mlir::ValueRange{});
+
+    // Load current tuple struct from LLVM pointer
+    mlir::Type tupleStructTy = getLLVMType(tupleVar->type);
+    mlir::Value tupleStruct = builder_.create<mlir::LLVM::LoadOp>(
+        loc_, tupleStructTy, tupleVar->value);
+
+    // Insert updated element and store back
+    llvm::SmallVector<int64_t, 1> pos{static_cast<int64_t>(elemIndex)};
+    mlir::Value updatedStruct =
+        builder_.create<mlir::LLVM::InsertValueOp>(loc_, tupleStruct, elemVal, pos);
+    builder_.create<mlir::LLVM::StoreOp>(
+        loc_, updatedStruct, tupleVar->value);
 }
 
 void MLIRGen::visit(DestructAssignStatNode* node) {
@@ -731,12 +787,12 @@ void MLIRGen::visit(DestructAssignStatNode* node) {
         throw AssignError(1, "Codegen: tuple arity mismatch in destructuring assignment.");
     }
 
-    // Build a synthetic destination tuple whose elements refer to the actual target variables' storage in order to reuse assignTo's tuple elementwise logic without allocating new storage
-    CompleteType destType(BaseType::TUPLE);
-    destType.subTypes.reserve(node->names.size());
-
-    VarInfo destTuple(destType);
-    destTuple.isConst = false;
+    // Destructure RHS tuple into individual target variables.
+    // TODO: support element-wise promotions if needed; for now we rely on
+    // semantic analysis to ensure exact type matches.
+    if (!fromTuple.value) {
+        allocaVar(&fromTuple);
+    }
 
     for (size_t i = 0; i < node->names.size(); ++i) {
         const std::string &name = node->names[i];
@@ -752,17 +808,20 @@ void MLIRGen::visit(DestructAssignStatNode* node) {
         if (target->type.baseType != BaseType::TUPLE && !target->value) {
             allocaVar(target);
         }
+        if (target->type.baseType == BaseType::TUPLE) {
+            throw AssignError(1, "Codegen: nested tuple destructuring not supported in codegen.");
+        }
 
-        destType.subTypes.push_back(target->type);
-        VarInfo elem(target->type);
-        elem.isConst = target->isConst;
-        elem.value = target->value;
-        destTuple.mlirSubtypes.push_back(elem);
+        // Extract element from tuple struct and store into target
+        mlir::Type tupleStructTy = getLLVMType(fromTuple.type);
+        mlir::Value tupleStruct = builder_.create<mlir::LLVM::LoadOp>(
+            loc_, tupleStructTy, fromTuple.value);
+        llvm::SmallVector<int64_t, 1> pos{static_cast<int64_t>(i)};
+        mlir::Value elemVal =
+            builder_.create<mlir::LLVM::ExtractValueOp>(loc_, tupleStruct, pos);
+        builder_.create<mlir::memref::StoreOp>(
+            loc_, elemVal, target->value, mlir::ValueRange{});
     }
-
-    destTuple.type = destType;
-
-    assignTo(&fromTuple, &destTuple);
 }
 
 void MLIRGen::visit(OutputStatNode* node) {
@@ -1301,57 +1360,49 @@ void MLIRGen::visit(TupleAccessNode* node) {
         throw std::runtime_error("TupleAccessNode: Variable '" + node->tupleName + "' is not a tuple.");
     }
 
-    // Ensure tuple storage exists and, if this is a global const tuple, populate
-    // its elements from the per-element globals "<name>$<index>".
-    if (tupleVarInfo->mlirSubtypes.empty()) {
-        // Allocate element memrefs for the tuple variable
-        allocaVar(tupleVarInfo);
-
-        // Attempt to initialise from tuple element globals (for global consts)
-        bool haveAllElementGlobals = true;
-        std::vector<mlir::LLVM::GlobalOp> elemGlobals;
-        elemGlobals.reserve(tupleVarInfo->mlirSubtypes.size());
-        for (size_t i = 0; i < tupleVarInfo->mlirSubtypes.size(); ++i) {
-            std::string elemName = node->tupleName + "$" + std::to_string(i);
-            auto elemGlobal = module_.lookupSymbol<mlir::LLVM::GlobalOp>(elemName);
-            if (!elemGlobal) {
-                haveAllElementGlobals = false;
-                break;
-            }
-            elemGlobals.push_back(elemGlobal);
-        }
-
-        if (haveAllElementGlobals) {
-            for (size_t i = 0; i < elemGlobals.size(); ++i) {
-                auto globalOp = elemGlobals[i];
-                mlir::Value addr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
-                mlir::Type elemTy = globalOp.getType();
-                mlir::Value val = builder_.create<mlir::LLVM::LoadOp>(loc_, elemTy, addr);
-                builder_.create<mlir::memref::StoreOp>(
-                    loc_, val, tupleVarInfo->mlirSubtypes[i].value, mlir::ValueRange{});
-            }
+    // Handle tuple as global if found in global lookup
+    if (!tupleVarInfo->value) {
+        auto globalOp =
+            module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->tupleName);
+        if (globalOp) {
+            tupleVarInfo->value =
+                builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
+        } else {
+            // Local but unallocated tuple
+            allocaVar(tupleVarInfo);
         }
     }
 
-    if (tupleVarInfo->mlirSubtypes.empty()) {
-        throw std::runtime_error("TupleAccessNode: Tuple variable '" + node->tupleName + "' has no allocated subtypes.");
+    if (!tupleVarInfo->value) {
+        throw std::runtime_error("TupleAccessNode: Tuple variable '" + node->tupleName + "' has no allocated value.");
     }
 
     // Validate index (1-based)
-    if (node->index < 1 || node->index > tupleVarInfo->mlirSubtypes.size()) {
-        throw std::runtime_error("TupleAccessNode: Index " + std::to_string(node->index) +
-            " out of range for tuple of size " + std::to_string(tupleVarInfo->mlirSubtypes.size()));
+    if (node->index < 1 ||
+        node->index > static_cast<int>(tupleVarInfo->type.subTypes.size())) {
+        throw std::runtime_error("TupleAccessNode: Index " +
+                                 std::to_string(node->index) +
+                                 " out of range for tuple of size " +
+                                 std::to_string(tupleVarInfo->type.subTypes.size()));
     }
 
-    // Get the element at the specified index (convert from 1-based to 0-based)
-    VarInfo elementVarInfo = tupleVarInfo->mlirSubtypes[node->index - 1];
+    // Extract the element at the specified index (convert from 1-based to 0-based)
+    mlir::Type structTy = getLLVMType(tupleVarInfo->type);
+    mlir::Value structVal = builder_.create<mlir::LLVM::LoadOp>(
+        loc_, structTy, tupleVarInfo->value);
+    llvm::SmallVector<int64_t, 1> pos{
+        static_cast<int64_t>(node->index - 1)};
+    mlir::Value elemVal =
+        builder_.create<mlir::LLVM::ExtractValueOp>(loc_, structVal, pos);
 
-    if (!elementVarInfo.value) {
-        throw std::runtime_error("TupleAccessNode: Element at index " + std::to_string(node->index) + 
-            " of tuple '" + node->tupleName + "' has no allocated value.");
-    }
-    
-    // Push a copy of the element's VarInfo onto the stack
+    // Wrap element into a scalar VarInfo and push it.
+    CompleteType elemType =
+        tupleVarInfo->type.subTypes[static_cast<size_t>(node->index - 1)];
+    VarInfo elementVarInfo(elemType);
+    allocaLiteral(&elementVarInfo);
+    builder_.create<mlir::memref::StoreOp>(
+        loc_, elemVal, elementVarInfo.value, mlir::ValueRange{});
+
     pushValue(elementVarInfo);
 }
 
@@ -1359,61 +1410,11 @@ void MLIRGen::visit(TupleTypeCastNode* node) {
     if (!node || !node->expr) {
         throw std::runtime_error("TupleTypeCastNode: missing expression");
     }
-    
-    // Evaluate the source tuple expression
+
+    // Evaluate the source tuple expression and delegate to castType.
     node->expr->accept(*this);
     VarInfo sourceTuple = popValue();
-    
-    // Validate source is a tuple
-    if (sourceTuple.type.baseType != BaseType::TUPLE) {
-        throw std::runtime_error("TupleTypeCastNode: source expression is not a tuple");
-    }
-    
-    // Validate target is a tuple
-    if (node->targetTupleType.baseType != BaseType::TUPLE) {
-        throw std::runtime_error("TupleTypeCastNode: target type is not a tuple");
-    }
-    
-    // Validate tuple lengths match
-    if (sourceTuple.type.subTypes.size() != node->targetTupleType.subTypes.size()) {
-        throw std::runtime_error("TupleTypeCastNode: tuple arity mismatch (source: " + 
-            std::to_string(sourceTuple.type.subTypes.size()) + ", target: " + 
-            std::to_string(node->targetTupleType.subTypes.size()) + ")");
-    }
-    
-    // Ensure source tuple storage is allocated
-    if (sourceTuple.mlirSubtypes.empty()) {
-        allocaVar(&sourceTuple);
-    }
-    
-    // Create result tuple with target type
-    VarInfo resultTuple(node->targetTupleType);
-    allocaLiteral(&resultTuple);
-    
-    // Cast each element from source to target type
-    if (resultTuple.mlirSubtypes.size() != sourceTuple.mlirSubtypes.size()) {
-        throw std::runtime_error("TupleTypeCastNode: mlirSubtypes size mismatch");
-    }
-    
-    for (size_t i = 0; i < sourceTuple.mlirSubtypes.size(); ++i) {
-        VarInfo& sourceElem = sourceTuple.mlirSubtypes[i];
-        VarInfo& targetElem = resultTuple.mlirSubtypes[i];
-        
-        // Cast the element from source type to target type
-        VarInfo castedElem = castType(&sourceElem, &targetElem.type);
-        
-        // Load the casted value and store it into the target tuple element
-        mlir::Value castedValue;
-        if (castedElem.value.getType().isa<mlir::MemRefType>()) {
-            castedValue = builder_.create<mlir::memref::LoadOp>(loc_, castedElem.value, mlir::ValueRange{});
-        } else {
-            castedValue = castedElem.value;
-        }
-        
-        builder_.create<mlir::memref::StoreOp>(loc_, castedValue, targetElem.value, mlir::ValueRange{});
-    }
-    
-    // Push the result tuple
+    VarInfo resultTuple = castType(&sourceTuple, &node->targetTupleType);
     pushValue(resultTuple);
 }
 
@@ -1441,52 +1442,25 @@ void MLIRGen::visit(IdNode* node) {
     }
 
     // If the variable doesn't have a value, it's likely a global variable
-    // For globals, we need to create operations to access them
-    // For tuples, check mlirSubtypes instead of value
-    bool needsAllocation = false;
-    if (varInfo->type.baseType == BaseType::TUPLE) {
-        needsAllocation = varInfo->mlirSubtypes.empty();
-    } else {
-        needsAllocation = !varInfo->value;
-    }
+    // (or an uninitialised local); we may need to allocate storage and
+    // initialise from globals.
+    bool needsAllocation = !varInfo->value;
     
     if (needsAllocation) {
         if (varInfo->type.baseType == BaseType::TUPLE) {
-            // Tuple globals - represented as "<id>$<index>"
-            if (varInfo->mlirSubtypes.empty()) {
+            // Tuple: try to resolve as a global struct first; otherwise,allocate local storage.
+            auto globalOp =
+                module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->id);
+            if (globalOp) {
+                varInfo->value =
+                    builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
+            } else {
                 allocaVar(varInfo);
-            }
-
-            // ensure all sub-elements can be found with "<id>$<index>"
-            bool haveAllElementGlobals = true;
-            std::vector<mlir::LLVM::GlobalOp> elemGlobals;
-            elemGlobals.reserve(varInfo->mlirSubtypes.size());
-            for (size_t i = 0; i < varInfo->mlirSubtypes.size(); ++i) {
-                std::string elemName = node->id + "$" + std::to_string(i);
-                auto elemGlobal = module_.lookupSymbol<mlir::LLVM::GlobalOp>(elemName);
-                if (!elemGlobal) {
-                    haveAllElementGlobals = false;
-                    break;
+                if (!varInfo->value) {
+                    throw std::runtime_error(
+                        "visit(IdNode*): Failed to allocate tuple variable '" +
+                        node->id + "'");
                 }
-                elemGlobals.push_back(elemGlobal);
-            }
-
-            if (haveAllElementGlobals) {
-                for (size_t i = 0; i < elemGlobals.size(); ++i) {
-                    auto globalOp = elemGlobals[i];
-                    mlir::Value addr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
-                    mlir::Type elemTy = globalOp.getType();
-                    mlir::Value val = builder_.create<mlir::LLVM::LoadOp>(loc_, elemTy, addr);
-                    builder_.create<mlir::memref::StoreOp>(loc_, val, varInfo->mlirSubtypes[i].value, mlir::ValueRange{});
-                }
-                pushValue(*varInfo);
-                return;
-            }
-
-            // No matching global tuple, treat as local
-            allocaVar(varInfo);
-            if (varInfo->mlirSubtypes.empty()) {
-                throw std::runtime_error("visit(IdNode*): Failed to allocate tuple variable '" + node->id + "'");
             }
         } else {
             // Scalar: try to resolve as a global first
@@ -1520,15 +1494,9 @@ void MLIRGen::visit(IdNode* node) {
     }
 
     // Ensure we have a valid value before pushing
-    // For tuples, check mlirSubtypes; for others, check value
-    if (varInfo->type.baseType == BaseType::TUPLE) {
-        if (varInfo->mlirSubtypes.empty()) {
-            throw std::runtime_error("visit(IdNode*): Tuple variable '" + node->id + "' has no allocated subtypes");
-        }
-    } else {
-        if (!varInfo->value) {
-            throw std::runtime_error("visit(IdNode*): Variable '" + node->id + "' has no value after allocation");
-        }
+    if (!varInfo->value) {
+        throw std::runtime_error("visit(IdNode*): Variable '" + node->id +
+                                 "' has no value after allocation");
     }
     
     pushValue(*varInfo); 
@@ -1617,24 +1585,37 @@ void MLIRGen::visit(TupleLiteralNode* node) {
     VarInfo tupleVarInfo(node->type);
     allocaLiteral(&tupleVarInfo);
 
-    if (tupleVarInfo.mlirSubtypes.size() != node->elements.size()) {
-        throw std::runtime_error("FATAL: mismatched mlirSubtypes and node->elements sizes.");
+    if (!tupleVarInfo.value) {
+        throw std::runtime_error("TupleLiteralNode: failed to allocate tuple storage.");
     }
+    if (node->type.subTypes.size() != node->elements.size()) {
+        throw std::runtime_error(
+            "FATAL: mismatched tuple type and element count in literal.");
+    }
+
+    mlir::Type structTy = getLLVMType(node->type);
+    mlir::Value structVal =
+        builder_.create<mlir::LLVM::UndefOp>(loc_, structTy);
 
     for (size_t i = 0; i < node->elements.size(); ++i) {
         node->elements[i]->accept(*this);
         VarInfo elemVarInfo = popValue();
 
-        VarInfo &target = tupleVarInfo.mlirSubtypes[i];
+        mlir::Value loadedVal;
+        if (elemVarInfo.value.getType().isa<mlir::MemRefType>()) {
+            loadedVal = builder_.create<mlir::memref::LoadOp>(
+                loc_, elemVarInfo.value, mlir::ValueRange{});
+        } else {
+            loadedVal = elemVarInfo.value;
+        }
 
-        mlir::Value loadedVal = builder_.create<mlir::memref::LoadOp>(
-            loc_, elemVarInfo.value, mlir::ValueRange{}
-        );
-
-        builder_.create<mlir::memref::StoreOp>(
-            loc_, loadedVal, target.value, mlir::ValueRange{}
-        );
+        llvm::SmallVector<int64_t, 1> pos{static_cast<int64_t>(i)};
+        structVal = builder_.create<mlir::LLVM::InsertValueOp>(
+            loc_, structVal, loadedVal, pos);
     }
+
+    builder_.create<mlir::LLVM::StoreOp>(
+        loc_, structVal, tupleVarInfo.value);
 
     pushValue(tupleVarInfo);
 }
@@ -1646,24 +1627,24 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable) {
             throw AssignError(1, "Cannot assign non-tuple to tuple variable '");
         }
         // Ensure destination tuple storage exists
-        if (variable->mlirSubtypes.empty()) {
+        if (!variable->value) {
             allocaVar(variable);
         }
-        // Ensure literal has alloca'd elements
-        if (literal->mlirSubtypes.empty()) {
-            throw std::runtime_error("FATAL: Assigning to '" + variable->identifier + "' with tuple that has no mlirSubtypes.");
+        if (!literal->value) {
+            allocaVar(literal);
         }
-        if (literal->type.subTypes.size() != variable->type.subTypes.size()) {
+        if (literal->type.baseType != BaseType::TUPLE ||
+            literal->type.subTypes.size() != variable->type.subTypes.size()) {
             throw AssignError(1, "Tuple arity mismatch in assignment.");
         }
-        for (size_t i = 0; i < variable->mlirSubtypes.size(); ++i) {
-            VarInfo srcElem = literal->mlirSubtypes[i];
-            VarInfo& dstElem = variable->mlirSubtypes[i];
-            // Promote if needed (supports int->real, no-op otherwise)
-            VarInfo promoted = promoteType(&srcElem, &dstElem.type);
-            mlir::Value loaded = builder_.create<mlir::memref::LoadOp>(loc_, promoted.value, mlir::ValueRange{});
-            builder_.create<mlir::memref::StoreOp>(loc_, loaded, dstElem.value, mlir::ValueRange{});
-        }
+
+        // Use castType to perform any element-wise casts, then copy struct.
+        VarInfo converted = castType(literal, &variable->type);
+        mlir::Type structTy = getLLVMType(variable->type);
+        mlir::Value srcStruct = builder_.create<mlir::LLVM::LoadOp>(
+            loc_, structTy, converted.value);
+        builder_.create<mlir::LLVM::StoreOp>(
+            loc_, srcStruct, variable->value);
         return;
     }
 
@@ -1794,12 +1775,12 @@ void MLIRGen::allocaVar(VarInfo* varInfo) {
             if (varInfo->type.subTypes.size() < 2) {
                 throw SizeError(1, "Error: Tuple must have at least 2 elements.");
             }
-            for (CompleteType &subtype : varInfo->type.subTypes) {
-                VarInfo subVar(subtype);
-                subVar.isConst = varInfo->isConst;
-                varInfo->mlirSubtypes.emplace_back(subVar);
-                allocaVar(&varInfo->mlirSubtypes.back());
-            }
+            mlir::Type structTy = getLLVMType(varInfo->type);
+            auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+            auto i64Ty = builder_.getI64Type();
+            auto oneAttr = builder_.getIntegerAttr(i64Ty, 1);
+            mlir::Value one = entryBuilder.create<mlir::arith::ConstantOp>(loc_, i64Ty, oneAttr);
+            varInfo->value = entryBuilder.create<mlir::LLVM::AllocaOp>(loc_, ptrTy, structTy, one, 0u);
             break;
         }
 
@@ -1823,30 +1804,59 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
             if (toType->baseType != BaseType::TUPLE) {
                 throw LiteralError(1, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
             }
-            // Ensure same len tuples
-            if (from->type.subTypes.size() != toType->subTypes.size()) throw LiteralError(1, std::string("Codegen: cannot cast mismatched sizes from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
-
-            // Ensure subtypes are alloca'd
-            if (from->mlirSubtypes.empty() || to.mlirSubtypes.empty()) {
-                throw std::runtime_error("FATAL: Un-alloca'd var in from and/or to subtypes.");
+            // Ensure same length tuples
+            if (from->type.subTypes.size() != toType->subTypes.size()) {
+                throw LiteralError(
+                    1, std::string("Codegen: cannot cast mismatched sizes from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
             }
 
-            // Cast each element and store into the existing destination element storage
+            if (!from->value) {
+                allocaVar(from);
+            }
+
+            // Load source struct and initialise destination struct as undef
+            mlir::Type srcStructTy = getLLVMType(from->type);
+            mlir::Value srcStruct = builder_.create<mlir::LLVM::LoadOp>(
+                loc_, srcStructTy, from->value);
+            mlir::Type dstStructTy = getLLVMType(*toType);
+            mlir::Value dstStruct =
+                builder_.create<mlir::LLVM::UndefOp>(loc_, dstStructTy);
+
             try {
                 for (size_t i = 0; i < from->type.subTypes.size(); ++i) {
-                    VarInfo fromElem = from->mlirSubtypes[i];
-                    VarInfo castedElem = castType(&fromElem, &toType->subTypes[i]);
-                    mlir::Value elemVal = builder_.create<mlir::memref::LoadOp>(
-                        loc_, castedElem.value, mlir::ValueRange{}
-                    );
+                    llvm::SmallVector<int64_t, 1> pos{
+                        static_cast<int64_t>(i)};
+                    // Extract element from source tuple
+                    mlir::Value srcElem =
+                        builder_.create<mlir::LLVM::ExtractValueOp>(
+                            loc_, srcStruct, pos);
+
+                    // Wrap element in a VarInfo so we can reuse scalar casting
+                    VarInfo fromElem(from->type.subTypes[i]);
+                    allocaLiteral(&fromElem);
                     builder_.create<mlir::memref::StoreOp>(
-                        loc_, elemVal, to.mlirSubtypes[i].value, mlir::ValueRange{}
-                    );
+                        loc_, srcElem, fromElem.value, mlir::ValueRange{});
+
+                    VarInfo castedElem =
+                        castType(&fromElem, &toType->subTypes[i]);
+                    mlir::Value elemVal =
+                        builder_.create<mlir::memref::LoadOp>(
+                            loc_, castedElem.value, mlir::ValueRange{});
+
+                    // Insert casted element into destination struct
+                    dstStruct = builder_.create<mlir::LLVM::InsertValueOp>(
+                        loc_, dstStruct, elemVal, pos);
                 }
             } catch (LiteralError &le) {
-                throw LiteralError(1, std::string("Codegen: cannot cast from '") +
-                                         toString(from->type) + "' to '" + toString(*toType) + "':\n\n" + le.what());
+                throw LiteralError(
+                    1, std::string("Codegen: cannot cast from '") +
+                           toString(from->type) + "' to '" +
+                           toString(*toType) + "':\n\n" + le.what());
             }
+
+            // Store constructed struct into destination tuple storage
+            builder_.create<mlir::LLVM::StoreOp>(
+                loc_, dstStruct, to.value);
             break;
         }
         case (BaseType::BOOL):
@@ -2443,32 +2453,37 @@ mlir::Value mlirScalarEquals(mlir::Value left, mlir::Value right, mlir::Location
     }
 }
 
-mlir::Value mlirTupleEquals(VarInfo& leftInfo, VarInfo& rightInfo, mlir::Location loc, mlir::OpBuilder& builder) {
-    // Both leftInfo and rightInfo are VarInfo with mlirSubtypes
-    int numElements = leftInfo.mlirSubtypes.size();
+// Equality for LLVM struct-based tuples (and nested aggregates)
+mlir::Value mlirAggregateEquals(mlir::Value left, mlir::Value right,
+                                mlir::Location loc, mlir::OpBuilder &builder) {
+    auto structTy = left.getType().dyn_cast<mlir::LLVM::LLVMStructType>();
+    if (!structTy) {
+        // Fallback to scalar equality for non-aggregate values
+        return mlirScalarEquals(left, right, loc, builder);
+    }
+
+    auto body = structTy.getBody();
+    if (body.empty()) {
+        throw std::runtime_error(
+            "FATAL: mlirAggregateEquals: empty struct type is invalid");
+    }
+
     mlir::Value result;
+    for (unsigned i = 0; i < body.size(); ++i) {
+        llvm::SmallVector<int64_t, 1> pos{static_cast<int64_t>(i)};
+        mlir::Value leftElem =
+            builder.create<mlir::LLVM::ExtractValueOp>(loc, left, pos);
+        mlir::Value rightElem =
+            builder.create<mlir::LLVM::ExtractValueOp>(loc, right, pos);
 
-    for (int i = 0; i < numElements; ++i) {
-        VarInfo& leftElemInfo = leftInfo.mlirSubtypes[i];
-        VarInfo& rightElemInfo = rightInfo.mlirSubtypes[i];
+        mlir::Value elemEq =
+            mlirAggregateEquals(leftElem, rightElem, loc, builder);
 
-        // Load the actual value from the memref
-        mlir::Value leftElem = builder.create<mlir::memref::LoadOp>(loc, leftElemInfo.value, mlir::ValueRange{});
-        mlir::Value rightElem = builder.create<mlir::memref::LoadOp>(loc, rightElemInfo.value, mlir::ValueRange{});
-
-        mlir::Type elemType = leftElem.getType();
-
-        mlir::Value elemEq;
-        if (elemType.isa<mlir::TupleType>()) {
-            elemEq = mlirTupleEquals(leftElemInfo, rightElemInfo, loc, builder); // recursive for nested tuples
-        } else {
-            elemEq = mlirScalarEquals(leftElem, rightElem, loc, builder);
-        }
-
-        if (i == 0) {
+        if (!result) {
             result = elemEq;
         } else {
-            result = builder.create<mlir::arith::AndIOp>(loc, result, elemEq);
+            result =
+                builder.create<mlir::arith::AndIOp>(loc, result, elemEq);
         }
     }
     return result;
@@ -2497,8 +2512,13 @@ void MLIRGen::visit(EqExpr* node){
     mlir::Value result;
 
     if (promotedType.baseType == BaseType::TUPLE) {
-        // Note: mlirTupleEquals needs the VarInfo with subtypes, not the loaded value
-        result = mlirTupleEquals(leftPromoted, rightPromoted, loc_, builder_);
+        // Load tuple structs from their pointers and compare element-wise.
+        mlir::Type structTy = getLLVMType(promotedType);
+        mlir::Value leftStruct = builder_.create<mlir::LLVM::LoadOp>(
+            loc_, structTy, leftPromoted.value);
+        mlir::Value rightStruct = builder_.create<mlir::LLVM::LoadOp>(
+            loc_, structTy, rightPromoted.value);
+        result = mlirAggregateEquals(leftStruct, rightStruct, loc_, builder_);
     } else {
         // Load the scalar values from their memrefs
         mlir::Value left = builder_.create<mlir::memref::LoadOp>(
