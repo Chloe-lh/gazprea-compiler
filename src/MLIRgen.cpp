@@ -133,15 +133,25 @@ mlir::func::FuncOp MLIRGen::createFunctionDeclaration(const std::string &name,
     std::vector<mlir::Type> argTys;
     argTys.reserve(params.size());
     for (const auto &p : params) {
-        // For var parameters, use memref type (call-by-reference)
-        // For const parameters, use scalar type (call-by-value)
-        if (!p.isConst) {
-            // var parameter: create memref type
-            mlir::Type elemTy = getLLVMType(p.type);
-            argTys.push_back(mlir::MemRefType::get({}, elemTy));
+        // For scalar var parameters -> use memref
+        // For scalar const parameter -> scalar type (call by val)
+        // For tuple parameters use llvm.ptr to struct
+        if (p.type.baseType == BaseType::TUPLE) {
+            mlir::Type structTy = getLLVMType(p.type);
+            if (!p.isConst) {
+                // var tuple: pointer to struct
+                argTys.push_back(mlir::LLVM::LLVMPointerType::get(&context_));
+            } else {
+                // const tuple: struct by value
+                argTys.push_back(structTy);
+            }
         } else {
-            // const parameter: use scalar type
-            argTys.push_back(getLLVMType(p.type));
+            if (!p.isConst) {
+                mlir::Type elemTy = getLLVMType(p.type);
+                argTys.push_back(mlir::MemRefType::get({}, elemTy));
+            } else {
+                argTys.push_back(getLLVMType(p.type));
+            }
         }
     }
 
@@ -170,16 +180,29 @@ void MLIRGen::bindFunctionParametersWithConstants(mlir::func::FuncOp func, const
         if (!vi) throw std::runtime_error("Codegen: missing parameter '" + p.identifier + "' in scope");
         
         mlir::Value argValue = entry.getArgument(i);
-        
-        // For var parameters, the argument is already a memref, so use it directly
-        // For const parameters, we need to allocate storage and store the value
-        if (!p.isConst && argValue.getType().isa<mlir::MemRefType>()) {
-            // var parameter: argument is already a memref, use it directly
-            vi->value = argValue;
+
+        // Tuple parameters use the LLVM struct representation and are not
+        // lowered through memref.
+        if (p.type.baseType == BaseType::TUPLE) {
+            if (!p.isConst) {
+                // var tuple: argument is already a pointer to the struct
+                vi->value = argValue;
+            } else {
+                // const tuple: argument is the struct value; allocate storage
+                // (if needed) and store into it.
+                if (!vi->value) allocaVar(vi);
+                builder_.create<mlir::LLVM::StoreOp>(loc_, argValue, vi->value);
+            }
         } else {
-            // const parameter: allocate storage and store the value
-            if (!vi->value) allocaVar(vi);
-            builder_.create<mlir::memref::StoreOp>(loc_, argValue, vi->value, mlir::ValueRange{});
+            // Scalar parameters: var uses memref (passed by reference),
+            // const is passed by value and stored into an alloca.
+            if (!p.isConst && argValue.getType().isa<mlir::MemRefType>()) {
+                vi->value = argValue;
+            } else {
+                if (!vi->value) allocaVar(vi);
+                builder_.create<mlir::memref::StoreOp>(
+                    loc_, argValue, vi->value, mlir::ValueRange{});
+            }
         }
     }
 }
