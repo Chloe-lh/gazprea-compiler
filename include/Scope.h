@@ -12,7 +12,6 @@
 struct VarInfo {
     std::string identifier;
     CompleteType type;
-    std::vector<VarInfo> mlirSubtypes;
     bool isConst;
     mlir::Value value = nullptr;
 
