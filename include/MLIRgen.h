@@ -146,9 +146,7 @@ private:
     // Loop control flow tracking
     struct LoopContext {
         mlir::Block* exitBlock;      // Block after the loop (for break)
-        mlir::Block* continueBlock;  // Block for continue (before region of scf.while)
-        mlir::Value breakFlag;       // Memref to break flag (false = break)
-        mlir::Value continueFlag;    // Memref to continue flag (false = skip remaining statements)
+        mlir::Block* continueBlock;  // Block to branch to for continue
     };
     std::vector<LoopContext> loopContexts_;
 

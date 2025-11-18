@@ -21,14 +21,28 @@ After generating the MLIR, Backend will lower the dialects and output LLVM IR
 
 #include <stdexcept>
 
-MLIRGen::MLIRGen(BackEnd& backend): backend_(backend), builder_(*backend.getBuilder()), allocaBuilder_(*backend.getBuilder()), module_(backend.getModule()), context_(backend.getContext()), loc_(backend.getLoc())  {
-    root_ = nullptr;
-    currScope_ = nullptr;
-    scopeMap_ = nullptr;
+MLIRGen::MLIRGen(BackEnd& backend)
+    : backend_(backend),
+      builder_(*backend.getBuilder()),
+      allocaBuilder_(*backend.getBuilder()),
+      module_(backend.getModule()),
+      context_(backend.getContext()),
+      loc_(backend.getLoc()),
+      root_(nullptr),
+      currScope_(nullptr),
+      scopeMap_(nullptr) {
 }
 
 MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<const ASTNode*, Scope*>* scopeMap)
-    : backend_(backend), builder_(*backend.getBuilder()), allocaBuilder_(*backend.getBuilder()), module_(backend.getModule()), context_(backend.getContext()), loc_(backend.getLoc()), root_(rootScope), currScope_(nullptr), scopeMap_(scopeMap) {
+    : backend_(backend),
+      builder_(*backend.getBuilder()),
+      allocaBuilder_(*backend.getBuilder()),
+      module_(backend.getModule()),
+      context_(backend.getContext()),
+      loc_(backend.getLoc()),
+      root_(rootScope),
+      currScope_(nullptr),
+      scopeMap_(scopeMap) {
     // Ensure printf and global strings are created upfront
     if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("printf")) {
         auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
@@ -133,15 +147,25 @@ mlir::func::FuncOp MLIRGen::createFunctionDeclaration(const std::string &name,
     std::vector<mlir::Type> argTys;
     argTys.reserve(params.size());
     for (const auto &p : params) {
-        // For var parameters, use memref type (call-by-reference)
-        // For const parameters, use scalar type (call-by-value)
-        if (!p.isConst) {
-            // var parameter: create memref type
-            mlir::Type elemTy = getLLVMType(p.type);
-            argTys.push_back(mlir::MemRefType::get({}, elemTy));
+        // For scalar var parameters -> use memref
+        // For scalar const parameter -> scalar type (call by val)
+        // For tuple parameters use llvm.ptr to struct
+        if (p.type.baseType == BaseType::TUPLE) {
+            mlir::Type structTy = getLLVMType(p.type);
+            if (!p.isConst) {
+                // var tuple: pointer to struct
+                argTys.push_back(mlir::LLVM::LLVMPointerType::get(&context_));
+            } else {
+                // const tuple: struct by value
+                argTys.push_back(structTy);
+            }
         } else {
-            // const parameter: use scalar type
-            argTys.push_back(getLLVMType(p.type));
+            if (!p.isConst) {
+                mlir::Type elemTy = getLLVMType(p.type);
+                argTys.push_back(mlir::MemRefType::get({}, elemTy));
+            } else {
+                argTys.push_back(getLLVMType(p.type));
+            }
         }
     }
 
@@ -170,16 +194,29 @@ void MLIRGen::bindFunctionParametersWithConstants(mlir::func::FuncOp func, const
         if (!vi) throw std::runtime_error("Codegen: missing parameter '" + p.identifier + "' in scope");
         
         mlir::Value argValue = entry.getArgument(i);
-        
-        // For var parameters, the argument is already a memref, so use it directly
-        // For const parameters, we need to allocate storage and store the value
-        if (!p.isConst && argValue.getType().isa<mlir::MemRefType>()) {
-            // var parameter: argument is already a memref, use it directly
-            vi->value = argValue;
+
+        // Tuple parameters use the LLVM struct representation and are not
+        // lowered through memref.
+        if (p.type.baseType == BaseType::TUPLE) {
+            if (!p.isConst) {
+                // var tuple: argument is already a pointer to the struct
+                vi->value = argValue;
+            } else {
+                // const tuple: argument is the struct value; allocate storage
+                // (if needed) and store into it.
+                if (!vi->value) allocaVar(vi);
+                builder_.create<mlir::LLVM::StoreOp>(loc_, argValue, vi->value);
+            }
         } else {
-            // const parameter: allocate storage and store the value
-            if (!vi->value) allocaVar(vi);
-            builder_.create<mlir::memref::StoreOp>(loc_, argValue, vi->value, mlir::ValueRange{});
+            // Scalar parameters: var uses memref (passed by reference),
+            // const is passed by value and stored into an alloca.
+            if (!p.isConst && argValue.getType().isa<mlir::MemRefType>()) {
+                vi->value = argValue;
+            } else {
+                if (!vi->value) allocaVar(vi);
+                builder_.create<mlir::memref::StoreOp>(
+                    loc_, argValue, vi->value, mlir::ValueRange{});
+            }
         }
     }
 }
@@ -233,28 +270,42 @@ void MLIRGen::lowerFunctionOrProcedureBody(const std::vector<VarInfo> &params,
     }
     
     auto &entry = funcOp.front();
-    
-    // Check if ANY block in the function body has a return terminator
-    // func.return can only be in function blocks, not region blocks
+
+    // First pass: find at least one func.return and remember its block so we can later patch unterminated blocks.
     bool hasReturn = false;
+    mlir::Block *firstReturnBlock = nullptr;
     for (auto &block : funcOp.getBody().getBlocks()) {
-        if (!block.empty() && block.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+        if (!block.empty() &&
+            block.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
             if (llvm::isa<mlir::func::ReturnOp>(block.back())) {
                 hasReturn = true;
-                break;
+                if (!firstReturnBlock)
+                    firstReturnBlock = &block;
             }
         }
     }
-    
-    // Set insertion point to the end of the entry block
+
+    // If there was no return, add a default one at the end of the entry
+    // block for void functions
     builder_.setInsertionPointToEnd(&entry);
-    
-    // If no return was found, add one
     if (!hasReturn) {
-        if (returnType.baseType == BaseType::UNKNOWN)
+        if (returnType.baseType == BaseType::UNKNOWN) {
             builder_.create<mlir::func::ReturnOp>(loc_);
-        else
+            hasReturn = true;
+            firstReturnBlock = &entry;
+        } else {
             throw std::runtime_error("missing return in non-void function");
+        }
+    }
+
+    // Ensure every block in the function ends with a terminator. For any empty or unterminated block, branch to block w/ function return
+    mlir::Block *exitBlock = firstReturnBlock ? firstReturnBlock : &entry;
+    for (auto &block : funcOp.getBody().getBlocks()) {
+        if (block.empty() ||
+            !block.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+            builder_.setInsertionPointToEnd(&block);
+            builder_.create<mlir::cf::BranchOp>(loc_, exitBlock);
+        }
     }
 
     currScope_ = savedScope;
@@ -490,36 +541,56 @@ void MLIRGen::visit(FuncCallExpr* node) {
         const auto &param = paramInfos[i];
         const auto &argInfo = argInfos[i];
 
-        if (!param.isConst) {
-            // var parameter: pass memref directly
+        if (param.type.baseType == BaseType::TUPLE) {
+            // tuple uses ptr to llvm struct repr
             if (!argInfo.value) {
-                throw std::runtime_error("FuncCallExpr: var parameter requires mutable argument (variable), but argument has no value");
+                throw std::runtime_error(
+                    "FuncCallExpr: tuple argument has no value");
             }
-            mlir::Type argType = argInfo.value.getType();
-            if (!argType.isa<mlir::MemRefType>()) {
-                throw std::runtime_error("FuncCallExpr: var parameter requires mutable argument (variable) with memref type");
-            }
-            callArgs.push_back(argInfo.value);
-        } else {
-            // const parameter: pass scalar value
-            mlir::Value argVal;
-            if (!argInfo.value) {
-                throw std::runtime_error("FuncCallExpr: argument has no value");
-            }
-            mlir::Type argType = argInfo.value.getType();
-            if (argType.isa<mlir::MemRefType>()) {
-                argVal = builder_.create<mlir::memref::LoadOp>(loc_, argInfo.value, mlir::ValueRange{});
+            if (!param.isConst) {           // var tuple, pass ptr in
+                callArgs.push_back(argInfo.value);
             } else {
-                argVal = argInfo.value;
+                // const tuple, pass by value
+                mlir::Type structTy = getLLVMType(param.type);
+                mlir::Value structVal = builder_.create<mlir::LLVM::LoadOp>(
+                    loc_, structTy, argInfo.value);
+                callArgs.push_back(structVal);
             }
-            callArgs.push_back(argVal);
+        } else {
+            if (!param.isConst) {
+                // Scalar var parameter: pass memref directly.
+                if (!argInfo.value) {
+                    throw std::runtime_error(
+                        "FuncCallExpr: var parameter requires mutable argument (variable), but argument has no value");
+                }
+                mlir::Type argType = argInfo.value.getType();
+                if (!argType.isa<mlir::MemRefType>()) {
+                    throw std::runtime_error(
+                        "FuncCallExpr: var parameter requires mutable argument (variable) with memref type");
+                }
+                callArgs.push_back(argInfo.value);
+            } else {
+                // Scalar const parameter: pass loaded value.
+                if (!argInfo.value) {
+                    throw std::runtime_error(
+                        "FuncCallExpr: argument has no value");
+                }
+                mlir::Value argVal;
+                mlir::Type argType = argInfo.value.getType();
+                if (argType.isa<mlir::MemRefType>()) {
+                    argVal = builder_.create<mlir::memref::LoadOp>(
+                        loc_, argInfo.value, mlir::ValueRange{});
+                } else {
+                    argVal = argInfo.value;
+                }
+                callArgs.push_back(argVal);
+            }
         }
     }
 
     auto funcType = calleeFunc.getFunctionType();
     if (funcType.getNumInputs() != callArgs.size()) {
-        throw std::runtime_error("FuncCallExpr: argument count mismatch for callee '" +
-                                 node->funcName + "'");
+        throw std::runtime_error("FuncCallExpr: argument count mismatch for callee '" + node->funcName + "'");
     }
 
     // Verify each argument type matches the function signature
@@ -550,11 +621,17 @@ void MLIRGen::visit(FuncCallExpr* node) {
 
     mlir::Value retVal = callOp.getResult(0);
 
-    // Wrap returned scalar in a VarInfo with allocated memref storage
+    // Wrap returned value in a VarInfo with appropriate storage.
     VarInfo resultVar(node->type);
     allocaLiteral(&resultVar);
-    builder_.create<mlir::memref::StoreOp>(loc_, retVal, resultVar.value,
-                                           mlir::ValueRange{});
+    if (node->type.baseType == BaseType::TUPLE) {
+        // For tuple returns, resultVar.value is an !llvm.ptr; store the
+        // returned struct into it.
+        builder_.create<mlir::LLVM::StoreOp>(loc_, retVal, resultVar.value);
+    } else {
+        builder_.create<mlir::memref::StoreOp>(loc_, retVal, resultVar.value,
+                                               mlir::ValueRange{});
+    }
 
     pushValue(resultVar);
 }
@@ -951,37 +1028,40 @@ void MLIRGen::visit(OutputStatNode* node) {
 
 // Not necessary. For part 2
 void MLIRGen::visit(InputStatNode* node) { throw std::runtime_error("InputStatNode not implemented"); }
+
 void MLIRGen::visit(BreakStatNode* node) {
     if (loopContexts_.empty()) {
         throw std::runtime_error("BreakStatNode: break statement outside of loop");
     }
-    // Set the break flag to false, which will cause the loop to exit
     auto& loopCtx = loopContexts_.back();
-    mlir::Type i1Type = builder_.getI1Type();
-    auto falseAttr = builder_.getIntegerAttr(i1Type, 0);
-    auto falseConst = builder_.create<mlir::arith::ConstantOp>(loc_, i1Type, falseAttr);
-    builder_.create<mlir::memref::StoreOp>(loc_, falseConst.getResult(), loopCtx.breakFlag, mlir::ValueRange{});
-    // Note: We can't directly yield from the loop body here since we're inside an if region
-    // The break flag will cause the loop to exit on the next condition check
-    // This means statements after the if will still execute in the current iteration
-    // This is a known limitation of using MLIR SCF for imperative break statements
+    if (!loopCtx.exitBlock) {
+        throw std::runtime_error("BreakStatNode: loop context missing exit block");
+    }
+    // Branch to the loop's exit block
+    builder_.create<mlir::cf::BranchOp>(loc_, loopCtx.exitBlock);
 }
 
 void MLIRGen::visit(ContinueStatNode* node) {
     if (loopContexts_.empty()) {
         throw std::runtime_error("ContinueStatNode: continue statement outside of loop");
     }
-    // Set the continue flag to false to skip remaining statements in the loop body.
-    // The flag will be reset to true at the start of the next iteration.
     auto& loopCtx = loopContexts_.back();
-    mlir::Type i1Type = builder_.getI1Type();
-    auto falseAttr = builder_.getIntegerAttr(i1Type, 0);
-    auto falseConst = builder_.create<mlir::arith::ConstantOp>(loc_, i1Type, falseAttr);
-    builder_.create<mlir::memref::StoreOp>(loc_, falseConst.getResult(), loopCtx.continueFlag, mlir::ValueRange{});
+    if (!loopCtx.continueBlock) {
+        throw std::runtime_error("ContinueStatNode: loop context missing continue block");
+    }
+    // Branch to the loop's continue block (typically the condition block or
+    // directly to the loop body for plain loops).
+    builder_.create<mlir::cf::BranchOp>(loc_, loopCtx.continueBlock);
 }
+
 void MLIRGen::visit(ReturnStatNode* node) {
     const CompleteType* retTy = currScope_ ? currScope_->getReturnType() : nullptr;
-    if (!retTy || retTy->baseType == BaseType::UNKNOWN) {
+    if (!retTy) {
+        throw std::runtime_error("visit(ReturnStatNode*): no enclosing function");
+    }
+
+    // Void return: emit direct func.return with no operands.
+    if (retTy->baseType == BaseType::UNKNOWN) {
         builder_.create<mlir::func::ReturnOp>(loc_);
         return;
     }
@@ -990,12 +1070,21 @@ void MLIRGen::visit(ReturnStatNode* node) {
     }
     node->expr->accept(*this);
     VarInfo v = popValue();
+
     if (v.type.baseType == BaseType::UNKNOWN) {
         throw std::runtime_error("visit(ReturnStatNode*): return expression has UNKNOWN type");
     }
     VarInfo promoted = promoteType(&v, const_cast<CompleteType*>(retTy));
-    mlir::Value loaded = builder_.create<mlir::memref::LoadOp>(loc_, promoted.value, mlir::ValueRange{});
-    builder_.create<mlir::func::ReturnOp>(loc_, loaded);
+    mlir::Value retVal;
+    if (retTy->baseType == BaseType::TUPLE) {
+        mlir::Type structTy = getLLVMType(*retTy);
+        retVal = builder_.create<mlir::LLVM::LoadOp>(
+            loc_, structTy, promoted.value);
+    } else {
+        retVal = builder_.create<mlir::memref::LoadOp>(
+            loc_, promoted.value, mlir::ValueRange{});
+    }
+    builder_.create<mlir::func::ReturnOp>(loc_, retVal);
 }
 void MLIRGen::visit(CallStatNode* node) {
     if (!node || !node->call) {
@@ -1054,32 +1143,48 @@ void MLIRGen::visit(CallStatNode* node) {
     for (size_t i = 0; i < argInfos.size() && i < procInfo->params.size(); ++i) {
         const auto& param = procInfo->params[i];
         const auto& argInfo = argInfos[i];
-        
-        // For var parameters, pass the memref directly (by reference)
-        // For const parameters, pass the value (load if needed)
-        if (!param.isConst) {
-            // var parameter: pass memref directly
+
+        if (param.type.baseType == BaseType::TUPLE) {
             if (!argInfo.value) {
-                throw std::runtime_error("CallStatNode: var parameter requires mutable argument (variable), but argument has no value");
+                throw std::runtime_error(
+                    "CallStatNode: tuple argument has no value");
             }
-            mlir::Type argType = argInfo.value.getType();
-            if (!argType.isa<mlir::MemRefType>()) {
-                throw std::runtime_error("CallStatNode: var parameter requires mutable argument (variable) with memref type");
-            }
-            callArgs.push_back(argInfo.value);
-        } else {
-            // const parameter: load value if it's a memref
-            mlir::Value argVal;
-            if (!argInfo.value) {
-                throw std::runtime_error("CallStatNode: argument has no value");
-            }
-            mlir::Type argType = argInfo.value.getType();
-            if (argType.isa<mlir::MemRefType>()) {
-                argVal = builder_.create<mlir::memref::LoadOp>(loc_, argInfo.value, mlir::ValueRange{});
+            if (!param.isConst) {
+                // var tuple: argument is pointer to struct, pass directly
+                callArgs.push_back(argInfo.value);
             } else {
-                argVal = argInfo.value;
+                // const tuple: pass struct by value
+                mlir::Type structTy = getLLVMType(param.type);
+                mlir::Value structVal = builder_.create<mlir::LLVM::LoadOp>(
+                    loc_, structTy, argInfo.value);
+                callArgs.push_back(structVal);
             }
-            callArgs.push_back(argVal);
+        } else {
+            if (!param.isConst) {
+                // var parameter: pass memref directly
+                if (!argInfo.value) {
+                    throw std::runtime_error("CallStatNode: var parameter requires mutable argument (variable), but argument has no value");
+                }
+                mlir::Type argType = argInfo.value.getType();
+                if (!argType.isa<mlir::MemRefType>()) {
+                    throw std::runtime_error("CallStatNode: var parameter requires mutable argument (variable) with memref type");
+                }
+                callArgs.push_back(argInfo.value);
+            } else {
+                // const parameter: load value if it's a memref
+                if (!argInfo.value) {
+                    throw std::runtime_error("CallStatNode: argument has no value");
+                }
+                mlir::Value argVal;
+                mlir::Type argType = argInfo.value.getType();
+                if (argType.isa<mlir::MemRefType>()) {
+                    argVal = builder_.create<mlir::memref::LoadOp>(
+                        loc_, argInfo.value, mlir::ValueRange{});
+                } else {
+                    argVal = argInfo.value;
+                }
+                callArgs.push_back(argVal);
+            }
         }
     }
     
@@ -1111,7 +1216,6 @@ void MLIRGen::visit(CallStatNode* node) {
     // Since this is a call statement, we just discard the result
 }
 void MLIRGen::visit(IfNode* node) {
-    
     // Evaluate the condition expression in the current block
     node->cond->accept(*this);
     VarInfo condVarInfo = popValue();
@@ -1120,159 +1224,174 @@ void MLIRGen::visit(IfNode* node) {
     mlir::Value conditionValue = builder_.create<mlir::memref::LoadOp>(
         loc_, condVarInfo.value, mlir::ValueRange{});
 
-    // Determine if we have an else branch
     bool hasElse = (node->elseBlock != nullptr) || (node->elseStat != nullptr);
-    
-    // Create the scf.if operation
-    auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, conditionValue, hasElse);
 
-    // Build the 'then' region
-    {
-        auto& thenBlock = ifOp.getThenRegion().front();
-        
-        // Set insertion point to the start of the then block
-        builder_.setInsertionPointToStart(&thenBlock);
-        
-        // Visit the then branch
+    // Current block and parent region where new blocks will be inserted.
+    mlir::Block *currentBlock = builder_.getBlock();
+    if (!currentBlock) {
+        throw std::runtime_error("IfNode: builder has no current block");
+    }
+    mlir::Region *region = currentBlock->getParent();
+    if (!region) {
+        throw std::runtime_error("IfNode: current block has no parent region");
+    }
+
+    // Create then/else/merge blocks in the same region.
+    auto *thenBlock = new mlir::Block();
+    region->push_back(thenBlock);
+
+    mlir::Block *elseBlock = nullptr;
+    if (hasElse) {
+        elseBlock = new mlir::Block();
+        region->push_back(elseBlock);
+    }
+
+    auto *mergeBlock = new mlir::Block();
+    region->push_back(mergeBlock);
+
+    // Conditional branch from the current block.
+    if (hasElse) {
+        builder_.create<mlir::cf::CondBranchOp>(
+            loc_, conditionValue,
+            thenBlock, mlir::ValueRange{},
+            elseBlock, mlir::ValueRange{});
+    } else {
+        builder_.create<mlir::cf::CondBranchOp>(
+            loc_, conditionValue,
+            thenBlock, mlir::ValueRange{},
+            mergeBlock, mlir::ValueRange{});
+    }
+
+    // Then branch.
+    builder_.setInsertionPointToStart(thenBlock);
     if (node->thenBlock) {
         node->thenBlock->accept(*this);
     } else if (node->thenStat) {
         node->thenStat->accept(*this);
-        }
-        
-        // Insert yield only if there isn't already a terminator (e.g., from break/continue)
-        if (thenBlock.empty() || !thenBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-            if (!thenBlock.empty()) {
-                builder_.setInsertionPointAfter(&thenBlock.back());
-            } else {
-                builder_.setInsertionPointToStart(&thenBlock);
     }
-    builder_.create<mlir::scf::YieldOp>(loc_);
-        }
+    if (thenBlock->empty() ||
+        !thenBlock->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+        builder_.setInsertionPointToEnd(thenBlock);
+        builder_.create<mlir::cf::BranchOp>(loc_, mergeBlock);
     }
 
-    // Build the 'else' region if it exists
+    // Else branch (if present).
     if (hasElse) {
-        auto& elseBlock = ifOp.getElseRegion().front();
-        
-        // Set insertion point to the start of the else block
-        builder_.setInsertionPointToStart(&elseBlock);
-        
-        // Visit the else branch
+        builder_.setInsertionPointToStart(elseBlock);
         if (node->elseBlock) {
             node->elseBlock->accept(*this);
         } else if (node->elseStat) {
             node->elseStat->accept(*this);
         }
-        
-        // Insert yield only if there isn't already a terminator (e.g., from break/continue)
-        if (elseBlock.empty() || !elseBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-            if (!elseBlock.empty()) {
-                builder_.setInsertionPointAfter(&elseBlock.back());
-            } else {
-                builder_.setInsertionPointToStart(&elseBlock);
-        }
-        builder_.create<mlir::scf::YieldOp>(loc_);
+        if (elseBlock->empty() ||
+            !elseBlock->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+            builder_.setInsertionPointToEnd(elseBlock);
+            builder_.create<mlir::cf::BranchOp>(loc_, mergeBlock);
         }
     }
 
-    // Restore insertion point after the if operation
-    builder_.setInsertionPointAfter(ifOp);
+    // Continue inserting after the if in the merge block.
+    builder_.setInsertionPointToStart(mergeBlock);
 }
 void MLIRGen::visit(LoopNode* node) {
     if (!node->body) {
         throw std::runtime_error("LoopNode: loop body is null");
     }
 
-    // Create a break flag (true = continue, false = break)
-    CompleteType boolType = CompleteType(BaseType::BOOL);
-    VarInfo breakFlagVar = VarInfo(boolType);
-    allocaVar(&breakFlagVar);
-    mlir::Type i1Type = builder_.getI1Type();
-    auto trueAttr = builder_.getIntegerAttr(i1Type, 1);
-    auto trueConst = builder_.create<mlir::arith::ConstantOp>(loc_, i1Type, trueAttr);
-    builder_.create<mlir::memref::StoreOp>(loc_, trueConst.getResult(), breakFlagVar.value, mlir::ValueRange{});
-    
-    // Create a continue flag (true = execute body, false = skip to next iteration)
-    VarInfo continueFlagVar = VarInfo(boolType);
-    allocaVar(&continueFlagVar);
-    builder_.create<mlir::memref::StoreOp>(loc_, trueConst.getResult(), continueFlagVar.value, mlir::ValueRange{});
-    
-    // Create scf.while operation (empty initially)
-    auto whileOp = builder_.create<mlir::scf::WhileOp>(loc_, mlir::TypeRange{}, mlir::ValueRange{});
-    
-    // Save insertion point AFTER creating the loop 
-    auto savedIPAfterLoop = builder_.saveInsertionPoint();
-    
-    // Build the "before" region (condition check)
-    mlir::Region& beforeRegion = whileOp.getBefore();
-    mlir::Block* beforeBlock = new mlir::Block();
-    beforeRegion.push_back(beforeBlock);
-    
-    {
-        auto savedIP = builder_.saveInsertionPoint();
-        builder_.setInsertionPointToStart(beforeBlock);
-        
-        mlir::Value condValue;
-        mlir::Value breakFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, breakFlagVar.value, mlir::ValueRange{});
-        
-        if (node->kind == LoopKind::While && node->cond) {
-            // Re-evaluate condition in the before region
-            node->cond->accept(*this);
-            VarInfo condVarInfo = popValue();
-            mlir::Value condVal = builder_.create<mlir::memref::LoadOp>(loc_, condVarInfo.value, mlir::ValueRange{});
-            // Combine condition with break flag: loop continues if condition is true AND break flag is true
-            condValue = builder_.create<mlir::arith::AndIOp>(loc_, condVal, breakFlagVal);
-        } else {
-            // Plain loop: continue if break flag is true
-            condValue = breakFlagVal;
-        }
-        
-        // Yield the condition value
-        builder_.create<mlir::scf::ConditionOp>(loc_, condValue, mlir::ValueRange{});
-        
-        builder_.restoreInsertionPoint(savedIP);
+    mlir::Block *preBlock = builder_.getBlock();
+    if (!preBlock) {
+        throw std::runtime_error("LoopNode: builder has no current block");
     }
-    
-    // Build the "after" region (loop body)
-    mlir::Region& afterRegion = whileOp.getAfter();
-    mlir::Block* afterBlock = new mlir::Block();
-    afterRegion.push_back(afterBlock);
-    
-    {
-        auto savedIP = builder_.saveInsertionPoint();
-        builder_.setInsertionPointToStart(afterBlock);
-        
-        // Reset continue flag to true at the start of each iteration
-        auto trueConstAfter = builder_.create<mlir::arith::ConstantOp>(loc_, i1Type, trueAttr);
-        builder_.create<mlir::memref::StoreOp>(loc_, trueConstAfter.getResult(), continueFlagVar.value, mlir::ValueRange{});
-
-        // Push loop context for break/continue
-        LoopContext loopCtx;
-        loopCtx.exitBlock = nullptr;
-        loopCtx.continueBlock = nullptr;
-        loopCtx.breakFlag = breakFlagVar.value;
-        loopCtx.continueFlag = continueFlagVar.value;
-        loopContexts_.push_back(loopCtx);
-        
-        // Visit the loop body.
-        if (node->body) {
-            node->body->accept(*this);
-        }
-        
-        // Pop loop context
-        loopContexts_.pop_back();
-
-        // The 'after' region of the while loop also needs a terminator.
-        if (afterBlock->empty() || !afterBlock->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-            builder_.create<mlir::scf::YieldOp>(loc_);
-        }
-        
-        builder_.restoreInsertionPoint(savedIP);
+    mlir::Region *region = preBlock->getParent();
+    if (!region) {
+        throw std::runtime_error("LoopNode: current block has no parent region");
     }
-    
-    // Restore insertion point to after the loop was created
-    builder_.restoreInsertionPoint(savedIPAfterLoop);
+
+    // Create blocks for the loop structure.
+    auto *bodyBlock = new mlir::Block();
+    region->push_back(bodyBlock);
+
+    auto *exitBlock = new mlir::Block();
+    region->push_back(exitBlock);
+
+    mlir::Block *condBlock = nullptr;
+    if (node->kind == LoopKind::While || node->kind == LoopKind::WhilePost) {
+        condBlock = new mlir::Block();
+        region->push_back(condBlock);
+    }
+
+    // Initial branch from the pre-loop block.
+    if (node->kind == LoopKind::While) {
+        builder_.create<mlir::cf::BranchOp>(loc_, condBlock);
+    } else { // Plain and WhilePost: execute body first.
+        builder_.create<mlir::cf::BranchOp>(loc_, bodyBlock);
+    }
+
+    // For pre-check while, emit the condition block now.
+    if (node->kind == LoopKind::While && node->cond) {
+        builder_.setInsertionPointToStart(condBlock);
+        node->cond->accept(*this);
+        VarInfo condVarInfo = popValue();
+        mlir::Value condVal = builder_.create<mlir::memref::LoadOp>(
+            loc_, condVarInfo.value, mlir::ValueRange{});
+        builder_.create<mlir::cf::CondBranchOp>(
+            loc_, condVal,
+            bodyBlock, mlir::ValueRange{},
+            exitBlock, mlir::ValueRange{});
+    }
+
+    // Enter loop body.
+    builder_.setInsertionPointToStart(bodyBlock);
+    LoopContext loopCtx;
+    loopCtx.exitBlock = exitBlock;
+    loopCtx.continueBlock =
+        (node->kind == LoopKind::Plain ? bodyBlock : condBlock);
+    loopContexts_.push_back(loopCtx);
+
+    node->body->accept(*this);
+
+    loopContexts_.pop_back();
+
+    // After the body, if the current block is not yet terminated, branch to the appropriate continuation (condition or body) or emit the post condition for WhilePost.
+    mlir::Block *curBlock = builder_.getBlock();
+    auto needsTerminator = [&](mlir::Block *b) {
+        return b && (b->empty() ||
+                     !b->back().hasTrait<mlir::OpTrait::IsTerminator>());
+    };
+
+    if (node->kind == LoopKind::Plain) {
+        if (needsTerminator(curBlock)) {
+            builder_.create<mlir::cf::BranchOp>(loc_, bodyBlock);
+        }
+    } else if (node->kind == LoopKind::While) {
+        if (needsTerminator(curBlock)) {
+            builder_.create<mlir::cf::BranchOp>(loc_, condBlock);
+        }
+    } else if (node->kind == LoopKind::WhilePost) {
+        if (!condBlock) {
+            throw std::runtime_error(
+                "LoopNode: WhilePost loop missing condition block");
+        }
+        if (needsTerminator(curBlock)) {
+            builder_.create<mlir::cf::BranchOp>(loc_, condBlock);
+        }
+        builder_.setInsertionPointToStart(condBlock);
+        if (!node->cond) {
+            throw std::runtime_error(
+                "LoopNode: WhilePost kind requires a condition");
+        }
+        node->cond->accept(*this);
+        VarInfo condVarInfo = popValue();
+        mlir::Value condVal = builder_.create<mlir::memref::LoadOp>(
+            loc_, condVarInfo.value, mlir::ValueRange{});
+        builder_.create<mlir::cf::CondBranchOp>(
+            loc_, condVal,
+            bodyBlock, mlir::ValueRange{},
+            exitBlock, mlir::ValueRange{});
+    }
+
+    // Continue inserting after the loop in the exit block.
+    builder_.setInsertionPointToStart(exitBlock);
 }
 
 void MLIRGen::visit(BlockNode* node) {
@@ -1285,59 +1404,25 @@ void MLIRGen::visit(BlockNode* node) {
         throw std::runtime_error("FATAL: no corresponding scope found for BlockNode instance.");
     }
 
-    bool inLoop = !loopContexts_.empty();
-
-    // Process declarations, wrapping each in a conditional if we're in a loop
+    // Process declarations
     for (const auto& d : node->decs) {
         if (d) {
-            if (inLoop) {
-                auto& loopCtx = loopContexts_.back();
-                mlir::Value breakFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.breakFlag, mlir::ValueRange{});
-                mlir::Value continueFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.continueFlag, mlir::ValueRange{});
-                mlir::Value shouldExecute = builder_.create<mlir::arith::AndIOp>(loc_, breakFlagVal, continueFlagVal);
-                
-                auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, shouldExecute, false);
-                builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
-                
-                d->accept(*this);
-                
-                if (ifOp.getThenRegion().front().empty() || !ifOp.getThenRegion().front().back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-                    builder_.create<mlir::scf::YieldOp>(loc_);
-                }
-                
-                builder_.setInsertionPointAfter(ifOp);
-            } else {
-                d->accept(*this);
-            }
+            d->accept(*this);
         }
     }
     
     // After processing declarations, prevent further declarations in this block
     currScope_->disableDeclarations();
     
-    // Process statements, wrapping each in a conditional if we're in a loop
+    // Process statements; stop once we hit a terminator in the current block.
     for (const auto& s : node->stats) {
         if (s) {
-            if (inLoop) {
-                auto& loopCtx = loopContexts_.back();
-                mlir::Value breakFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.breakFlag, mlir::ValueRange{});
-                mlir::Value continueFlagVal = builder_.create<mlir::memref::LoadOp>(loc_, loopCtx.continueFlag, mlir::ValueRange{});
-                mlir::Value shouldExecute = builder_.create<mlir::arith::AndIOp>(loc_, breakFlagVal, continueFlagVal);
-                
-                auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, shouldExecute, false);
-                builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
-                
-                s->accept(*this);
-                
-                if (ifOp.getThenRegion().front().empty() || !ifOp.getThenRegion().front().back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-                    // FIX 3: Use :: instead of . for namespace resolution
-                    builder_.create<mlir::scf::YieldOp>(loc_);
-                }
-                
-                builder_.setInsertionPointAfter(ifOp);
-            } else {
-                s->accept(*this);
+            mlir::Block *block = builder_.getBlock();
+            if (block && !block->empty() &&
+                block->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+                break;
             }
+            s->accept(*this);
         }
     }
 
