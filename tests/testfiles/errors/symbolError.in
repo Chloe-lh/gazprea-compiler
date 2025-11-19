@@ -1,0 +1,5 @@
+procedure main() returns integer {
+    y = 5;   
+    integer y;   
+    return 0;
+}

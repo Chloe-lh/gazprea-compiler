@@ -1,0 +1,6 @@
+//CHECK_FILE:callError.out
+procedure foo() { }
+
+procedure main() returns integer {
+    return foo();   // Procedure used in expression
+}

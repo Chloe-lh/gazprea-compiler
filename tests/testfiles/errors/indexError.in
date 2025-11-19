@@ -1,0 +1,5 @@
+//CHECK_FILE:indexError.out
+procedure main() returns integer {
+    integer[3] arr = [1,2,3];
+    return arr[5];   // Index out of bounds
+}

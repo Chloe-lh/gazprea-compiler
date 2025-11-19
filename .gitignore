@@ -19,3 +19,10 @@ build/
 # test stuff
 tests/maks-testfiles/
 tests/fake-output/
+
+CIConfig.json
+.vscode
+gaz
+gaz.ll
+gaz.o
+compile_command.json

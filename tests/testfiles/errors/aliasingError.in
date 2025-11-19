@@ -1,0 +1,6 @@
+//CHECK_FILE:aliasingError.out
+procedure main() returns integer {
+    integer[3] a;
+    integer[3] b = a;   // Aliasing mutable arrays
+    return 0;
+}
