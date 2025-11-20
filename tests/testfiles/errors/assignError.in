@@ -1,0 +1,6 @@
+//CHECK_FILE:assignError.out
+procedure main() returns integer {
+    const integer i = 5;
+    i = 10;   // Assignment to const
+    return 0;
+}

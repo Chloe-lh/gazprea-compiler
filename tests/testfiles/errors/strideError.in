@@ -1,0 +1,5 @@
+//CHECK_FILE:strideError.out
+procedure main() returns integer {
+    1..10 by 0 -> std_output;   // Invalid stride
+    return 0;
+}
