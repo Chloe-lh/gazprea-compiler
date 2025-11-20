@@ -11,7 +11,8 @@ func
     ;
 
 procedure
-    : PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS type)? block #ProcedureBlock
+    : PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS type)? block       #ProcedureBlock
+    | PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS type)? END     #ProcedurePrototype
     ;
 
 param: qualifier? type ID;

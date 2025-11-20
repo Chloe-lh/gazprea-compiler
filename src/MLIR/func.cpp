@@ -25,6 +25,23 @@ void MLIRGen::visit(FuncPrototypeNode* node) {
         builder_.create<mlir::func::FuncOp>(loc_, node->name, ftype);
     }
 }
+void MLIRGen::visit(ProcedurePrototypeNode* node) {
+    // Procedures and functions share the same lowering convention in MLIR:
+    // they both become `func.func` with (possibly empty) result type.
+    std::vector<mlir::Type> argTys, resTys;
+    argTys.reserve(node->params.size());
+    for (const auto& p : node->params) {
+        argTys.push_back(getLLVMType(p.type));
+    }
+    if (node->returnType.baseType != BaseType::UNKNOWN) {
+        resTys.push_back(getLLVMType(node->returnType));
+    }
+
+    auto ftype = builder_.getFunctionType(argTys, resTys);
+    if (!module_.lookupSymbol<mlir::func::FuncOp>(node->name)) {
+        builder_.create<mlir::func::FuncOp>(loc_, node->name, ftype);
+    }
+}
 void MLIRGen::visit(ProcedureBlockNode* node) {
     Scope* savedScope = nullptr;
     beginFunctionDefinitionWithConstants(node, node->name, node->params, node->returnType, savedScope);

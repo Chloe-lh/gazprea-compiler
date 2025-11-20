@@ -5,6 +5,7 @@
 #include "Types.h"
 #include <memory>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -34,6 +35,13 @@ ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionBlockContext *ctx);
 std::vector<std::pair<CompleteType, std::string>>
 ExtractParams(ASTBuilder &builder,
               GazpreaParser::ProcedureBlockContext *ctx);
+
+// Extract parameters with qualifiers (const/var) from a list of `param` nodes.
+// Each tuple is (type, name, isConst).
+std::vector<std::tuple<CompleteType, std::string, bool>>
+ExtractParamsWithQualifiers(
+    ASTBuilder &builder,
+    const std::vector<GazpreaParser::ParamContext *> &params);
 
 std::vector<std::pair<CompleteType, std::string>>
 ExtractParams(ASTBuilder &builder,

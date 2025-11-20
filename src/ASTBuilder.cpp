@@ -653,51 +653,62 @@ std::any ASTBuilder::visitFunctionBlockTupleReturn(
       std::make_shared<FuncBlockNode>(funcName, varParams, returnType, body);
   return node_any(std::move(node));
 }
+
+std::any ASTBuilder::visitProcedurePrototype(
+    GazpreaParser::ProcedurePrototypeContext *ctx) {
+  std::string procName = ctx->ID()->getText();
+  auto tuples =
+      gazprea::builder_utils::ExtractParamsWithQualifiers(*this, ctx->param());
+  std::vector<VarInfo> varParams;
+  varParams.reserve(tuples.size());
+  for (size_t i = 0; i < tuples.size(); ++i) {
+    CompleteType ptype(BaseType::UNKNOWN);
+    std::string pname;
+    bool isConst = true;
+    std::tie(ptype, pname, isConst) = tuples[i];
+    if (pname.empty()) {
+      pname = "_arg" + std::to_string(i);
+    }
+    varParams.emplace_back(pname, ptype, isConst);
+  }
+
+  CompleteType returnType(BaseType::UNKNOWN);
+  if (ctx->RETURNS() && ctx->type()) {
+    auto anyRet = visit(ctx->type());
+    if (anyRet.has_value() && anyRet.type() == typeid(CompleteType)) {
+      try {
+        returnType = std::any_cast<CompleteType>(anyRet);
+      } catch (const std::bad_any_cast &) {
+        returnType = CompleteType(BaseType::UNKNOWN);
+      }
+    }
+  }
+
+  auto node =
+      std::make_shared<ProcedurePrototypeNode>(procName, varParams, returnType);
+  // no body for a prototype
+  return node_any(std::move(node));
+}
+
 // PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS type)?
 // block;
 std::any
 ASTBuilder::visitProcedureBlock(GazpreaParser::ProcedureBlockContext *ctx) {
   std::string funcName = ctx->ID()->getText();
 
-  // Extract params with qualifiers
+  // Extract params with qualifiers via shared helper
   std::vector<VarInfo> varParams;
-  auto paramList = ctx->param();
-  for (auto paramCtx : paramList) {
+  auto tuples =
+      gazprea::builder_utils::ExtractParamsWithQualifiers(*this, ctx->param());
+  varParams.reserve(tuples.size());
+  for (size_t i = 0; i < tuples.size(); ++i) {
     CompleteType ptype(BaseType::UNKNOWN);
     std::string pname;
-    bool isConst = true; // default is const
-
-    if (paramCtx->type()) {
-      auto anyT = visit(paramCtx->type());
-      if (anyT.has_value() && anyT.type() == typeid(CompleteType)) {
-        try {
-          ptype = std::any_cast<CompleteType>(anyT);
-        } catch (const std::bad_any_cast &) {
-          ptype = CompleteType(BaseType::UNKNOWN);
-        }
-      }
-    }
-
-    if (paramCtx->ID()) {
-      pname = paramCtx->ID()->getText();
-    }
+    bool isConst = true;
+    std::tie(ptype, pname, isConst) = tuples[i];
     if (pname.empty()) {
-      pname = "_arg" + std::to_string(varParams.size());
+      pname = "_arg" + std::to_string(i);
     }
-
-    // Extract qualifier
-    if (paramCtx->qualifier()) {
-      auto qualAny = visit(paramCtx->qualifier());
-      if (qualAny.has_value()) {
-        try {
-          std::string qual = std::any_cast<std::string>(qualAny);
-          isConst = (qual != "var");
-        } catch (const std::bad_any_cast &) {
-          // default to const
-        }
-      }
-    }
-
     varParams.emplace_back(pname, ptype, isConst);
   }
 

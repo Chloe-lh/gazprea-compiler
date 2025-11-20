@@ -202,8 +202,9 @@ ExtractParams(ASTBuilder &builder,
   return out;
 }
 
-// Helper to extract params with qualifiers for procedures
-static std::vector<std::tuple<CompleteType, std::string, bool>> extractParamsWithQualifiers(
+// Helper to extract params with qualifiers (for procedures / future funcs)
+std::vector<std::tuple<CompleteType, std::string, bool>>
+ExtractParamsWithQualifiers(
     ASTBuilder &builder,
     const std::vector<gazprea::GazpreaParser::ParamContext *> &params) {
   std::vector<std::tuple<CompleteType, std::string, bool>> out;
