@@ -778,10 +778,12 @@ ASTBuilder::visitFunctionStat(GazpreaParser::FunctionStatContext *ctx) {
   CompleteType returnType =
       gazprea::builder_utils::ExtractReturnType(*this, ctx);
   std::shared_ptr<StatNode> returnStat = nullptr;
-  if (ctx->stat()) {
-    auto anyStat = visit(ctx->stat());
-    if (anyStat.has_value()) {
-      returnStat = safe_any_cast_ptr<StatNode>(anyStat);
+  if (ctx->expr()) {
+    auto anyExpr = visit(ctx->expr());
+    auto exprNode = safe_any_cast_ptr<ExprNode>(anyExpr);
+    if (exprNode) {
+      auto retNode = std::make_shared<ReturnStatNode>(exprNode);
+      returnStat = retNode;
     }
   }
   // construct FuncStatNode using VarInfo vector
