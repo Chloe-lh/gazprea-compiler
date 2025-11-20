@@ -3,8 +3,17 @@
 
 void MLIRGen::visit(FuncStatNode* node) {
     Scope* savedScope = nullptr;
-    beginFunctionDefinitionWithConstants(node, node->name, node->parameters, node->returnType, savedScope);
-    lowerFunctionOrProcedureBody(node->parameters, node->body, node->returnType, savedScope);
+    beginFunctionDefinitionWithConstants(
+        node, node->name, node->parameters, node->returnType, savedScope);
+
+    // Handle FuncStat nodes since they have no body
+    if (node->returnStat) {
+        node->returnStat->accept(*this);
+    }
+
+    // Handle block funcs/procedures
+    lowerFunctionOrProcedureBody(
+        node->parameters, node->body, node->returnType, savedScope);
 }
 
 void MLIRGen::visit(FuncBlockNode* node) {
@@ -19,6 +28,23 @@ void MLIRGen::visit(FuncPrototypeNode* node) {
     for (const auto& p : node->parameters) argTys.push_back(getLLVMType(p.type));
     if (node->returnType.baseType != BaseType::UNKNOWN)
         resTys.push_back(getLLVMType(node->returnType));
+
+    auto ftype = builder_.getFunctionType(argTys, resTys);
+    if (!module_.lookupSymbol<mlir::func::FuncOp>(node->name)) {
+        builder_.create<mlir::func::FuncOp>(loc_, node->name, ftype);
+    }
+}
+void MLIRGen::visit(ProcedurePrototypeNode* node) {
+    // Procedures and functions share the same lowering convention in MLIR:
+    // they both become `func.func` with (possibly empty) result type.
+    std::vector<mlir::Type> argTys, resTys;
+    argTys.reserve(node->params.size());
+    for (const auto& p : node->params) {
+        argTys.push_back(getLLVMType(p.type));
+    }
+    if (node->returnType.baseType != BaseType::UNKNOWN) {
+        resTys.push_back(getLLVMType(node->returnType));
+    }
 
     auto ftype = builder_.getFunctionType(argTys, resTys);
     if (!module_.lookupSymbol<mlir::func::FuncOp>(node->name)) {
@@ -151,13 +177,8 @@ void MLIRGen::visit(FuncCallExpr* node) {
                         "FuncCallExpr: argument has no value");
                 }
                 mlir::Value argVal;
-                mlir::Type argType = argInfo.value.getType();
-                if (argType.isa<mlir::MemRefType>()) {
-                    argVal = builder_.create<mlir::memref::LoadOp>(
-                        loc_, argInfo.value, mlir::ValueRange{});
-                } else {
-                    argVal = argInfo.value;
-                }
+                // Normalize to an SSA value (getSSAValue will load memref if needed)
+                argVal = getSSAValue(argInfo);
                 callArgs.push_back(argVal);
             }
         }

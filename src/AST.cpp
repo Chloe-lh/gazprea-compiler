@@ -40,6 +40,7 @@ void InferredDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void FuncStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void FuncPrototypeNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void FuncBlockNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void ProcedurePrototypeNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
 // Statements
 void CallStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
@@ -147,6 +148,11 @@ ProcedureBlockNode::ProcedureBlockNode(const std::string &name,
                              std::shared_ptr<BlockNode> body)
     : name(name), params(params), returnType(std::move(returnType)),
       body(std::move(body)) {}
+
+ProcedurePrototypeNode::ProcedurePrototypeNode(
+    const std::string &name, const std::vector<VarInfo> &parameters,
+    CompleteType returnType)
+    : name(name), params(parameters), returnType(std::move(returnType)) {}
 
 TypeAliasNode::TypeAliasNode(const std::string &aliasName,
                              const CompleteType &type)

@@ -13,10 +13,12 @@ struct VarInfo {
     std::string identifier;
     CompleteType type;
     bool isConst;
+    bool isLValue;
     mlir::Value value = nullptr;
 
     VarInfo(CompleteType completeType): type(completeType) {}
-    VarInfo(std::string identifier, CompleteType completeType, bool isConst): identifier(identifier), type(completeType), isConst(isConst) {}
+    VarInfo(std::string identifier, CompleteType completeType, bool isConst): identifier(identifier), type(completeType), isConst(isConst) {} // for part 1 compatability
+    VarInfo(std::string identifier, CompleteType completeType, bool isConst, bool isLValue): identifier(identifier), type(completeType), isConst(isConst), isLValue(isLValue) {}
     VarInfo(std::string aliasName): type(CompleteType(BaseType::UNRESOLVED)) {}
 };
 

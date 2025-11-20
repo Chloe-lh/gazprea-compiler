@@ -28,6 +28,7 @@ public:
     void visit(FuncPrototypeNode* node) override;
     void visit(FuncBlockNode* node) override;
     void visit(ProcedureBlockNode* node) override;
+    void visit(ProcedurePrototypeNode* node) override;
 
     // Declarations
     void visit(TypedDecNode* node) override;
@@ -122,6 +123,7 @@ public:
         const std::vector<VarInfo> &params,
         const CompleteType &returnType,
         Scope* &savedScope);
+    mlir::Value getSSAValue(const VarInfo &v);
 
 
 private:

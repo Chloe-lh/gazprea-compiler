@@ -5,12 +5,15 @@ file: (dec|func|procedure|type_alias|stat)* EOF;
 func
     : FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS type block       #FunctionBlock
     | FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS tuple_dec block  #FunctionBlockTupleReturn
-    | FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS type EQ stat     #FunctionStat
+    | FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS type EQ expr END #FunctionStat
     | FUNCTION ID PARENLEFT (type ID? (COMMA type ID?)*)? PARENRIGHT RETURNS type END       #FunctionPrototype
     | FUNCTION ID PARENLEFT (type ID? (COMMA type ID?)*)? PARENRIGHT RETURNS tuple_dec END  #FunctionPrototypeTupleReturn
     ;
 
-procedure: PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS type)? block;
+procedure
+    : PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS type)? block       #ProcedureBlock
+    | PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS type)? END     #ProcedurePrototype
+    ;
 
 param: qualifier? type ID;
 
@@ -64,12 +67,12 @@ expr
     | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr
     | PARENLEFT expr PARENRIGHT                         #ParenExpr
     | STRING_LIT                                       #StringExpr
+    | <assoc=right>NOT expr                             #NotExpr
     | <assoc=right> (ADD|MINUS) expr                    #UnaryExpr
     | <assoc=right> expr EXP expr                       #ExpExpr
     | expr op=(MULT|DIV|REM) expr                       #MultExpr
     | expr op=(ADD|MINUS) expr                          #AddExpr
     | expr op=(LT|GT|LTE|GTE) expr                      #CompExpr
-    | <assoc=right>NOT expr                             #NotExpr
     | expr op=(EQEQ|NE) expr                            #EqExpr
     | expr AND expr                                     #AndExpr
     | expr op=(OR|XOR) expr                             #OrExpr

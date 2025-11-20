@@ -9,13 +9,8 @@ void MLIRGen::visit(UnaryExpr* node) {
     if (tryEmitConstantForNode(node)) return;
     node->operand->accept(*this);
     VarInfo operand = popValue();
-    // Ensure we operate on a scalar: load from memref if needed
-    mlir::Value operandVal;
-    if (operand.value.getType().isa<mlir::MemRefType>()) {
-        operandVal = builder_.create<mlir::memref::LoadOp>(loc_, operand.value, mlir::ValueRange{});
-    } else {
-        operandVal = operand.value;
-    }
+    // Ensure we operate on a scalar: get SSA value (loads memref if needed)
+    mlir::Value operandVal = getSSAValue(operand);
 
     if (node->op == "-") {
         auto zero = builder_.create<mlir::arith::ConstantOp>(
@@ -63,13 +58,9 @@ void MLIRGen::visit(AddExpr* node){
     VarInfo leftPromoted = castType(&leftInfo, &promotedType);
     VarInfo rightPromoted = castType(&rightInfo, &promotedType);
 
-    // Load the promoted values
-    mlir::Value leftLoaded = builder_.create<mlir::memref::LoadOp>(
-        loc_, leftPromoted.value, mlir::ValueRange{}
-    );
-    mlir::Value rightLoaded = builder_.create<mlir::memref::LoadOp>(
-        loc_, rightPromoted.value, mlir::ValueRange{}
-    );
+    // Load the promoted values (getSSAValue handles memref vs SSA)
+    mlir::Value leftLoaded = getSSAValue(leftPromoted);
+    mlir::Value rightLoaded = getSSAValue(rightPromoted);
 
     mlir::Value result;
     if (promotedType.baseType == BaseType::INTEGER) {
@@ -122,11 +113,11 @@ void MLIRGen::visit(ExpExpr* node) {
     // Generate runtime code with error checking
     node->left->accept(*this);
     VarInfo left = popValue();
-    mlir::Value lhs = builder_.create<mlir::memref::LoadOp>(loc_, left.value, mlir::ValueRange{});
+    mlir::Value lhs = getSSAValue(left);
 
     node->right->accept(*this);
     VarInfo right = popValue();
-    mlir::Value rhs = builder_.create<mlir::memref::LoadOp>(loc_, right.value, mlir::ValueRange{});
+    mlir::Value rhs = getSSAValue(right);
 
     bool isInt = lhs.getType().isa<mlir::IntegerType>();
 
@@ -200,15 +191,9 @@ void MLIRGen::visit(MultExpr* node){
     node->right->accept(*this);
     VarInfo rightInfo = popValue();
 
-    auto loadIfMemref = [&](mlir::Value v) -> mlir::Value {
-        if (v.getType().isa<mlir::MemRefType>()) {
-            return builder_.create<mlir::memref::LoadOp>(loc_, v, mlir::ValueRange{});
-        }
-        return v;
-    };
-
-    mlir::Value left = loadIfMemref(leftInfo.value);
-    mlir::Value right = loadIfMemref(rightInfo.value);
+    // Normalize operands to SSA values (loads memref if needed)
+    mlir::Value left = getSSAValue(leftInfo);
+    mlir::Value right = getSSAValue(rightInfo);
 
     mlir::Value result;
 

@@ -41,15 +41,8 @@ void MLIRGen::visit(OutputStatNode* node) {
     node->expr->accept(*this);
     VarInfo exprVarInfo = popValue();
 
-    // Load the value from its memref if needed. Some visitors may push
-    // scalar mlir::Value directly (non-memref), so accept both forms.
-    mlir::Value loadedValue;
-    if (exprVarInfo.value.getType().isa<mlir::MemRefType>()) {
-        loadedValue = builder_.create<mlir::memref::LoadOp>(
-        loc_, exprVarInfo.value, mlir::ValueRange{});
-    } else {
-        loadedValue = exprVarInfo.value;
-    }
+    // Normalize the expression to an SSA value (loads memref if needed)
+    mlir::Value loadedValue = getSSAValue(exprVarInfo);
 
     // Determine format string name and get format string/printf upfront
     const char* formatStrName = nullptr;
