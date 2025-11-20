@@ -53,10 +53,9 @@ void MLIRGen::visit(TupleAccessAssignStatNode* node) {
     size_t elemIndex = static_cast<size_t>(target->index - 1);
     CompleteType elemType = tupleVar->type.subTypes[elemIndex];
 
-    // Promote RHS to element type if needed
+    // Promote RHS to element type if needed and normalize to SSA
     VarInfo promoted = promoteType(&from, &elemType);
-    mlir::Value elemVal = builder_.create<mlir::memref::LoadOp>(
-        loc_, promoted.value, mlir::ValueRange{});
+    mlir::Value elemVal = getSSAValue(promoted);
 
     // Load current tuple struct from LLVM pointer
     mlir::Type tupleStructTy = getLLVMType(tupleVar->type);
@@ -164,13 +163,8 @@ void MLIRGen::visit(TupleLiteralNode* node) {
         node->elements[i]->accept(*this);
         VarInfo elemVarInfo = popValue();
 
-        mlir::Value loadedVal;
-        if (elemVarInfo.value.getType().isa<mlir::MemRefType>()) {
-            loadedVal = builder_.create<mlir::memref::LoadOp>(
-                loc_, elemVarInfo.value, mlir::ValueRange{});
-        } else {
-            loadedVal = elemVarInfo.value;
-        }
+        // Normalize element value to SSA (load memref if needed)
+        mlir::Value loadedVal = getSSAValue(elemVarInfo);
 
         llvm::SmallVector<int64_t, 1> pos{static_cast<int64_t>(i)};
         structVal = builder_.create<mlir::LLVM::InsertValueOp>(

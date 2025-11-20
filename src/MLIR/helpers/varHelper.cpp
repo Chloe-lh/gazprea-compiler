@@ -153,9 +153,8 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable) {
 
     VarInfo promoted = promoteType(literal, &variable->type); // handle type promotions + errors
 
-    mlir::Value loadedVal = builder_.create<mlir::memref::LoadOp>(
-        loc_, promoted.value, mlir::ValueRange{}
-    );
+    // Normalize promoted value to SSA (load memref if needed)
+    mlir::Value loadedVal = getSSAValue(promoted);
     builder_.create<mlir::memref::StoreOp>(
         loc_, loadedVal, variable->value, mlir::ValueRange{}
     );

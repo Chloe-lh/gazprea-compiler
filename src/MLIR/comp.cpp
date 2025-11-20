@@ -30,13 +30,9 @@ void MLIRGen::visit(CompExpr* node) {
     VarInfo leftPromoted = castType(&leftVarInfo, &promotedType);
     VarInfo rightPromoted = castType(&rightVarInfo, &promotedType);
     
-    // Load the values
-    mlir::Value leftVal = builder_.create<mlir::memref::LoadOp>(
-        loc_, leftPromoted.value, mlir::ValueRange{}
-    );
-    mlir::Value rightVal = builder_.create<mlir::memref::LoadOp>(
-        loc_, rightPromoted.value, mlir::ValueRange{}
-    );
+    // Load the values (getSSAValue handles memref vs SSA values)
+    mlir::Value leftVal = getSSAValue(leftPromoted);
+    mlir::Value rightVal = getSSAValue(rightPromoted);
     
     // Create comparison operation based on operator and type
     mlir::Value cmpResult;
@@ -171,12 +167,8 @@ void MLIRGen::visit(EqExpr* node){
         result = mlirAggregateEquals(leftStruct, rightStruct, loc_, builder_);
     } else {
         // Load the scalar values from their memrefs
-        mlir::Value left = builder_.create<mlir::memref::LoadOp>(
-            loc_, leftPromoted.value, mlir::ValueRange{}
-        );
-        mlir::Value right = builder_.create<mlir::memref::LoadOp>(
-            loc_, rightPromoted.value, mlir::ValueRange{}
-        );
+        mlir::Value left = getSSAValue(leftPromoted);
+        mlir::Value right = getSSAValue(rightPromoted);
         result = mlirScalarEquals(left, right, loc_, builder_);
     }
 
