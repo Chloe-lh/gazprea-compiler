@@ -177,13 +177,8 @@ void MLIRGen::visit(FuncCallExpr* node) {
                         "FuncCallExpr: argument has no value");
                 }
                 mlir::Value argVal;
-                mlir::Type argType = argInfo.value.getType();
-                if (argType.isa<mlir::MemRefType>()) {
-                    argVal = builder_.create<mlir::memref::LoadOp>(
-                        loc_, argInfo.value, mlir::ValueRange{});
-                } else {
-                    argVal = argInfo.value;
-                }
+                // Normalize to an SSA value (getSSAValue will load memref if needed)
+                argVal = getSSAValue(argInfo);
                 callArgs.push_back(argVal);
             }
         }

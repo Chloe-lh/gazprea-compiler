@@ -123,6 +123,7 @@ public:
         const std::vector<VarInfo> &params,
         const CompleteType &returnType,
         Scope* &savedScope);
+    mlir::Value getSSAValue(const VarInfo &v);
 
 
 private:

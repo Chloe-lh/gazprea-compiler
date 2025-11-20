@@ -67,12 +67,12 @@ expr
     | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr
     | PARENLEFT expr PARENRIGHT                         #ParenExpr
     | STRING_LIT                                       #StringExpr
+    | <assoc=right>NOT expr                             #NotExpr
     | <assoc=right> (ADD|MINUS) expr                    #UnaryExpr
     | <assoc=right> expr EXP expr                       #ExpExpr
     | expr op=(MULT|DIV|REM) expr                       #MultExpr
     | expr op=(ADD|MINUS) expr                          #AddExpr
     | expr op=(LT|GT|LTE|GTE) expr                      #CompExpr
-    | <assoc=right>NOT expr                             #NotExpr
     | expr op=(EQEQ|NE) expr                            #EqExpr
     | expr AND expr                                     #AndExpr
     | expr op=(OR|XOR) expr                             #OrExpr

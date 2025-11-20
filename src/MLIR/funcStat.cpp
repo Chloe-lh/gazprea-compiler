@@ -54,8 +54,8 @@ void MLIRGen::visit(ReturnStatNode* node) {
         retVal = builder_.create<mlir::LLVM::LoadOp>(
             loc_, structTy, promoted.value);
     } else {
-        retVal = builder_.create<mlir::memref::LoadOp>(
-            loc_, promoted.value, mlir::ValueRange{});
+        // Normalize scalar return value to SSA (load memref if needed)
+        retVal = getSSAValue(promoted);
     }
     builder_.create<mlir::func::ReturnOp>(loc_, retVal);
 }
@@ -149,14 +149,8 @@ void MLIRGen::visit(CallStatNode* node) {
                 if (!argInfo.value) {
                     throw std::runtime_error("CallStatNode: argument has no value");
                 }
-                mlir::Value argVal;
-                mlir::Type argType = argInfo.value.getType();
-                if (argType.isa<mlir::MemRefType>()) {
-                    argVal = builder_.create<mlir::memref::LoadOp>(
-                        loc_, argInfo.value, mlir::ValueRange{});
-                } else {
-                    argVal = argInfo.value;
-                }
+                // Normalize to SSA (getSSAValue will load memref if needed)
+                mlir::Value argVal = getSSAValue(argInfo);
                 callArgs.push_back(argVal);
             }
         }

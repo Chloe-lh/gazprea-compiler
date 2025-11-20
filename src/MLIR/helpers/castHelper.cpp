@@ -18,7 +18,7 @@ VarInfo MLIRGen::promoteType(VarInfo* from, CompleteType* toType) {
     if (from->type.baseType == BaseType::INTEGER && toType->baseType == BaseType::REAL) {
         VarInfo to = VarInfo(*toType);
         allocaLiteral(&to);
-        mlir::Value i32Val = builder_.create<mlir::memref::LoadOp>(loc_, from->value, mlir::ValueRange{});
+        mlir::Value i32Val = getSSAValue(*from);
         mlir::Value fVal = builder_.create<mlir::arith::SIToFPOp>(loc_, builder_.getF32Type(), i32Val);
         builder_.create<mlir::memref::StoreOp>(loc_, fVal, to.value, mlir::ValueRange{});
         return to;
@@ -74,9 +74,7 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
 
                     VarInfo castedElem =
                         castType(&fromElem, &toType->subTypes[i]);
-                    mlir::Value elemVal =
-                        builder_.create<mlir::memref::LoadOp>(
-                            loc_, castedElem.value, mlir::ValueRange{});
+                    mlir::Value elemVal = getSSAValue(castedElem);
 
                     // Insert casted element into destination struct
                     dstStruct = builder_.create<mlir::LLVM::InsertValueOp>(
@@ -96,7 +94,7 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
         }
         case (BaseType::BOOL):
         {
-            mlir::Value boolVal = builder_.create<mlir::memref::LoadOp>(loc_, from->value, mlir::ValueRange{}); // Load value
+            mlir::Value boolVal = getSSAValue(*from); // Load value or use SSA
             switch (toType->baseType) {
                 case BaseType::BOOL:                    // Bool -> Bool
                     builder_.create<mlir::memref::StoreOp>(
@@ -138,7 +136,7 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
 
         case (BaseType::CHARACTER):
         {
-            mlir::Value chVal = builder_.create<mlir::memref::LoadOp>(loc_, from->value, mlir::ValueRange{});
+            mlir::Value chVal = getSSAValue(*from);
             switch (toType->baseType) {
                 case BaseType::CHARACTER:               // Char -> Char
                     builder_.create<mlir::memref::StoreOp>(loc_, chVal, to.value, mlir::ValueRange{});
@@ -182,7 +180,7 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
 
         case (BaseType::INTEGER):
         {
-            mlir::Value i32Val = builder_.create<mlir::memref::LoadOp>(loc_, from->value, mlir::ValueRange{});
+            mlir::Value i32Val = getSSAValue(*from);
             switch (toType->baseType) {
                 case BaseType::INTEGER:                 // Int -> Int
                     builder_.create<mlir::memref::StoreOp>(loc_, i32Val, to.value, mlir::ValueRange{});
@@ -226,7 +224,7 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
 
         case (BaseType::REAL):
         {
-            mlir::Value fVal = builder_.create<mlir::memref::LoadOp>(loc_, from->value, mlir::ValueRange{});
+            mlir::Value fVal = getSSAValue(*from);
             switch (toType->baseType) {
                 case BaseType::REAL:                    // Real -> Real
                     builder_.create<mlir::memref::StoreOp>(loc_, fVal, to.value, mlir::ValueRange{});

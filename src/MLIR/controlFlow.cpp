@@ -8,9 +8,8 @@ void MLIRGen::visit(IfNode* node) {
     node->cond->accept(*this);
     VarInfo condVarInfo = popValue();
     
-    // Load the condition value from its memref in the current block
-    mlir::Value conditionValue = builder_.create<mlir::memref::LoadOp>(
-        loc_, condVarInfo.value, mlir::ValueRange{});
+    // Normalize condition to SSA (load memref if needed)
+    mlir::Value conditionValue = getSSAValue(condVarInfo);
 
     bool hasElse = (node->elseBlock != nullptr) || (node->elseStat != nullptr);
 
@@ -121,8 +120,7 @@ void MLIRGen::visit(LoopNode* node) {
         builder_.setInsertionPointToStart(condBlock);
         node->cond->accept(*this);
         VarInfo condVarInfo = popValue();
-        mlir::Value condVal = builder_.create<mlir::memref::LoadOp>(
-            loc_, condVarInfo.value, mlir::ValueRange{});
+        mlir::Value condVal = getSSAValue(condVarInfo);
         builder_.create<mlir::cf::CondBranchOp>(
             loc_, condVal,
             bodyBlock, mlir::ValueRange{},
@@ -171,8 +169,7 @@ void MLIRGen::visit(LoopNode* node) {
         }
         node->cond->accept(*this);
         VarInfo condVarInfo = popValue();
-        mlir::Value condVal = builder_.create<mlir::memref::LoadOp>(
-            loc_, condVarInfo.value, mlir::ValueRange{});
+        mlir::Value condVal = getSSAValue(condVarInfo);
         builder_.create<mlir::cf::CondBranchOp>(
             loc_, condVal,
             bodyBlock, mlir::ValueRange{},

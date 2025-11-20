@@ -1,5 +1,7 @@
 #include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
+#include "Scope.h"
+#include "Types.h"
 
 
 void MLIRGen::visit(IdNode* node) {
@@ -81,78 +83,68 @@ void MLIRGen::visit(IdNode* node) {
 
 void MLIRGen::visit(TrueNode* node) {
     auto boolType = builder_.getI1Type();
-
-    CompleteType completeType = CompleteType(BaseType::BOOL);
-    VarInfo varInfo = VarInfo(completeType);
-    allocaLiteral(&varInfo);
-
-    auto constTrue = builder_.create<mlir::arith::ConstantOp>(
-        loc_, boolType, builder_.getIntegerAttr(boolType, 1)
-    );
-    builder_.create<mlir::memref::StoreOp>(loc_, constTrue, varInfo.value, mlir::ValueRange{});
-
-    pushValue(varInfo);
+    auto c = builder_.create<mlir::arith::ConstantOp>(loc_, boolType,
+                builder_.getIntegerAttr(boolType, 1)); // 1 == true
+    VarInfo v = (CompleteType(BaseType::BOOL));
+    v.value = c.getResult();
+    v.isLValue = false;
+    pushValue(v);
 }
 
 
 void MLIRGen::visit(FalseNode* node) {
-    CompleteType completeType = CompleteType(BaseType::BOOL);
-    VarInfo varInfo = VarInfo(completeType);
-
     auto boolType = builder_.getI1Type();
-    allocaLiteral(&varInfo);
-    auto constFalse = builder_.create<mlir::arith::ConstantOp>(
-        loc_, boolType, builder_.getIntegerAttr(boolType, 0)
-    );
-    builder_.create<mlir::memref::StoreOp>(loc_, constFalse, varInfo.value, mlir::ValueRange{});
-
-    pushValue(varInfo);
+    auto c = builder_.create<mlir::arith::ConstantOp>(loc_, boolType,
+                builder_.getIntegerAttr(boolType, 0)); // 0 == false
+    VarInfo v = (CompleteType(BaseType::BOOL));
+    v.value = c.getResult();
+    v.isLValue = false;
+    pushValue(v);
 }
 
 
 void MLIRGen::visit(CharNode* node) {
+    // Emit character literals as SSA constants (i8) rather than allocating
+    // a temporary memref and storing into it. This yields cleaner, more
+    // efficient MLIR where temporaries are SSA values.
     CompleteType completeType = CompleteType(BaseType::CHARACTER);
-    VarInfo varInfo = VarInfo(completeType);
+    VarInfo v = VarInfo(completeType);
 
     auto charType = builder_.getI8Type();
-    allocaLiteral(&varInfo);
     auto constChar = builder_.create<mlir::arith::ConstantOp>(
         loc_, charType, builder_.getIntegerAttr(charType, static_cast<int>(node->value))
     );
-    builder_.create<mlir::memref::StoreOp>(loc_, constChar, varInfo.value, mlir::ValueRange{});
-
-    pushValue(varInfo);
+    v.value = constChar.getResult();
+    v.isLValue = false;
+    pushValue(v);
 }
 
 void MLIRGen::visit(IntNode* node) {
-    
+    // Emit integer literals as SSA constants (i32) instead of temporaries.
     CompleteType completeType = CompleteType(BaseType::INTEGER);
-    VarInfo varInfo = VarInfo(completeType);
+    VarInfo v = VarInfo(completeType);
 
     auto intType = builder_.getI32Type();
-    allocaLiteral(&varInfo);
-    
     auto constInt = builder_.create<mlir::arith::ConstantOp>(
         loc_, intType, builder_.getIntegerAttr(intType, node->value)
     );
-    
-    builder_.create<mlir::memref::StoreOp>(loc_, constInt, varInfo.value, mlir::ValueRange{});
-
-    pushValue(varInfo);
+    v.value = constInt.getResult();
+    v.isLValue = false;
+    pushValue(v);
 }
 
 void MLIRGen::visit(RealNode* node) {
+    // Emit real (float) literals as SSA constants (f32) instead of temporaries.
     CompleteType completeType = CompleteType(BaseType::REAL);
-    VarInfo varInfo = VarInfo(completeType);
+    VarInfo v = VarInfo(completeType);
 
     auto realType = builder_.getF32Type();
-    allocaLiteral(&varInfo);
     auto constReal = builder_.create<mlir::arith::ConstantOp>(
         loc_, realType, builder_.getFloatAttr(realType, node->value)
     );
-    builder_.create<mlir::memref::StoreOp>(loc_, constReal, varInfo.value, mlir::ValueRange{});
-
-    pushValue(varInfo);
+    v.value = constReal.getResult();
+    v.isLValue = false;
+    pushValue(v);
 }
 
 void MLIRGen::visit(StringNode* node) {
