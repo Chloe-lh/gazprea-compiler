@@ -60,7 +60,8 @@ public:
   std::any visitFunctionPrototypeTupleReturn(
       gazprea::GazpreaParser::FunctionPrototypeTupleReturnContext *ctx)
       override;
-  std::any visitProcedure(gazprea::GazpreaParser::ProcedureContext *ctx) override;
+  std::any visitProcedureBlock(
+      gazprea::GazpreaParser::ProcedureBlockContext *ctx) override;
   std::any
   visitFunctionStat(gazprea::GazpreaParser::FunctionStatContext *ctx) override;
 

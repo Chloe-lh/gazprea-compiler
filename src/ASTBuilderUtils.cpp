@@ -174,7 +174,7 @@ ExtractParams(ASTBuilder &builder,
 
 std::vector<std::pair<CompleteType, std::string>>
 ExtractParams(ASTBuilder &builder,
-              gazprea::GazpreaParser::ProcedureContext *ctx) {
+              gazprea::GazpreaParser::ProcedureBlockContext *ctx) {
   // procedure: uses param rule with qualifier? type ID
   // Parameters are extracted from param contexts, not from separate type/ID lists
   std::vector<std::pair<CompleteType, std::string>> out;

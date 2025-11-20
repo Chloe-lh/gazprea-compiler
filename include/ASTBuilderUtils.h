@@ -32,7 +32,8 @@ std::vector<std::pair<CompleteType, std::string>>
 ExtractParams(ASTBuilder &builder, GazpreaParser::FunctionBlockContext *ctx);
 
 std::vector<std::pair<CompleteType, std::string>>
-ExtractParams(ASTBuilder &builder, GazpreaParser::ProcedureContext *ctx);
+ExtractParams(ASTBuilder &builder,
+              GazpreaParser::ProcedureBlockContext *ctx);
 
 std::vector<std::pair<CompleteType, std::string>>
 ExtractParams(ASTBuilder &builder,

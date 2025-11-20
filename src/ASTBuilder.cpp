@@ -626,7 +626,8 @@ std::any ASTBuilder::visitFunctionBlockTupleReturn(
   return node_any(std::move(node));
 }
 // PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS type)? block;
-std::any ASTBuilder::visitProcedure(GazpreaParser::ProcedureContext *ctx) {
+std::any
+ASTBuilder::visitProcedureBlock(GazpreaParser::ProcedureBlockContext *ctx) {
   std::string funcName = ctx->ID()->getText();
   
   // Extract params with qualifiers

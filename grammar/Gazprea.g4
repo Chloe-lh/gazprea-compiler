@@ -10,7 +10,9 @@ func
     | FUNCTION ID PARENLEFT (type ID? (COMMA type ID?)*)? PARENRIGHT RETURNS tuple_dec END  #FunctionPrototypeTupleReturn
     ;
 
-procedure: PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS type)? block;
+procedure
+    : PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS type)? block #ProcedureBlock
+    ;
 
 param: qualifier? type ID;
 
