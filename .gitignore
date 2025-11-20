@@ -26,3 +26,8 @@ gaz
 gaz.ll
 gaz.o
 compile_command.json
+
+# Ignore maks' config for dragon runner
+tests/GazpreaCompileConfigLocalMaks.json
+# Made separate test folder for part 1 failures only
+tests/part1/

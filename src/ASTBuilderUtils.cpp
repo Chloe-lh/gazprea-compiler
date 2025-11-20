@@ -266,15 +266,8 @@ ExtractReturnType(ASTBuilder &builder,
                   gazprea::GazpreaParser::FunctionBlockContext *ctx) {
   if (!ctx)
     return CompleteType(BaseType::UNKNOWN);
-  // FunctionBlockContext: ctx->type() contains param types (maybe) then return
-  // type last. IDs: ID(0) is function name; parameter names (if present) start
-  // at ID(1).
-  size_t typeCount = ctx->type().size();
-  size_t paramCount = (typeCount > 0) ? typeCount - 1 : 0;
-  std::vector<GazpreaParser::TypeContext *> types;
-  for (size_t i = 0; i < paramCount; ++i)
-    types.push_back(ctx->type(i));
-  return ExtractReturnTypeFromTypes(builder, types);
+  // Pass the full list; ExtractReturnTypeFromTypes will take the last element
+  return ExtractReturnTypeFromTypes(builder, ctx->type());
 }
 
 CompleteType
@@ -282,15 +275,8 @@ ExtractReturnType(ASTBuilder &builder,
                   gazprea::GazpreaParser::FunctionPrototypeContext *ctx) {
   if (!ctx)
     return CompleteType(BaseType::UNKNOWN);
-  // FunctionProtoTypeContext: ctx->type() contains param types (maybe) then
-  // return type last. IDs: ID(0) is function name; parameter names (if present)
-  // start at ID(1).
-  size_t typeCount = ctx->type().size();
-  size_t paramCount = (typeCount > 0) ? typeCount - 1 : 0;
-  std::vector<GazpreaParser::TypeContext *> types;
-  for (size_t i = 0; i < paramCount; ++i)
-    types.push_back(ctx->type(i));
-  return ExtractReturnTypeFromTypes(builder, types);
+  // Pass the full list; ExtractReturnTypeFromTypes will take the last element
+  return ExtractReturnTypeFromTypes(builder, ctx->type());
 }
 
 CompleteType
@@ -298,15 +284,8 @@ ExtractReturnType(ASTBuilder &builder,
                   gazprea::GazpreaParser::FunctionStatContext *ctx) {
   if (!ctx)
     return CompleteType(BaseType::UNKNOWN);
-  // FunctionStatContext: ctx->type() contains param types (maybe) then return
-  // type last. IDs: ID(0) is function name; parameter names (if present) start
-  // at ID(1).
-  size_t typeCount = ctx->type().size();
-  size_t paramCount = (typeCount > 0) ? typeCount - 1 : 0;
-  std::vector<GazpreaParser::TypeContext *> types;
-  for (size_t i = 0; i < paramCount; ++i)
-    types.push_back(ctx->type(i));
-  return ExtractReturnTypeFromTypes(builder, types);
+  // Pass the full list; ExtractReturnTypeFromTypes will take the last element
+  return ExtractReturnTypeFromTypes(builder, ctx->type());
 }
 
 CompleteType ExtractTupleReturnType(
