@@ -12,7 +12,11 @@ VarInfo MLIRGen::popValue() {
 void MLIRGen::pushValue(VarInfo& value) {
     v_stack_.push_back(value);
 }
-
+mlir::Value MLIRGen::getSSAValue(const VarInfo &v){
+    if(!v.value.getType().isa<mlir::MemRefType>()) return v.value; //already an SSA value
+    // if a memref type - convert to a SSA type
+    return builder_.create<mlir::memref::LoadOp>(loc_, v.value, mlir::ValueRange{}).getResult();
+}
 // Declarations / Globals helpers
 mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
     switch (type.baseType) {

@@ -68,6 +68,7 @@ safe_any_cast_ptr(const std::any &a) {
 }
 
 std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
+  // if (getenv("GAZ_DEBUG")) std::cerr << "visiting file";
   std::vector<std::shared_ptr<ASTNode>> nodes;
   for (auto child : ctx->children) {
     auto anyNode = visit(child);
@@ -627,6 +628,7 @@ std::any ASTBuilder::visitFunctionBlockTupleReturn(
 }
 // PROCEDURE ID PARENLEFT (param (COMMA param)*)? PARENRIGHT (RETURNS type)? block;
 std::any ASTBuilder::visitProcedure(GazpreaParser::ProcedureContext *ctx) {
+  // if (getenv("GAZ_DEBUG")) std::cerr << "visiting procedure";
   std::string funcName = ctx->ID()->getText();
   
   // Extract params with qualifiers
@@ -755,13 +757,15 @@ std::any ASTBuilder::visitUnaryExpr(GazpreaParser::UnaryExprContext *ctx) {
     op = ctx->ADD()->getText();
   } else if (ctx->MINUS()) {
     op = ctx->MINUS()->getText();
-  }
+  } 
+  
   if (ctx->expr()) {
     auto anyExpr = visit(ctx->expr());
     if (anyExpr.has_value()) {
       expr = safe_any_cast_ptr<ExprNode>(anyExpr);
     }
   }
+ 
   auto node = std::make_shared<UnaryExpr>(op, expr);
   node->constant.reset();
   if(expr && expr->constant){
@@ -774,6 +778,7 @@ std::any ASTBuilder::visitUnaryExpr(GazpreaParser::UnaryExprContext *ctx) {
   return expr_any(std::move(node));
 }
 std::any ASTBuilder::visitNotExpr(GazpreaParser::NotExprContext *ctx) {
+  // std::cout << "visiting NotExpr in ASTBuilder";
   std::shared_ptr<ExprNode> expr = nullptr;
   std::string op;
   if (ctx->NOT()) {
@@ -785,7 +790,7 @@ std::any ASTBuilder::visitNotExpr(GazpreaParser::NotExprContext *ctx) {
       expr = safe_any_cast_ptr<ExprNode>(anyExpr);
     }
   }
-  auto node = std::make_shared<UnaryExpr>(op, expr);
+  auto node = std::make_shared<NotExpr>(op, expr);
   node->constant.reset();
   if(expr && expr->constant){
       auto res = gazprea::computeUnaryNumeric(*expr->constant, op);

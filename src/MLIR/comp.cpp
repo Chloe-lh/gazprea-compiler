@@ -1,5 +1,9 @@
 #include "MLIRgen.h"
 #include "MLIR/helpers/compHelper.h"
+#include "Scope.h"
+#include "Types.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include <iostream>
 
 
 void MLIRGen::visit(CompExpr* node) {
@@ -96,60 +100,43 @@ void MLIRGen::visit(CompExpr* node) {
 void MLIRGen::visit(OrExpr* node){
     if (tryEmitConstantForNode(node)) return;
     node->left->accept(*this);
-    VarInfo leftInfo = popValue();
     node->right->accept(*this);
     VarInfo rightInfo = popValue();
-    
-    auto loadIfMemref = [&](mlir::Value v) -> mlir::Value {
-        if (v.getType().isa<mlir::MemRefType>()) {
-            return builder_.create<mlir::memref::LoadOp>(loc_, v, mlir::ValueRange{});
-        }
-        return v;
-    };
+    VarInfo leftInfo = popValue();
 
-    mlir::Value left = loadIfMemref(leftInfo.value);
-    mlir::Value right = loadIfMemref(rightInfo.value);
+    mlir::Value lhs = getSSAValue(leftInfo);
+    mlir::Value rhs = getSSAValue(rightInfo);
 
-    mlir::Value result;
-    if(node->op == "or") {
-        result = builder_.create<mlir::arith::OrIOp>(loc_, left, right);
-    } else if (node->op == "xor") {
-        result = builder_.create<mlir::arith::XOrIOp>(loc_, left, right);
+
+    VarInfo result = (CompleteType(BaseType::BOOL));
+    mlir::Value compSSA;
+    result.isLValue = false;
+    if(node->op=="or"){
+        compSSA = builder_.create<mlir::arith::OrIOp>(loc_, lhs, rhs);
+    }else if(node->op=="xor"){
+        compSSA = builder_.create<mlir::arith::XOrIOp>(loc_, lhs, rhs);
     }
-
-    // Wrap result into memref-backed VarInfo
-    VarInfo outVar(leftInfo.type);
-    allocaLiteral(&outVar);
-    builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
-    outVar.identifier = "";
-    pushValue(outVar);
+    result.value = compSSA;
+    pushValue(result);
 }
 
 void MLIRGen::visit(AndExpr* node){
-    if (tryEmitConstantForNode(node)) return;
+    if (tryEmitConstantForNode(node)) { return; }
     node->left->accept(*this);
-    VarInfo leftInfo = popValue();
     node->right->accept(*this);
     VarInfo rightInfo = popValue();
+    VarInfo leftInfo = popValue();
 
-    auto loadIfMemref = [&](mlir::Value v) -> mlir::Value {
-        if (v.getType().isa<mlir::MemRefType>()) {
-            return builder_.create<mlir::memref::LoadOp>(loc_, v, mlir::ValueRange{});
-        }
-        return v;
-    };
-    
-    mlir::Value left = loadIfMemref(leftInfo.value);
-    mlir::Value right = loadIfMemref(rightInfo.value);
+    // no need to use memref
+    mlir::Value lhs = getSSAValue(leftInfo);
+    mlir::Value rhs = getSSAValue(rightInfo);
 
-    auto andOp = builder_.create<mlir::arith::AndIOp>(loc_, left, right);
-    
-    // Wrap boolean result into memref-backed VarInfo
-    VarInfo outVar(leftInfo.type);
-    allocaLiteral(&outVar);
-    builder_.create<mlir::memref::StoreOp>(loc_, andOp, outVar.value, mlir::ValueRange{});
-    outVar.identifier = "";
-    pushValue(outVar);
+    auto andSSA = builder_.create<mlir::arith::AndIOp>(loc_, lhs, rhs).getResult();
+
+    VarInfo result = (CompleteType(BaseType::BOOL));
+    result.value = andSSA;
+    result.isLValue = false;
+    pushValue(result);
 }
 
 
@@ -157,9 +144,9 @@ void MLIRGen::visit(EqExpr* node){
     if (tryEmitConstantForNode(node)) return;
 
     node->left->accept(*this);
-    VarInfo leftInfo = popValue();
     node->right->accept(*this);
     VarInfo rightInfo = popValue();
+    VarInfo leftInfo = popValue();
 
     CompleteType promotedType = promote(leftInfo.type, rightInfo.type);
     if (promotedType.baseType == BaseType::UNKNOWN) {
@@ -195,35 +182,34 @@ void MLIRGen::visit(EqExpr* node){
 
     if (node->op == "!=") {
         auto one = builder_.create<mlir::arith::ConstantOp>(loc_, result.getType(), builder_.getIntegerAttr(result.getType(), 1));
-        result = builder_.create<mlir::arith::XOrIOp>(loc_, result, one);
+        result = builder_.create<mlir::arith::XOrIOp>(loc_, result, one.getResult()).getResult();
     }
 
-    VarInfo outVar(node->type);
-    allocaLiteral(&outVar);
-    builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
+    // Prefer to keep expression results as SSA values when possible.
+    // `mlirScalarEquals` / `mlirAggregateEquals` return an SSA i1 value,
+    // so produce an SSA-backed VarInfo (isLValue=false) and push it.
+    VarInfo outVar{CompleteType(BaseType::BOOL)};
+    outVar.value = result;
+    outVar.isLValue = false;
     outVar.identifier = "";
     pushValue(outVar);
 }
 
 
 void MLIRGen::visit(NotExpr* node) {
-    if (tryEmitConstantForNode(node)) return;
+    if (tryEmitConstantForNode(node)) { return; }
     node->operand->accept(*this);
     VarInfo operandInfo = popValue();
-    // Load scalar if value is a memref
-    mlir::Value operand = operandInfo.value;
-    if (operand.getType().isa<mlir::MemRefType>()) {
-        operand = builder_.create<mlir::memref::LoadOp>(loc_, operandInfo.value, mlir::ValueRange{});
-    }
 
-    auto one = builder_.create<mlir::arith::ConstantOp>(
-        loc_, operand.getType(), builder_.getIntegerAttr(operand.getType(), 1));
-    auto notOp = builder_.create<mlir::arith::XOrIOp>(loc_, operand, one);
+    mlir::Value operandSSA = getSSAValue(operandInfo);
 
-    // Store result into memref-backed VarInfo and push
-    VarInfo outVar(operandInfo.type);
-    allocaLiteral(&outVar);
-    builder_.create<mlir::memref::StoreOp>(loc_, notOp, outVar.value, mlir::ValueRange{});
-    outVar.identifier = "";
-    pushValue(outVar);
+    // Create a constant '1' of the same integer type as the operand, then XOR
+    auto oneConst = builder_.create<mlir::arith::ConstantOp>(
+        loc_, operandSSA.getType(), builder_.getIntegerAttr(operandSSA.getType(), 1));
+    mlir::Value notSSA = builder_.create<mlir::arith::XOrIOp>(
+        loc_, operandSSA, oneConst.getResult()).getResult();
+    VarInfo result = (CompleteType(BaseType::BOOL));
+    result.value = notSSA;
+    result.isLValue = false;
+    pushValue(result);
 }

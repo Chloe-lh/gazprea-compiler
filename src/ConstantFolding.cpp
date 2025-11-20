@@ -7,62 +7,6 @@
 #include <cmath>
 #include <optional>
 
-/*
-
-  // Root
-  void ConstantFoldingVisitor::visit(FileNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-
-  // Functions
-  void ConstantFoldingVisitor::visit(FuncStatNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(FuncPrototypeNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(FuncBlockNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(ProcedureNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-
-  // Declarations
-  void ConstantFoldingVisitor::visit(TypedDecNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(InferredDecNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(TupleTypedDecNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(TypeAliasDecNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(TypeAliasNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(TupleTypeAliasNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-
-  // Statements
-  void ConstantFoldingVisitor::visit(AssignStatNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(OutputStatNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(InputStatNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(BreakStatNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(ContinueStatNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(ReturnStatNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(CallStatNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(IfNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(LoopNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(BlockNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-
-  // Expressions
-  void ConstantFoldingVisitor::visit(ParenExpr *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(FuncCallExpr *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(UnaryExpr *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(ExpExpr *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(MultExpr *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(AddExpr *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(CompExpr *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(NotExpr *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(EqExpr *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(AndExpr *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(OrExpr *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(TrueNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(FalseNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(CharNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(IntNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(IdNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(TupleLiteralNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(TupleAccessNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");} 
-  void ConstantFoldingVisitor::visit(TypeCastNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(TupleTypeCastNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(RealNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-  void ConstantFoldingVisitor::visit(StringNode *node){ throw std::runtime_error("TupleTypeCastNode not implemented");}
-*/
-
 static ConstantValue getIntConst(int64_t data) {
     return ConstantValue(CompleteType(BaseType::INTEGER), static_cast<int64_t>(data));
 }
@@ -494,15 +438,16 @@ void ConstantFoldingVisitor::visit(AddExpr *node){
     if (node->left) node->left->accept(*this);
     if (node->right) node->right->accept(*this);
 
-    std::cout << "Visiting AddExpr at " << node 
-              << ", left node at " << node->left.get() 
-              << ", right node at " << node->right.get() << std::endl;
+    //DEBUGGING
+    // std::cout << "Visiting AddExpr at " << node 
+    //           << ", left node at " << node->left.get() 
+    //           << ", right node at " << node->right.get() << std::endl;
 
     // Now check their constants
-    if (!node->left->constant.has_value()) 
-        std::cout << "Left child constant is NONE" << std::endl;
-    if (!node->right->constant.has_value()) 
-        std::cout << "Right child constant is NONE" << std::endl;
+    // if (!node->left->constant.has_value()) 
+    //     std::cout << "Left child constant is NONE" << std::endl;
+    // if (!node->right->constant.has_value()) 
+    //     std::cout << "Right child constant is NONE" << std::endl;
 
       // Both sides must be constant to fold
     if (!node->left || !node->right) return;
@@ -539,10 +484,16 @@ void ConstantFoldingVisitor::visit(AddExpr *node){
 
     node->constant = getBoolConst(res);
   }
-  void ConstantFoldingVisitor::visit(NotExpr *node){ 
-
-
-  }
+    void ConstantFoldingVisitor::visit(NotExpr *node){ 
+        if (!node || !node->operand) return;
+        node->operand->accept(*this);
+        // require a computed constant and that it's a boolean
+        if (!node->operand->constant.has_value()) return;
+        const ConstantValue &cv = node->operand->constant.value();
+        if (cv.type.baseType != BaseType::BOOL) return;
+        bool ov = std::get<bool>(cv.value);
+        node->constant = getBoolConst(!ov);
+    }
 void ConstantFoldingVisitor::visit(EqExpr *node){
     // Evaluate children first
     if (node->left) node->left->accept(*this);
@@ -587,6 +538,7 @@ void ConstantFoldingVisitor::visit(EqExpr *node){
     return;
 }
 void ConstantFoldingVisitor::visit(AndExpr *node){
+    // std::cout << "visiting AND Expr";
     // Evaluate children first so their constants (if any) are computed
     if (node->left) node->left->accept(*this);
     if (node->right) node->right->accept(*this);
@@ -634,8 +586,8 @@ void ConstantFoldingVisitor::visit(OrExpr *node){
   void ConstantFoldingVisitor::visit(FalseNode *node){ node->constant = getBoolConst(false);}
   void ConstantFoldingVisitor::visit(CharNode *node){ node->constant = getCharConst(node->value);}
   void ConstantFoldingVisitor::visit(IntNode *node){ 
-    std::cout << "Visiting IntNode at " << node 
-              << ", value=" << node->value << std::endl;
+    // std::cout << "Visiting IntNode at " << node 
+    //           << ", value=" << node->value << std::endl;
     node->constant = getIntConst(node->value);
 }
   void ConstantFoldingVisitor::visit(IdNode *node){ 
