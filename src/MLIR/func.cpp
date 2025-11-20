@@ -3,8 +3,17 @@
 
 void MLIRGen::visit(FuncStatNode* node) {
     Scope* savedScope = nullptr;
-    beginFunctionDefinitionWithConstants(node, node->name, node->parameters, node->returnType, savedScope);
-    lowerFunctionOrProcedureBody(node->parameters, node->body, node->returnType, savedScope);
+    beginFunctionDefinitionWithConstants(
+        node, node->name, node->parameters, node->returnType, savedScope);
+
+    // Handle FuncStat nodes since they have no body
+    if (node->returnStat) {
+        node->returnStat->accept(*this);
+    }
+
+    // Handle block funcs/procedures
+    lowerFunctionOrProcedureBody(
+        node->parameters, node->body, node->returnType, savedScope);
 }
 
 void MLIRGen::visit(FuncBlockNode* node) {
