@@ -188,6 +188,10 @@ void ConstantFoldingVisitor::visit(ProcedureBlockNode *node) {
     popScope();      // leave procedure scope
 }
 
+void ConstantFoldingVisitor::visit(ProcedurePrototypeNode *node) {
+    // No body to fold; nothing to do for prototypes.
+}
+
 // Declarations
 void ConstantFoldingVisitor::visit(TypedDecNode *node){ 
     if(node->type_alias) node->type_alias->accept(*this);

@@ -160,9 +160,10 @@ void MLIRGen::visit(FileNode* node) {
 
     moduleBuilder->restoreInsertionPoint(savedIP);
 
-    // Second pass: lower procedures/functions
+    // Second pass: lower procedures/functions and their prototypes
     for (auto& n : node->stats) {
-        if (std::dynamic_pointer_cast<ProcedureBlockNode>(n) ||
+        if (std::dynamic_pointer_cast<ProcedurePrototypeNode>(n) ||
+            std::dynamic_pointer_cast<ProcedureBlockNode>(n) ||
             std::dynamic_pointer_cast<FuncStatNode>(n) ||
             std::dynamic_pointer_cast<FuncBlockNode>(n) ||
             std::dynamic_pointer_cast<FuncPrototypeNode>(n)) {

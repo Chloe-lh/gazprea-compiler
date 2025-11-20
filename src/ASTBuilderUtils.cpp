@@ -174,7 +174,7 @@ ExtractParams(ASTBuilder &builder,
 
 std::vector<std::pair<CompleteType, std::string>>
 ExtractParams(ASTBuilder &builder,
-              gazprea::GazpreaParser::ProcedureContext *ctx) {
+              gazprea::GazpreaParser::ProcedureBlockContext *ctx) {
   // procedure: uses param rule with qualifier? type ID
   // Parameters are extracted from param contexts, not from separate type/ID lists
   std::vector<std::pair<CompleteType, std::string>> out;
@@ -202,8 +202,9 @@ ExtractParams(ASTBuilder &builder,
   return out;
 }
 
-// Helper to extract params with qualifiers for procedures
-static std::vector<std::tuple<CompleteType, std::string, bool>> extractParamsWithQualifiers(
+// Helper to extract params with qualifiers (for procedures / future funcs)
+std::vector<std::tuple<CompleteType, std::string, bool>>
+ExtractParamsWithQualifiers(
     ASTBuilder &builder,
     const std::vector<gazprea::GazpreaParser::ParamContext *> &params) {
   std::vector<std::tuple<CompleteType, std::string, bool>> out;
@@ -266,15 +267,13 @@ ExtractReturnType(ASTBuilder &builder,
                   gazprea::GazpreaParser::FunctionBlockContext *ctx) {
   if (!ctx)
     return CompleteType(BaseType::UNKNOWN);
-  // FunctionBlockContext: ctx->type() contains param types (maybe) then return
-  // type last. IDs: ID(0) is function name; parameter names (if present) start
-  // at ID(1).
-  size_t typeCount = ctx->type().size();
-  size_t paramCount = (typeCount > 0) ? typeCount - 1 : 0;
-  std::vector<GazpreaParser::TypeContext *> types;
-  for (size_t i = 0; i < paramCount; ++i)
-    types.push_back(ctx->type(i));
-  return ExtractReturnTypeFromTypes(builder, types);
+  // FunctionBlockContext: the last type in ctx->type() is the declared
+  // return type (params come first if exist).
+  auto types = ctx->type();
+  if (types.empty())
+    return CompleteType(BaseType::UNKNOWN);
+  std::vector<GazpreaParser::TypeContext *> single{types.back()};
+  return ExtractReturnTypeFromTypes(builder, single);
 }
 
 CompleteType
@@ -282,15 +281,12 @@ ExtractReturnType(ASTBuilder &builder,
                   gazprea::GazpreaParser::FunctionPrototypeContext *ctx) {
   if (!ctx)
     return CompleteType(BaseType::UNKNOWN);
-  // FunctionProtoTypeContext: ctx->type() contains param types (maybe) then
-  // return type last. IDs: ID(0) is function name; parameter names (if present)
-  // start at ID(1).
-  size_t typeCount = ctx->type().size();
-  size_t paramCount = (typeCount > 0) ? typeCount - 1 : 0;
-  std::vector<GazpreaParser::TypeContext *> types;
-  for (size_t i = 0; i < paramCount; ++i)
-    types.push_back(ctx->type(i));
-  return ExtractReturnTypeFromTypes(builder, types);
+  // FunctionPrototypeContext: same convention as FunctionBlockContext.
+  auto types = ctx->type();
+  if (types.empty())
+    return CompleteType(BaseType::UNKNOWN);
+  std::vector<GazpreaParser::TypeContext *> single{types.back()};
+  return ExtractReturnTypeFromTypes(builder, single);
 }
 
 CompleteType
@@ -298,15 +294,12 @@ ExtractReturnType(ASTBuilder &builder,
                   gazprea::GazpreaParser::FunctionStatContext *ctx) {
   if (!ctx)
     return CompleteType(BaseType::UNKNOWN);
-  // FunctionStatContext: ctx->type() contains param types (maybe) then return
-  // type last. IDs: ID(0) is function name; parameter names (if present) start
-  // at ID(1).
-  size_t typeCount = ctx->type().size();
-  size_t paramCount = (typeCount > 0) ? typeCount - 1 : 0;
-  std::vector<GazpreaParser::TypeContext *> types;
-  for (size_t i = 0; i < paramCount; ++i)
-    types.push_back(ctx->type(i));
-  return ExtractReturnTypeFromTypes(builder, types);
+  // FunctionStatContext: same convention; last type is return type.
+  auto types = ctx->type();
+  if (types.empty())
+    return CompleteType(BaseType::UNKNOWN);
+  std::vector<GazpreaParser::TypeContext *> single{types.back()};
+  return ExtractReturnTypeFromTypes(builder, single);
 }
 
 CompleteType ExtractTupleReturnType(
