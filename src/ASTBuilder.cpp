@@ -1324,10 +1324,20 @@ std::any ASTBuilder::visitIfStat(gazprea::GazpreaParser::IfStatContext *ctx) {
   auto node = std::make_shared<IfNode>(cond);
 
 
-  // The ANTLR grammar guarantees the 'then' branch is the first block or first statement.
+  // The ANTLR grammar allows block, stat, or dec in the 'then' branch.
   if (!ifCtx->block().empty()) {
       node->thenBlock = safe_any_cast_ptr<BlockNode>(visit(ifCtx->block(0)));
-  } else {
+  } else if (!ifCtx->dec().empty()) {
+      // Wrap declaration in a BlockNode
+      auto decAny = visit(ifCtx->dec(0));
+      auto dec = safe_any_cast_ptr<DecNode>(decAny);
+      if (dec) {
+          std::vector<std::shared_ptr<DecNode>> decs;
+          decs.push_back(dec);
+          std::vector<std::shared_ptr<StatNode>> stats;
+          node->thenBlock = std::make_shared<BlockNode>(std::move(decs), std::move(stats));
+      }
+  } else if (!ifCtx->stat().empty()) {
       node->thenStat = safe_any_cast_ptr<StatNode>(visit(ifCtx->stat(0)));
   }
 
@@ -1336,16 +1346,36 @@ std::any ASTBuilder::visitIfStat(gazprea::GazpreaParser::IfStatContext *ctx) {
       bool thenWasBlock = (node->thenBlock != nullptr);
       
       if (thenWasBlock) {
-          // If 'then' was a block, 'else' can be the second block or the first statement.
+          // If 'then' was a block, 'else' can be the second block, first declaration, or first statement.
           if (ifCtx->block().size() > 1) {
               node->elseBlock = safe_any_cast_ptr<BlockNode>(visit(ifCtx->block(1)));
+          } else if (!ifCtx->dec().empty()) {
+              // Wrap declaration in a BlockNode
+              auto decAny = visit(ifCtx->dec(0));
+              auto dec = safe_any_cast_ptr<DecNode>(decAny);
+              if (dec) {
+                  std::vector<std::shared_ptr<DecNode>> decs;
+                  decs.push_back(dec);
+                  std::vector<std::shared_ptr<StatNode>> stats;
+                  node->elseBlock = std::make_shared<BlockNode>(std::move(decs), std::move(stats));
+              }
           } else if (!ifCtx->stat().empty()) {
               node->elseStat = safe_any_cast_ptr<StatNode>(visit(ifCtx->stat(0)));
           }
       } else { // 'then' was a statement
-          // If 'then' was a statement, 'else' can be the first block or the second statement.
+          // If 'then' was a statement, 'else' can be the first block, first declaration, or second statement.
           if (!ifCtx->block().empty()) {
               node->elseBlock = safe_any_cast_ptr<BlockNode>(visit(ifCtx->block(0)));
+          } else if (!ifCtx->dec().empty()) {
+              // Wrap declaration in a BlockNode
+              auto decAny = visit(ifCtx->dec(0));
+              auto dec = safe_any_cast_ptr<DecNode>(decAny);
+              if (dec) {
+                  std::vector<std::shared_ptr<DecNode>> decs;
+                  decs.push_back(dec);
+                  std::vector<std::shared_ptr<StatNode>> stats;
+                  node->elseBlock = std::make_shared<BlockNode>(std::move(decs), std::move(stats));
+              }
           } else if (ifCtx->stat().size() > 1) {
               node->elseStat = safe_any_cast_ptr<StatNode>(visit(ifCtx->stat(1)));
           }

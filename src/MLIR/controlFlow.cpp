@@ -1,7 +1,21 @@
 #include "MLIRgen.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 
-
+// Helper function to check if a block should be skipped (contains only a var declaration)
+static bool shouldSkipVarDeclarationBlock(std::shared_ptr<BlockNode> block) {
+    if (!block) return false;
+    if (block->decs.size() != 1 || !block->stats.empty()) return false;
+    
+    auto dec = block->decs[0];
+    if (auto typedDec = std::dynamic_pointer_cast<TypedDecNode>(dec)) {
+        return typedDec->qualifier == "var";
+    } else if (auto inferredDec = std::dynamic_pointer_cast<InferredDecNode>(dec)) {
+        return inferredDec->qualifier == "var";
+    } else if (auto tupleDec = std::dynamic_pointer_cast<TupleTypedDecNode>(dec)) {
+        return tupleDec->qualifier == "var";
+    }
+    return false;
+}
 
 void MLIRGen::visit(IfNode* node) {
     // Evaluate the condition expression in the current block
@@ -53,7 +67,10 @@ void MLIRGen::visit(IfNode* node) {
     // Then branch.
     builder_.setInsertionPointToStart(thenBlock);
     if (node->thenBlock) {
-        node->thenBlock->accept(*this);
+        // Skip var declarations in single-statement if blocks (they would be scoped and erased anyway)
+        if (!shouldSkipVarDeclarationBlock(node->thenBlock)) {
+            node->thenBlock->accept(*this);
+        }
     } else if (node->thenStat) {
         node->thenStat->accept(*this);
     }
@@ -67,7 +84,10 @@ void MLIRGen::visit(IfNode* node) {
     if (hasElse) {
         builder_.setInsertionPointToStart(elseBlock);
         if (node->elseBlock) {
-            node->elseBlock->accept(*this);
+            // Skip var declarations in single-statement if blocks (they would be scoped and erased anyway)
+            if (!shouldSkipVarDeclarationBlock(node->elseBlock)) {
+                node->elseBlock->accept(*this);
+            }
         } else if (node->elseStat) {
             node->elseStat->accept(*this);
         }
