@@ -126,6 +126,29 @@ public:
   void accept(ASTVisitor &visitor) override;
 };
 
+/*    Procedure-related               */
+class ProcedureBlockNode : public ASTNode {
+public:
+  std::string name;
+  std::vector<VarInfo> params;
+  CompleteType returnType; // optional
+  std::shared_ptr<BlockNode> body;
+  ProcedureBlockNode(const std::string &name, const std::vector<VarInfo> &params,
+                CompleteType returnType, std::shared_ptr<BlockNode> body);
+  void accept(ASTVisitor &visitor) override;
+};
+
+class ProcedurePrototypeNode : public ASTNode {
+public:
+  std::string name;
+  std::vector<VarInfo> params;
+  CompleteType returnType; // optional
+  ProcedurePrototypeNode(const std::string &name,
+                    const std::vector<VarInfo> &parameters, 
+                    CompleteType returnType); // optional return type
+  void accept(ASTVisitor &visitor) override;
+};
+
 // expression classes
 class ParenExpr : public ExprNode {
 public:
@@ -374,17 +397,6 @@ public:
   std::vector<std::shared_ptr<ASTNode>> stats;
   explicit FileNode(std::vector<std::shared_ptr<ASTNode>> stats)
       : stats(std::move(stats)) {}
-  void accept(ASTVisitor &visitor) override;
-};
-
-class ProcedureBlockNode : public ASTNode {
-public:
-  std::string name;
-  std::vector<VarInfo> params;
-  CompleteType returnType; // optional
-  std::shared_ptr<BlockNode> body;
-  ProcedureBlockNode(const std::string &name, const std::vector<VarInfo> &params,
-                CompleteType returnType, std::shared_ptr<BlockNode> body);
   void accept(ASTVisitor &visitor) override;
 };
 

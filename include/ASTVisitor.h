@@ -13,6 +13,7 @@ public:
   virtual void visit(FuncPrototypeNode *node) = 0;
   virtual void visit(FuncBlockNode *node) = 0;
   virtual void visit(ProcedureBlockNode *node) = 0;
+  virtual void visit(ProcedurePrototypeNode *node) = 0;
 
   // Declarations
   virtual void visit(TypedDecNode *node) = 0;

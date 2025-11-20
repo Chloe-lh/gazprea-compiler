@@ -531,6 +531,26 @@ void ASTPrinter::visit(ProcedureBlockNode *node) {
   indent--;
 }
 
+void ASTPrinter::visit(ProcedurePrototypeNode *node) {
+  printTreeLine("ProcedurePrototypeNode", "name: " + node->name);
+  indent++;
+
+  pushChildContext(true);
+  printTreeLine("Parameters");
+  indent++;
+  for (size_t i = 0; i < node->params.size(); ++i) {
+    auto &p = node->params[i];
+    pushChildContext(i == node->params.size() - 1);
+    printTreeLine("Param",
+                  p.identifier + ": " + toString(p.type));
+    popChildContext();
+  }
+  indent--;
+  popChildContext();
+
+  indent--;
+}
+
 void ASTPrinter::visit(TypeAliasDecNode *node) {
   printTreeLine("TypeAliasDecNode",
                 "alias: " + node->alias + " -> " + toString(node->type));

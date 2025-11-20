@@ -191,6 +191,36 @@ void SemanticAnalysisVisitor::visit(FuncPrototypeNode* node) {
     }
 }
 
+void SemanticAnalysisVisitor::visit(ProcedurePrototypeNode* node) {
+    // Convert parameter list to VarInfo (names may be empty for prototypes)
+    std::vector<VarInfo> params;
+    params.reserve(node->params.size());
+    for (size_t i = 0; i < node->params.size(); ++i) {
+        const auto &v = node->params[i];
+        VarInfo param = v;
+        param.type = resolveUnresolvedType(current_, param.type);
+        params.push_back(param);
+    }
+
+    // Propagate resolved parameter types back to the AST node
+    for (size_t i = 0; i < node->params.size() && i < params.size(); ++i) {
+        node->params[i].type = params[i].type;
+    }
+
+    node->returnType = resolveUnresolvedType(current_, node->returnType);
+
+    // Declare the procedure signature in the current (global) scope
+    try {
+        current_->declareProc(node->name, params, node->returnType);
+    } catch (...) {
+        ProcInfo *existing = current_->resolveProc(node->name, params);
+        if (existing->procReturn != node->returnType) {
+            throw TypeError(
+                1, "Semantic Analysis: conflicting return type for procedure prototype '" + node->name + "'.");
+        }
+    }
+}
+
 /* TODO add line numbers */
 void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
     // Build parameter VarInfos (const by default)
