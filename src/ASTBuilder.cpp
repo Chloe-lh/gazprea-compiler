@@ -1113,41 +1113,40 @@ std::any ASTBuilder::visitOrExpr(GazpreaParser::OrExprContext *ctx) {
   return expr_any(std::move(node));
 }
 std::any ASTBuilder::visitIntExpr(GazpreaParser::IntExprContext *ctx) {
-  try {
-    // Extract the integer literal text
+    // Extract text
     std::string text = ctx->INT()->getText();
 
-    // Parse as 64-bit integer first to check for overflow
-    long long value64 = std::stoll(text, nullptr, 10);
+    // Check range using manual parsing (better than std::stoll)
+    long long value64;
 
-    // Ensure it fits within 32-bit signed integer range
-    if (value64 < std::numeric_limits<int32_t>::min() ||
-        value64 > std::numeric_limits<int32_t>::max()) {
-      throw LiteralError(ctx->getStart()->getLine(),
-                         "integer literal exceeds 32 bits");
+    try {
+        value64 = std::stoll(text, nullptr, 10);
+    } catch (const std::out_of_range &) {
+        throw LiteralError(ctx->getStart()->getLine(),
+                           "integer literal out of bounds");
+    } catch (const std::invalid_argument &) {
+        throw LiteralError(ctx->getStart()->getLine(),
+                           "invalid integer literal");
     }
 
-    // Convert safely to 32-bit integer
-    int32_t value32 = static_cast<int32_t>(value64);
+    // Check 32-bit range
+    if (value64 < std::numeric_limits<int32_t>::min() ||
+        value64 > std::numeric_limits<int32_t>::max()) {
+        throw LiteralError(ctx->getStart()->getLine(),
+                           "integer literal exceeds 32 bits");
+    }
 
-    // Create AST node
-    auto node = std::make_shared<IntNode>(value32);
+    // Convert safely
+    int32_t v32 = static_cast<int32_t>(value64);
+
+    auto node = std::make_shared<IntNode>(v32);
     setLocationFromCtx(node, ctx);
     node->type = CompleteType(BaseType::INTEGER);
+    node->constant = ConstantValue(node->type, (int64_t)v32);
 
-    // ConstantValue stores a CompleteType and a std::variant payload.
-    node->constant = ConstantValue(node->type, static_cast<int64_t>(value32));
-
-    // Wrap and return as std::any
     return expr_any(std::move(node));
-
-  } catch (const std::out_of_range &) {
-    throw LiteralError(ctx->getStart()->getLine(),
-                       "integer literal out of bounds");
-  } catch (const std::invalid_argument &) {
-    throw LiteralError(ctx->getStart()->getLine(), "invalid integer literal");
-  }
 }
+
 std::any ASTBuilder::visitIdExpr(GazpreaParser::IdExprContext *ctx) {
   if (!ctx || !ctx->ID()) {
     throw std::runtime_error(
@@ -1507,17 +1506,6 @@ std::any ASTBuilder::visitIfStat(gazprea::GazpreaParser::IfStatContext *ctx) {
       // declaration, or second statement.
       if (!ifCtx->block().empty()) {
         node->elseBlock = safe_any_cast_ptr<BlockNode>(visit(ifCtx->block(0)));
-      } else if (!ifCtx->dec().empty()) {
-        // Wrap declaration in a BlockNode
-        auto decAny = visit(ifCtx->dec(0));
-        auto dec = safe_any_cast_ptr<DecNode>(decAny);
-        if (dec) {
-          std::vector<std::shared_ptr<DecNode>> decs;
-          decs.push_back(dec);
-          std::vector<std::shared_ptr<StatNode>> stats;
-          node->elseBlock =
-              std::make_shared<BlockNode>(std::move(decs), std::move(stats));
-        }
       } else if (ifCtx->stat().size() > 1) {
         node->elseStat = safe_any_cast_ptr<StatNode>(visit(ifCtx->stat(1)));
       }

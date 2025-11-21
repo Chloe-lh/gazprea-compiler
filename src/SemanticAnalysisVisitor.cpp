@@ -13,7 +13,7 @@
 
 // Resolve a CompleteType whose baseType is UNRESOLVED using the current scope's
 // global type alias table. Throws bug if UNRESOLVED and no alias name provided
-CompleteType resolveUnresolvedType(Scope *scope, const CompleteType &t, int line) {
+CompleteType SemanticAnalysisVisitor::resolveUnresolvedType(Scope *scope, const CompleteType &t, int line) {
     if (!scope) {
         return t;
     }
@@ -438,7 +438,7 @@ void SemanticAnalysisVisitor::visit(TypeAliasNode *node) {
     if (node->aliasName != "") {
         CompleteType aliased = *current_->resolveAlias(node->aliasName, node->line);
         // Resolve any unresolved subtypes in the aliased type
-        node->type = resolveUnresolvedType(current_, aliased);
+        node->type = resolveUnresolvedType(current_, aliased, node->line);
     }
 
     // if no alias, assume node already initialized with correct type
@@ -450,7 +450,7 @@ void SemanticAnalysisVisitor::visit(TupleTypeAliasNode *node) {
         throw StatementError(node->line, "Alias declaration in non-global scope '" + node->aliasName + "'.");
     }
     // Resolve any unresolved subtypes in the tuple type before storing the alias
-    CompleteType resolvedType = resolveUnresolvedType(current_, node->type);
+    CompleteType resolvedType = resolveUnresolvedType(current_, node->type, node->line);
     current_->declareAlias(node->aliasName, resolvedType, node->line);
 }
 
@@ -729,7 +729,7 @@ void SemanticAnalysisVisitor::visit(UnaryExpr* node) {
 
         if (std::find(std::begin(illegalTypes), std::end(illegalTypes), node->operand->type.baseType) != std::end(illegalTypes)) {
             //throw TypeError(node->line, "Operand Error");
-            throwOperandError(op, {node->operand->type}, "");
+            throwOperandError(op, {node->operand->type}, "", node->line);
         }
 
     } else if (op == "not") {
@@ -739,7 +739,7 @@ void SemanticAnalysisVisitor::visit(UnaryExpr* node) {
 
         if (std::find(std::begin(illegalTypes), std::end(illegalTypes), node->operand->type.baseType) != std::end(illegalTypes)) {
             //throw TypeError(node->line, "Operand Error");
-            throwOperandError(op, {node->operand->type}, "");
+            throwOperandError(op, {node->operand->type}, "", node->line);
         }
 
     } else {
@@ -822,10 +822,12 @@ void SemanticAnalysisVisitor::visit(MultExpr* node) {
 
     // Ensure both operands legal
     if (std::find(std::begin(illegalTypes), std::end(illegalTypes), leftOperandType.baseType) != std::end(illegalTypes)) {
-        throwOperandError(node->op, {leftOperandType}, "Illegal left operand");
+        throw TypeError(node->line, "Illegal left operand");
+        // throwOperandError(node->op, {leftOperandType}, "Illegal left operand");
     }
     if (std::find(std::begin(illegalTypes), std::end(illegalTypes), rightOperandType.baseType) != std::end(illegalTypes)) {
-        throwOperandError(node->op, {rightOperandType}, "Illegal right operand");
+        throw TypeError(node->line, "Illegal right operand");
+        // throwOperandError(node->op, {rightOperandType}, "Illegal right operand");
     }
 
     CompleteType finalType = promote(leftOperandType, rightOperandType);
@@ -834,7 +836,8 @@ void SemanticAnalysisVisitor::visit(MultExpr* node) {
     }
 
     if (finalType.baseType == BaseType::UNKNOWN) {
-        throwOperandError(node->op, {leftOperandType, rightOperandType}, "No promotion possible between operands");
+        throw TypeError(node->line, "No promotion possible between operands");
+        // throwOperandError(node->op, {leftOperandType, rightOperandType}, "No promotion possible between operands");
     }
 
     node->type = finalType;
@@ -875,7 +878,8 @@ void SemanticAnalysisVisitor::visit(AddExpr* node) {
     }
 
     if (finalType.baseType == BaseType::UNKNOWN) {
-        throwOperandError(node->op, {leftOperandType, rightOperandType}, "No promotion possible between operands");
+        throw TypeError(node->line, "No promotion possible between operands");
+        //throwOperandError(node->op, {leftOperandType, rightOperandType}, "No promotion possible between operands");
     }
 
     node->type = finalType;
@@ -916,7 +920,8 @@ void SemanticAnalysisVisitor::visit(CompExpr* node) {
     }
 
     if (finalType.baseType == BaseType::UNKNOWN) {
-        throwOperandError(node->op, {leftOperandType, rightOperandType}, "No promotion possible between operands");
+        
+       // throwOperandError(node->op, {leftOperandType, rightOperandType}, "No promotion possible between operands");
     }
 
     if (finalType.baseType == BaseType::INTEGER || finalType.baseType == BaseType::REAL) {
@@ -1136,9 +1141,9 @@ void SemanticAnalysisVisitor::visit(OrExpr* node) {
     node->type = BaseType::BOOL;
 }
 
-void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std::vector<CompleteType>& operands, std::string additionalInfo) {
+void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std::vector<CompleteType>& operands, std::string additionalInfo, int line) {
     std::stringstream ss;
-    ss << "Semantic Analysis error: Applying operator '" << op << "' to operand";
+    ss << "Semantic Analysis: Applying operator '" << op << "' to operand";
 
     if (operands.size() > 1) ss << "s";
     ss << ": ";
@@ -1152,7 +1157,7 @@ void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std:
         ss << "\n" + additionalInfo;
     }
 
-    throw std::runtime_error(ss.str());
+    throw TypeError(line, ss.str());
 }
 
 
