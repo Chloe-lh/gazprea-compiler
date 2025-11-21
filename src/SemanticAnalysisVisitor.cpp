@@ -16,9 +16,10 @@ CompleteType resolveUnresolvedType(Scope *scope, const CompleteType &t) {
         return t;
     }
 
-    // First, resolve this level if it's an unresolved alias.
+    // Resolve aliases iteratively until we reach a concrete type.
+    // This handles cases where an alias might point to another alias.
     CompleteType result = t;
-    if (result.baseType == BaseType::UNRESOLVED) {
+    while (result.baseType == BaseType::UNRESOLVED) {
         if (result.aliasName.empty()) {
             throw std::runtime_error(
                 "Semantic Analysis: encountered UNRESOLVED type with no alias name.");
@@ -143,8 +144,9 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
     }
 
     // Declared type is carried as a CompleteType on the alias node
+    // TypeAliasNode::visit() already resolves the alias and subtypes
     node->type_alias->accept(*this);
-    CompleteType varType = resolveUnresolvedType(current_, node->type_alias->type);
+    CompleteType varType = node->type_alias->type;
 
     // Ensure not already declared in scope
     current_->declareVar(node->name, varType, isConst);
@@ -432,7 +434,9 @@ void SemanticAnalysisVisitor::visit(TypeAliasDecNode* node) {
 
 void SemanticAnalysisVisitor::visit(TypeAliasNode *node) {
     if (node->aliasName != "") {
-        node->type = *current_->resolveAlias(node->aliasName);
+        CompleteType aliased = *current_->resolveAlias(node->aliasName);
+        // Resolve any unresolved subtypes in the aliased type
+        node->type = resolveUnresolvedType(current_, aliased);
     }
 
     // if no alias, assume node already initialized with correct type
@@ -443,7 +447,9 @@ void SemanticAnalysisVisitor::visit(TupleTypeAliasNode *node) {
     if (!current_->isInGlobal()) {
         throw StatementError(1, "Alias declaration in non-global scope '" + node->aliasName + "'.");
     }
-    current_->declareAlias(node->aliasName, node->type);
+    // Resolve any unresolved subtypes in the tuple type before storing the alias
+    CompleteType resolvedType = resolveUnresolvedType(current_, node->type);
+    current_->declareAlias(node->aliasName, resolvedType);
 }
 
 void SemanticAnalysisVisitor::visit(AssignStatNode* node) {

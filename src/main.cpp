@@ -94,6 +94,11 @@ int main(int argc, char **argv) {
 
 
   std::ofstream os(argv[2]);
+  if (!os.is_open()) {
+    std::cerr << "Failed to open output file: " << argv[2] << std::endl;
+    return 1;
+  }
+  
   BackEnd backend;
   
   // backend.emitModule(); demo module
