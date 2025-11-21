@@ -1,5 +1,7 @@
 #include <assert.h>
 #include "BackEnd.h"
+#include "mlir/Interfaces/DataLayoutInterfaces.h"
+#include "mlir/Dialect/MemRef/Transforms/Passes.h"
 
 BackEnd::BackEnd() : loc(mlir::UnknownLoc::get(&context)) {
     // Load Dialects.
@@ -13,12 +15,25 @@ BackEnd::BackEnd() : loc(mlir::UnknownLoc::get(&context)) {
     // Initialize the MLIR context 
     builder = std::make_shared<mlir::OpBuilder>(&context);
     module = mlir::ModuleOp::create(builder->getUnknownLoc());
+    
+    // Set DataLayout
+    // This string specifies a standard 64-bit architecture layout:
+    // e = little endian
+    // p:64:64:64 = 64-bit pointers, 64-bit aligned
+    // iX:Y:Z = integer type alignment preferences
+    const char *dataLayout = "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a:0:64-s0:64:64-f80:128:128-n8:16:32:64-S128";
+    module->setAttr(mlir::LLVM::LLVMDialect::getDataLayoutAttrName(),
+                    builder->getStringAttr(dataLayout));
+
     builder->setInsertionPointToStart(module.getBody());
 
     // Some intial setup to get off the ground 
     setupPrintf();
     createGlobalString("%c\0", "charFormat");
     createGlobalString("%d\0", "intFormat");
+    createGlobalString("%g\0", "floatFormat");
+    createGlobalString("%s\0", "strFormat");
+    createGlobalString("\n\0", "newline");
 }
 
 int BackEnd::emitModule() {
@@ -61,22 +76,30 @@ int BackEnd::lowerDialects() {
     // Set up the MLIR pass manager to iteratively lower all the Ops
     mlir::PassManager pm(&context);
 
-    // Lower Func dialect to LLVM
-    pm.addPass(mlir::createConvertFuncToLLVMPass());
-
     // Lower SCF to CF (ControlFlow)
     pm.addPass(mlir::createConvertSCFToCFPass());
 
     // Lower Arith to LLVM
     pm.addPass(mlir::createArithToLLVMConversionPass());
 
-    // Lower MemRef to LLVM
+    // Pre-process MemRefs: Expand Strided Metadata
+    // This helps lower complex or 0-D memrefs (scalars) that might otherwise fail in Finalize.
+    pm.addPass(mlir::memref::createExpandStridedMetadataPass());
+
+    // Lower MemRef to LLVM (Finalize)
+    // This converts memref.alloca/load/store to llvm.alloca/load/store.
+    // It relies on the DataLayout attribute we set in the constructor.
     pm.addPass(mlir::createFinalizeMemRefToLLVMConversionPass());
 
     // Lower CF to LLVM
     pm.addPass(mlir::createConvertControlFlowToLLVMPass());
 
-    // Finalize the conversion to LLVM dialect
+    // Lower Func to LLVM
+    // Must happen AFTER MemRef lowering so that function bodies contain only
+    // LLVM-compatible ops (no high-level memref ops).
+    pm.addPass(mlir::createConvertFuncToLLVMPass());
+
+    // Cleanup unrealized casts inserted by the conversion passes
     pm.addPass(mlir::createReconcileUnrealizedCastsPass());
 
     // Run the passes
@@ -99,6 +122,11 @@ void BackEnd::dumpLLVM(std::ostream &os) {
     mlir::registerBuiltinDialectTranslation(context);
     mlir::registerLLVMDialectTranslation(context);
     llvm_module = mlir::translateModuleToLLVMIR(module, llvm_context);
+
+    if (!llvm_module) {
+        llvm::errs() << "Failed to translate MLIR module to LLVM IR\n";
+        return;
+    }
 
     // Create llvm ostream and dump into the output file
     llvm::raw_os_ostream output(os);

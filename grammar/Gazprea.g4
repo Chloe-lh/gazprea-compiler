@@ -96,7 +96,7 @@ tuple_access: ID DECIM INT
 // declarations must be placed at the start of the block
 block: CURLLEFT dec* stat* CURLRIGHT;
 
-if_stat: IF PARENLEFT expr PARENRIGHT (block|stat) (ELSE (block|stat))?;
+if_stat: IF PARENLEFT expr PARENRIGHT (block|stat|dec) (ELSE (block|stat|dec))?;
 
 loop_stat
     : LOOP (block|stat) (WHILE PARENLEFT expr PARENRIGHT END)? #LoopDefault

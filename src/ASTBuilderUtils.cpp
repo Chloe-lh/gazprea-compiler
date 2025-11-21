@@ -267,13 +267,8 @@ ExtractReturnType(ASTBuilder &builder,
                   gazprea::GazpreaParser::FunctionBlockContext *ctx) {
   if (!ctx)
     return CompleteType(BaseType::UNKNOWN);
-  // FunctionBlockContext: the last type in ctx->type() is the declared
-  // return type (params come first if exist).
-  auto types = ctx->type();
-  if (types.empty())
-    return CompleteType(BaseType::UNKNOWN);
-  std::vector<GazpreaParser::TypeContext *> single{types.back()};
-  return ExtractReturnTypeFromTypes(builder, single);
+  // Pass the full list; ExtractReturnTypeFromTypes will take the last element
+  return ExtractReturnTypeFromTypes(builder, ctx->type());
 }
 
 CompleteType
@@ -281,12 +276,8 @@ ExtractReturnType(ASTBuilder &builder,
                   gazprea::GazpreaParser::FunctionPrototypeContext *ctx) {
   if (!ctx)
     return CompleteType(BaseType::UNKNOWN);
-  // FunctionPrototypeContext: same convention as FunctionBlockContext.
-  auto types = ctx->type();
-  if (types.empty())
-    return CompleteType(BaseType::UNKNOWN);
-  std::vector<GazpreaParser::TypeContext *> single{types.back()};
-  return ExtractReturnTypeFromTypes(builder, single);
+  // Pass the full list; ExtractReturnTypeFromTypes will take the last element
+  return ExtractReturnTypeFromTypes(builder, ctx->type());
 }
 
 CompleteType
@@ -294,12 +285,8 @@ ExtractReturnType(ASTBuilder &builder,
                   gazprea::GazpreaParser::FunctionStatContext *ctx) {
   if (!ctx)
     return CompleteType(BaseType::UNKNOWN);
-  // FunctionStatContext: same convention; last type is return type.
-  auto types = ctx->type();
-  if (types.empty())
-    return CompleteType(BaseType::UNKNOWN);
-  std::vector<GazpreaParser::TypeContext *> single{types.back()};
-  return ExtractReturnTypeFromTypes(builder, single);
+  // Pass the full list; ExtractReturnTypeFromTypes will take the last element
+  return ExtractReturnTypeFromTypes(builder, ctx->type());
 }
 
 CompleteType ExtractTupleReturnType(
