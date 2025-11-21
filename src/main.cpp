@@ -114,29 +114,5 @@ int main(int argc, char **argv) {
 
   }
 
-  
-  // }catch(...){
-  //   return 1;
-  // }
-  
-
-
-  // std::ofstream os(argv[2]);
-  // BackEnd backend;
-  
-  // // backend.emitModule(); demo module
-  // MLIRGen mlirGen(backend, rootScope, scopeMap);
-  // ast->accept(mlirGen);
- 
-  // Debug
-  // backend.dumpMLIR(std::cerr);
-
-  // if (backend.lowerDialects() != 0) {
-  //   std::cerr << "Lowering failed; aborting translation." << std::endl;
-  //   return 1;
-  // }
-  // backend.dumpLLVM(os);
-  
-
   return 0;
 }

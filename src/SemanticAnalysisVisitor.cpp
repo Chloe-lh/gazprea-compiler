@@ -436,7 +436,7 @@ void SemanticAnalysisVisitor::visit(TypeAliasDecNode* node) {
 
 void SemanticAnalysisVisitor::visit(TypeAliasNode *node) {
     if (node->aliasName != "") {
-        CompleteType aliased = *current_->resolveAlias(node->aliasName);
+        CompleteType aliased = *current_->resolveAlias(node->aliasName, node->line);
         // Resolve any unresolved subtypes in the aliased type
         node->type = resolveUnresolvedType(current_, aliased);
     }
@@ -451,7 +451,7 @@ void SemanticAnalysisVisitor::visit(TupleTypeAliasNode *node) {
     }
     // Resolve any unresolved subtypes in the tuple type before storing the alias
     CompleteType resolvedType = resolveUnresolvedType(current_, node->type);
-    current_->declareAlias(node->aliasName, resolvedType);
+    current_->declareAlias(node->aliasName, resolvedType, node->line);
 }
 
 void SemanticAnalysisVisitor::visit(AssignStatNode* node) {
