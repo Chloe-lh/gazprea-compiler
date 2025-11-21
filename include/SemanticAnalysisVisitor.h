@@ -78,7 +78,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         bool seenMain_ = false;
 
         void throwOperandError(const std::string op, const std::vector<CompleteType>& operands, std::string additionalInfo);
-        void handleAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType);
+        void handleAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType, int line);
 
         // Helpers
         void enterScopeFor(const ASTNode* ownerCtx, const bool inLoop, const CompleteType* returnType);

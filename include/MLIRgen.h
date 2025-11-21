@@ -82,11 +82,11 @@ public:
     void visit(TupleLiteralNode* node) override;
 
     // helpers
-    void assignTo(VarInfo* literal, VarInfo* variable);
-    void allocaLiteral(VarInfo* varInfo);
-    void allocaVar(VarInfo* varInfo);
-    VarInfo castType(VarInfo* from, CompleteType* to);
-    VarInfo promoteType(VarInfo* from, CompleteType* to);
+    void assignTo(VarInfo* literal, VarInfo* variable, int line);
+    void allocaLiteral(VarInfo* varInfo, int line);
+    void allocaVar(VarInfo* varInfo, int line);
+    VarInfo castType(VarInfo* from, CompleteType* to, int line);
+    VarInfo promoteType(VarInfo* from, CompleteType* to, int line);
 
     // Globals helpers
     mlir::Type getLLVMType(const CompleteType& type);
@@ -97,7 +97,7 @@ public:
     // If the constant can be represented as a literal memref, create it and
     // return a VarInfo ready to be pushed on the value stack.
     // Throws on unsupported types; callers should handle errors.
-    VarInfo createLiteralFromConstant(const ConstantValue &cv, const CompleteType &type);
+    VarInfo createLiteralFromConstant(const ConstantValue &cv, const CompleteType &type, int line);
     // if `node` has a compile-time constant, emit the
     // corresponding literal and push it on the value stack; returns true on
     // success and false if no constant or unsupported constant type.
@@ -115,7 +115,7 @@ public:
     // Bind parameters (store entry block args into each VarInfo's memref storage)
     void bindFunctionParameters(mlir::func::FuncOp func, const std::vector<VarInfo> &params);
     // use constant folding
-    void bindFunctionParametersWithConstants(mlir::func::FuncOp func, const std::vector<VarInfo> &params);
+    void bindFunctionParametersWithConstants(mlir::func::FuncOp func, const std::vector<VarInfo> &params, int line);
     void lowerFunctionOrProcedureBody(const std::vector<VarInfo> &params, std::shared_ptr<BlockNode> body, const CompleteType &returnType, Scope* savedScope) ;
     mlir::func::FuncOp beginFunctionDefinitionWithConstants(
         const ASTNode* funcOrProc,
