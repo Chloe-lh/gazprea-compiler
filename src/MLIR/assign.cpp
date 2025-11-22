@@ -33,11 +33,14 @@ void MLIRGen::visit(DestructAssignStatNode* node) {
     }
 
     // Destructure RHS tuple into individual target variables.
-    // TODO: support element-wise promotions if needed; for now we rely on
-    // semantic analysis to ensure exact type matches.
     if (!fromTuple.value) {
         allocaVar(&fromTuple);
     }
+
+    // Load tuple struct from pointer
+    mlir::Type tupleStructTy = getLLVMType(fromTuple.type);
+    mlir::Value tupleStruct = builder_.create<mlir::LLVM::LoadOp>(
+        loc_, tupleStructTy, fromTuple.value);
 
     for (size_t i = 0; i < node->names.size(); ++i) {
         const std::string &name = node->names[i];
@@ -57,14 +60,21 @@ void MLIRGen::visit(DestructAssignStatNode* node) {
             throw AssignError(1, "Codegen: nested tuple destructuring not supported in codegen.");
         }
 
-        // Extract element from tuple struct and store into target
-        mlir::Type tupleStructTy = getLLVMType(fromTuple.type);
-        mlir::Value tupleStruct = builder_.create<mlir::LLVM::LoadOp>(
-            loc_, tupleStructTy, fromTuple.value);
+        // Extract element from tuple struct
         llvm::SmallVector<int64_t, 1> pos{static_cast<int64_t>(i)};
         mlir::Value elemVal =
             builder_.create<mlir::LLVM::ExtractValueOp>(loc_, tupleStruct, pos);
+        
+        // Create VarInfo for promotion
+        VarInfo elemInfo(fromTuple.type.subTypes[i]);
+        elemInfo.value = elemVal;
+        elemInfo.isLValue = false;
+
+        // Promote type if necessary (e.g. integer -> real)
+        VarInfo promoted = promoteType(&elemInfo, &target->type);
+        mlir::Value valToStore = getSSAValue(promoted);
+
         builder_.create<mlir::memref::StoreOp>(
-            loc_, elemVal, target->value, mlir::ValueRange{});
+            loc_, valToStore, target->value, mlir::ValueRange{});
     }
 }
