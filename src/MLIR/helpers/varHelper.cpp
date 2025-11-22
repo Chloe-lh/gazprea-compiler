@@ -244,3 +244,29 @@ void MLIRGen::allocaVar(VarInfo* varInfo) {
         }
     }
 }
+
+void MLIRGen::zeroInitializeVar(VarInfo* var) {
+    if (!var->value) return;
+
+    mlir::Value zeroVal;
+    mlir::Type type = var->value.getType();
+
+    // Check if we have a memref (scalars). 
+    // Tuples use LLVM pointers and aren't handled here.
+    if (auto memrefType = type.dyn_cast<mlir::MemRefType>()) {
+        mlir::Type elemType = memrefType.getElementType();
+        if (elemType.isInteger(32)) { // INTEGER
+             zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, elemType, builder_.getIntegerAttr(elemType, 0));
+        } else if (elemType.isF32()) { // REAL
+             zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, elemType, builder_.getFloatAttr(elemType, 0.0));
+        } else if (elemType.isInteger(1)) { // BOOL
+             zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, elemType, builder_.getIntegerAttr(elemType, 0));
+        } else if (elemType.isInteger(8)) { // CHAR
+             zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, elemType, builder_.getIntegerAttr(elemType, 0));
+        }
+        
+        if (zeroVal) {
+            builder_.create<mlir::memref::StoreOp>(loc_, zeroVal, var->value, mlir::ValueRange{});
+        }
+    }
+}

@@ -85,6 +85,7 @@ public:
     void assignTo(VarInfo* literal, VarInfo* variable);
     void allocaLiteral(VarInfo* varInfo);
     void allocaVar(VarInfo* varInfo);
+    void zeroInitializeVar(VarInfo* varInfo);
     VarInfo castType(VarInfo* from, CompleteType* to);
     VarInfo promoteType(VarInfo* from, CompleteType* to);
 
