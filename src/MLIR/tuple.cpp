@@ -14,6 +14,27 @@ void MLIRGen::visit(TupleTypedDecNode* node) {
         node->init->accept(*this);
         VarInfo literal = popValue();
         assignTo(&literal, declaredVar);
+    } else {
+        // Implicit zero-initialization for tuple elements
+        mlir::Value tuplePtr = declaredVar->value;
+        mlir::Type structTy = getLLVMType(declaredVar->type);
+        mlir::Type ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+        auto i32Ty = builder_.getI32Type();
+        mlir::Value zeroIdx = builder_.create<mlir::arith::ConstantOp>(loc_, i32Ty, builder_.getIntegerAttr(i32Ty, 0));
+
+        for (size_t i = 0; i < declaredVar->type.subTypes.size(); ++i) {
+            mlir::Value fieldIdx = builder_.create<mlir::arith::ConstantOp>(loc_, i32Ty, builder_.getIntegerAttr(i32Ty, i));
+            
+            // GEP to get address of the element
+            mlir::Value elemPtr = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptrTy, structTy, tuplePtr, mlir::ValueRange{zeroIdx, fieldIdx}
+            );
+
+            // Use helper to store zero into this address
+            VarInfo elemVar(declaredVar->type.subTypes[i]);
+            elemVar.value = elemPtr;
+            zeroInitializeVar(&elemVar);
+        }
     }
 }
 

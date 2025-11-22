@@ -249,24 +249,40 @@ void MLIRGen::zeroInitializeVar(VarInfo* var) {
     if (!var->value) return;
 
     mlir::Value zeroVal;
-    mlir::Type type = var->value.getType();
-
-    // Check if we have a memref (scalars). 
-    // Tuples use LLVM pointers and aren't handled here.
-    if (auto memrefType = type.dyn_cast<mlir::MemRefType>()) {
-        mlir::Type elemType = memrefType.getElementType();
-        if (elemType.isInteger(32)) { // INTEGER
-             zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, elemType, builder_.getIntegerAttr(elemType, 0));
-        } else if (elemType.isF32()) { // REAL
-             zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, elemType, builder_.getFloatAttr(elemType, 0.0));
-        } else if (elemType.isInteger(1)) { // BOOL
-             zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, elemType, builder_.getIntegerAttr(elemType, 0));
-        } else if (elemType.isInteger(8)) { // CHAR
-             zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, elemType, builder_.getIntegerAttr(elemType, 0));
+    
+    // Determine scalar zero value based on type
+    switch(var->type.baseType) {
+        case BaseType::INTEGER: {
+            auto t = builder_.getI32Type();
+            zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, t, builder_.getIntegerAttr(t, 0));
+            break;
         }
-        
-        if (zeroVal) {
+        case BaseType::REAL: {
+            auto t = builder_.getF32Type();
+            zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, t, builder_.getFloatAttr(t, 0.0));
+            break;
+        }
+        case BaseType::BOOL: {
+            auto t = builder_.getI1Type();
+            zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, t, builder_.getIntegerAttr(t, 0));
+            break;
+        }
+        case BaseType::CHARACTER: {
+            auto t = builder_.getI8Type();
+            zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, t, builder_.getIntegerAttr(t, 0));
+            break;
+        }
+        default:
+            // Tuple zeroing logic is handled by iterating elements in visitor, not here
+            return;
+    }
+
+    if (zeroVal) {
+        if (var->value.getType().isa<mlir::MemRefType>()) {
             builder_.create<mlir::memref::StoreOp>(loc_, zeroVal, var->value, mlir::ValueRange{});
+        } else {
+            // Assume LLVM pointer (e.g. tuple element via GEP)
+            builder_.create<mlir::LLVM::StoreOp>(loc_, zeroVal, var->value);
         }
     }
 }
