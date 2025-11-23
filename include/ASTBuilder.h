@@ -115,5 +115,15 @@ static void setLocationFromCtx(std::shared_ptr<ASTNode> node, antlr4::ParserRule
       gazprea::GazpreaParser::WhileLoopBlockContext *ctx) override;
   std::any
   visitLoopDefault(gazprea::GazpreaParser::LoopDefaultContext *ctx) override;
+  //Arrays
+  std::any visitArrayStrideExpr(GazpreaParser::ArrayStrideExprContext *ctx) override;
+  std::any visitArraySliceExpr(GazpreaParser::ArraySliceExprContext *ctx) override;
+  std::any visitArrayAccessExpr(gazprea::GazpreaParser::ArrayAccessContext *ctx) override;
+  std::any visitArrayInit(gazprea::GazpreaParser::ArrayInitContext *ctx) override;
+  std::any visitArrayDec(gazprea::GazpreaParser::ArrayDecContext *ctx) override;
+  std::any visitArrayType(gazprea::GazpreaParser::ArrayTypeNode *ctx) override;
+  std::any visitExprList(gazprea::GazpreaParser::ExprListNode *ctx) override;
+  std::any visitArrayLiteral(gazprea::GazpreaParser::ArrayLiteral *ctx) override;
+  std::any visitRangeExpr(gazprea::GazpreaParser::RangeExpr *ctx) override;
 };
 } // namespace gazprea
