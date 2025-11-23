@@ -17,7 +17,7 @@ void MLIRGen::visit(IdNode* node) {
     }
 
     if (!varInfo) {
-        throw SymbolError(1, "Semantic Analysis: Variable '" + node->id + "' not defined.");
+        throw SymbolError(node->line, "Semantic Analysis: Variable '" + node->id + "' not defined.");
     }
 
     // If the variable doesn't have a value, it's likely a global variable
@@ -34,7 +34,7 @@ void MLIRGen::visit(IdNode* node) {
                 varInfo->value =
                     builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
             } else {
-                allocaVar(varInfo);
+                allocaVar(varInfo, node->line);
                 if (!varInfo->value) {
                     throw std::runtime_error(
                         "visit(IdNode*): Failed to allocate tuple variable '" +
@@ -46,7 +46,7 @@ void MLIRGen::visit(IdNode* node) {
             auto globalOp = module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->id);
             if (!globalOp) {
                 // Not a global - ensure local variable is allocated
-                allocaVar(varInfo);
+                allocaVar(varInfo, node->line);
                 if (!varInfo->value) {
                     throw std::runtime_error("visit(IdNode*): Failed to allocate variable '" + node->id + "'");
                 }
@@ -60,7 +60,7 @@ void MLIRGen::visit(IdNode* node) {
                 if (tempVarInfo.type.baseType == BaseType::UNKNOWN) {
                     throw std::runtime_error("visit(IdNode*): Variable '" + node->id + "' has UNKNOWN type");
                 }
-                allocaLiteral(&tempVarInfo);
+                allocaLiteral(&tempVarInfo, node->line);
 
                 mlir::Value loadedValue = builder_.create<mlir::LLVM::LoadOp>(
                     loc_, elementType, globalAddr);

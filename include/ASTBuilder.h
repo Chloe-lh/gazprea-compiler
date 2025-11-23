@@ -1,4 +1,5 @@
 #pragma once
+#include "AST.h"
 #include "GazpreaBaseVisitor.h"
 #include "GazpreaParser.h"
 #include <any>
@@ -10,6 +11,7 @@ Class converts Parse tree produced by ANTLR into AST Tree
 namespace gazprea {
 class ASTBuilder : public GazpreaBaseVisitor {
 public:
+static void setLocationFromCtx(std::shared_ptr<ASTNode> node, antlr4::ParserRuleContext *ctx);
   // Top-level statements and blocks (implemented in src/ASTBuilder.cpp)
   std::any visitFile(gazprea::GazpreaParser::FileContext *ctx) override;
   std::any visitBlock(gazprea::GazpreaParser::BlockContext *ctx) override;

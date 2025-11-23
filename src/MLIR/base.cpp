@@ -175,7 +175,7 @@ void MLIRGen::visit(FileNode* node) {
 void MLIRGen::visit(TypeCastNode* node) {
     node->expr->accept(*this);
     VarInfo from = popValue();
-    VarInfo result = castType(&from, &node->type);
+    VarInfo result = castType(&from, &node->type, node->line);
     pushValue(result);
 }
 

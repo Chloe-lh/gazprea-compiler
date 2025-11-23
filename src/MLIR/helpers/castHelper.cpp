@@ -2,7 +2,7 @@
 #include "MLIRgen.h"
 
 //* Only allows implicit promotion from integer -> real. throws AssignError otherwise. */
-VarInfo MLIRGen::promoteType(VarInfo* from, CompleteType* toType) {
+VarInfo MLIRGen::promoteType(VarInfo* from, CompleteType* toType, int line) {
     if (toType->baseType == BaseType::UNKNOWN) {
         throw std::runtime_error("promoteType: target type is UNKNOWN");
     }
@@ -17,36 +17,36 @@ VarInfo MLIRGen::promoteType(VarInfo* from, CompleteType* toType) {
     // Only support integer -> real promotion
     if (from->type.baseType == BaseType::INTEGER && toType->baseType == BaseType::REAL) {
         VarInfo to = VarInfo(*toType);
-        allocaLiteral(&to);
+        allocaLiteral(&to, line);
         mlir::Value i32Val = getSSAValue(*from);
         mlir::Value fVal = builder_.create<mlir::arith::SIToFPOp>(loc_, builder_.getF32Type(), i32Val);
         builder_.create<mlir::memref::StoreOp>(loc_, fVal, to.value, mlir::ValueRange{});
         return to;
     }
 
-    throw AssignError(1, std::string("Codegen: unsupported promotion from '") +
+    throw AssignError(line, std::string("Codegen: unsupported promotion from '") +
         toString(from->type) + "' to '" + toString(*toType) + "'.");
 }
 
-VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
+VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType, int line) {
     VarInfo to = VarInfo(*toType);
-    allocaLiteral(&to); // Create new value container
+    allocaLiteral(&to, line); // Create new value container
 
     switch (from->type.baseType) {
         case (BaseType::TUPLE):
         {
             // Reject casting tuple to non-tuple types
             if (toType->baseType != BaseType::TUPLE) {
-                throw LiteralError(1, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+                throw LiteralError(line, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
             }
             // Ensure same length tuples
             if (from->type.subTypes.size() != toType->subTypes.size()) {
                 throw LiteralError(
-                    1, std::string("Codegen: cannot cast mismatched sizes from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+                    line, std::string("Codegen: cannot cast mismatched sizes from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
             }
 
             if (!from->value) {
-                allocaVar(from);
+                allocaVar(from, line);
             }
 
             // Load source struct and initialise destination struct as undef
@@ -68,12 +68,12 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
 
                     // Wrap element in a VarInfo so we can reuse scalar casting
                     VarInfo fromElem(from->type.subTypes[i]);
-                    allocaLiteral(&fromElem);
+                    allocaLiteral(&fromElem, line);
                     builder_.create<mlir::memref::StoreOp>(
                         loc_, srcElem, fromElem.value, mlir::ValueRange{});
 
                     VarInfo castedElem =
-                        castType(&fromElem, &toType->subTypes[i]);
+                        castType(&fromElem, &toType->subTypes[i], line);
                     mlir::Value elemVal = getSSAValue(castedElem);
 
                     // Insert casted element into destination struct
@@ -82,7 +82,7 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
                 }
             } catch (LiteralError &le) {
                 throw LiteralError(
-                    1, std::string("Codegen: cannot cast from '") +
+                    line, std::string("Codegen: cannot cast from '") +
                            toString(from->type) + "' to '" +
                            toString(*toType) + "':\n\n" + le.what());
             }
@@ -129,7 +129,7 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
                 }
 
                 default:
-                    throw LiteralError(1, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+                    throw LiteralError(line, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
             }
             break;
         }
@@ -173,7 +173,7 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
                 }
 
                 default:
-                    throw LiteralError(1, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+                    throw LiteralError(line, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
             }
             break;
         }
@@ -217,7 +217,7 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
                 }
 
                 default:
-                    throw LiteralError(1, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+                    throw LiteralError(line, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
             }
             break;
         }
@@ -242,13 +242,13 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType) {
                 case BaseType::CHARACTER:               // Real -> Char (not allowed)
                 case BaseType::BOOL:                    // Real -> Bool (not allowed)
                 default:
-                    throw LiteralError(1, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+                    throw LiteralError(line, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
             }
             break;
         }
 
         default:
-            throw LiteralError(1, std::string("Codegen: unsupported cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+            throw LiteralError(line, std::string("Codegen: unsupported cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
     }
 
     return to;

@@ -47,7 +47,7 @@ void MLIRGen::visit(ReturnStatNode* node) {
     if (v.type.baseType == BaseType::UNKNOWN) {
         throw std::runtime_error("visit(ReturnStatNode*): return expression has UNKNOWN type");
     }
-    VarInfo promoted = promoteType(&v, const_cast<CompleteType*>(retTy));
+    VarInfo promoted = promoteType(&v, const_cast<CompleteType*>(retTy), node->line);
     mlir::Value retVal;
     if (retTy->baseType == BaseType::TUPLE) {
         mlir::Type structTy = getLLVMType(*retTy);
@@ -96,7 +96,7 @@ void MLIRGen::visit(CallStatNode* node) {
     // Resolve procedure using types only (semantic analysis should have validated this exists)
     ProcInfo* procInfo = nullptr;
     try {
-        procInfo = currScope_->resolveProc(node->call->funcName, typeOnlyArgs);
+        procInfo = currScope_->resolveProc(node->call->funcName, typeOnlyArgs, node->line);
     } catch (const CompileTimeException& e) {
         throw std::runtime_error("CallStatNode: procedure '" + node->call->funcName + "' not found or type mismatch: " + e.what());
     }

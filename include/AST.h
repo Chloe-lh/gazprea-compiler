@@ -35,6 +35,8 @@ public:
   virtual ~ASTNode() = default;
   virtual void accept(ASTVisitor &visitor) = 0;
   CompleteType type = CompleteType(BaseType::UNKNOWN);
+  int line = 1; // default to line 1 when unknown
+
 };
 // super classes
 class DecNode : public ASTNode {
