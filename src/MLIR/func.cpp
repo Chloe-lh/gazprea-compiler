@@ -171,14 +171,18 @@ void MLIRGen::visit(FuncCallExpr* node) {
                 }
                 callArgs.push_back(argInfo.value);
             } else {
-                // Scalar const parameter: pass loaded value.
+                // Const parameter: implicit promotion if needed (int->real)
                 if (!argInfo.value) {
-                    throw std::runtime_error(
-                        "FuncCallExpr: argument has no value");
+                    throw std::runtime_error("FuncCallExpr: argument has no value");
                 }
-                mlir::Value argVal;
-                // Normalize to an SSA value (getSSAValue will load memref if needed)
-                argVal = getSSAValue(argInfo);
+                CompleteType targetType = param.type;
+                VarInfo argCopy = argInfo;
+                
+                // promoteType will perform casts (e.g. i32 -> f32) or throw if incompatible.
+                // This ensures the SSA value we get matches the function signature.
+                VarInfo promoted = promoteType(&argCopy, &targetType, node->line);
+                
+                mlir::Value argVal = getSSAValue(promoted);
                 callArgs.push_back(argVal);
             }
         }
@@ -194,7 +198,9 @@ void MLIRGen::visit(FuncCallExpr* node) {
         mlir::Type expectedType = funcType.getInput(i);
         mlir::Type actualType = callArgs[i].getType();
         if (expectedType != actualType) {
-            throw std::runtime_error("FuncCallExpr: type mismatch for argument " + std::to_string(i) + " in call to '" + node->funcName + "'");
+            // If we land here, promoteType didn't produce the type expected by getFunctionType.
+            // This shouldn't happen if promoteType works correctly for scalar types.
+            throw std::runtime_error("FuncCallExpr: type mismatch for argument " + std::to_string(i+1) + " in call to '" + node->funcName + "'");
         }
     }
 
