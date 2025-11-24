@@ -71,7 +71,7 @@ void MLIRGen::visit(DestructAssignStatNode* node) {
         elemInfo.isLValue = false;
 
         // Promote type if necessary (e.g. integer -> real)
-        VarInfo promoted = promoteType(&elemInfo, &target->type);
+        VarInfo promoted = promoteType(&elemInfo, &target->type, node->line);
         mlir::Value valToStore = getSSAValue(promoted);
 
         builder_.create<mlir::memref::StoreOp>(

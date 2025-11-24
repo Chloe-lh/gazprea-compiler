@@ -180,7 +180,7 @@ void MLIRGen::visit(FuncCallExpr* node) {
                 
                 // promoteType will perform casts (e.g. i32 -> f32) or throw if incompatible.
                 // This ensures the SSA value we get matches the function signature.
-                VarInfo promoted = promoteType(&argCopy, &targetType);
+                VarInfo promoted = promoteType(&argCopy, &targetType, node->line);
                 
                 mlir::Value argVal = getSSAValue(promoted);
                 callArgs.push_back(argVal);
