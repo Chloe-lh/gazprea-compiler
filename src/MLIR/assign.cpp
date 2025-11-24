@@ -5,36 +5,36 @@
 void MLIRGen::visit(AssignStatNode* node) {
     if (!node->expr) throw std::runtime_error("FATAL: No expr for assign stat found"); 
     node->expr->accept(*this);
-    VarInfo* to = currScope_->resolveVar(node->name);
+    VarInfo* to = currScope_->resolveVar(node->name, node->line);
     VarInfo from = popValue();
 
     if (to->isConst) {
-        throw AssignError(1, "Cannot assign to const variable '" + to->identifier + "'.");
+        throw AssignError(node->line, "Cannot assign to const variable '" + to->identifier + "'.");
     }
 
-    assignTo(&from, to);
+    assignTo(&from, to, node->line);
 }
 
 void MLIRGen::visit(DestructAssignStatNode* node) {
     if (!node->expr) {
         throw std::runtime_error("FATAL: No expression for destructuring assignment.");
     }
-
+    int line = node->line;
     // Evaluate RHS tuple expression
     node->expr->accept(*this);
     VarInfo fromTuple = popValue();
 
     if (fromTuple.type.baseType != BaseType::TUPLE) {
-        throw AssignError(1, "Codegen: destructuring assignment requires a tuple expression on the right-hand side.");
+        throw AssignError(line, "Codegen: destructuring assignment requires a tuple expression on the right-hand side.");
     }
 
     if (fromTuple.type.subTypes.size() != node->names.size()) {
-        throw AssignError(1, "Codegen: tuple arity mismatch in destructuring assignment.");
+        throw AssignError(line, "Codegen: tuple arity mismatch in destructuring assignment.");
     }
 
     // Destructure RHS tuple into individual target variables.
     if (!fromTuple.value) {
-        allocaVar(&fromTuple);
+        allocaVar(&fromTuple, node->line);
     }
 
     // Load tuple struct from pointer
@@ -44,20 +44,20 @@ void MLIRGen::visit(DestructAssignStatNode* node) {
 
     for (size_t i = 0; i < node->names.size(); ++i) {
         const std::string &name = node->names[i];
-        VarInfo* target = currScope_->resolveVar(name);
+        VarInfo* target = currScope_->resolveVar(name, node->line);
         if (!target) {
-            throw SymbolError(1, "Codegen: variable '" + name + "' not defined in destructuring assignment.");
+            throw SymbolError(line, "Codegen: variable '" + name + "' not defined in destructuring assignment.");
         }
         if (target->isConst) {
-            throw AssignError(1, "Codegen: cannot assign to const variable '" + name + "' in destructuring assignment.");
+            throw AssignError(line, "Codegen: cannot assign to const variable '" + name + "' in destructuring assignment.");
         }
 
         // Ensure scalar storage exists
         if (target->type.baseType != BaseType::TUPLE && !target->value) {
-            allocaVar(target);
+            allocaVar(target, line);
         }
         if (target->type.baseType == BaseType::TUPLE) {
-            throw AssignError(1, "Codegen: nested tuple destructuring not supported in codegen.");
+            throw AssignError(line, "Codegen: nested tuple destructuring not supported in codegen.");
         }
 
         // Extract element from tuple struct

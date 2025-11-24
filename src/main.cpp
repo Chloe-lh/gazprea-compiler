@@ -1,3 +1,4 @@
+#include "CompileTimeExceptions.h"
 #include "GazpreaLexer.h"
 #include "GazpreaParser.h"
 
@@ -47,14 +48,14 @@ int main(int argc, char **argv) {
       auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(astAny);
       ast = std::dynamic_pointer_cast<FileNode>(astNode);
   } catch (const CompileTimeException &e) {
-      std::cerr << "Compile-time error building AST: " << e.what() << '\n';
+      std::cerr << e.what();
       return 1;
   } catch (const std::exception &e) {
-      std::cerr << "Internal error building AST ("
-                << typeid(e).name() << "): " << e.what() << '\n';
+      std::cerr << e.what();
+      // std::cerr << "Internal error building AST ("
+      //           << typeid(e).name() << "): " << e.what() << '\n';
       return 1;
   } catch (...) {
-      std::cerr << "Unknown error building AST\n";
       return 1;
   }
   
@@ -82,38 +83,37 @@ int main(int argc, char **argv) {
   // MyVisitor visitor;
   // Visit the tree
   // visitor.visit(tree);
+  try{
+    SemanticAnalysisVisitor semVisitor;
+    ast->accept(semVisitor);
+    Scope* rootScope = semVisitor.getRootScope();
+    const auto* scopeMap = &semVisitor.getScopeMap();
 
-  SemanticAnalysisVisitor semVisitor;
-  ast->accept(semVisitor);
-  Scope* rootScope = semVisitor.getRootScope();
-  const auto* scopeMap = &semVisitor.getScopeMap();
+    // Run constant folding pass (uses semantic info from previous pass)
+    ConstantFoldingVisitor cfv;
+    ast->accept(cfv);
+    std::ofstream os(argv[2]);
+    BackEnd backend;
+    
+    // backend.emitModule(); demo module
+    MLIRGen mlirGen(backend, rootScope, scopeMap);
+    ast->accept(mlirGen);
 
-  // Run constant folding pass (uses semantic info from previous pass)
-  ConstantFoldingVisitor cfv;
-  ast->accept(cfv);
+  
+    // Debug
+    backend.dumpMLIR(std::cout);
 
-
-  std::ofstream os(argv[2]);
-  if (!os.is_open()) {
-    std::cerr << "Failed to open output file: " << argv[2] << std::endl;
+    if (backend.lowerDialects() != 0) {
+      std::cerr << "Lowering failed; aborting translation.";
+      return 1;
+    }
+    backend.dumpLLVM(os);
+  }catch (CompileTimeException &e){
+    std::cerr << e.what();
+    // std::cerr << e.what() << std::endl;
     return 1;
-  }
-  
-  BackEnd backend;
-  
-  // backend.emitModule(); demo module
-  MLIRGen mlirGen(backend, rootScope, scopeMap);
-  ast->accept(mlirGen);
- 
-  // Debug
-  backend.dumpMLIR(std::cerr);
 
-  if (backend.lowerDialects() != 0) {
-    std::cerr << "Lowering failed; aborting translation." << std::endl;
-    return 1;
   }
-  backend.dumpLLVM(os);
-  
 
   return 0;
 }

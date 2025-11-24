@@ -27,8 +27,8 @@ void MLIRGen::visit(CompExpr* node) {
     }
     
     // Cast both operands to the promoted type
-    VarInfo leftPromoted = castType(&leftVarInfo, &promotedType);
-    VarInfo rightPromoted = castType(&rightVarInfo, &promotedType);
+    VarInfo leftPromoted = castType(&leftVarInfo, &promotedType, node->line);
+    VarInfo rightPromoted = castType(&rightVarInfo, &promotedType, node->line);
     
     // Load the values (getSSAValue handles memref vs SSA values)
     mlir::Value leftVal = getSSAValue(leftPromoted);
@@ -38,7 +38,7 @@ void MLIRGen::visit(CompExpr* node) {
     mlir::Value cmpResult;
     CompleteType boolType = CompleteType(BaseType::BOOL);
     VarInfo resultVarInfo = VarInfo(boolType);
-    allocaLiteral(&resultVarInfo);
+    allocaLiteral(&resultVarInfo, node->line);
     
     if (promotedType.baseType == BaseType::INTEGER) {
         // Integer comparison
@@ -152,8 +152,8 @@ void MLIRGen::visit(EqExpr* node){
         throw std::runtime_error("EqExpr: cannot promote types for comparison");
     }
     
-    VarInfo leftPromoted = castType(&leftInfo, &promotedType);
-    VarInfo rightPromoted = castType(&rightInfo, &promotedType);
+    VarInfo leftPromoted = castType(&leftInfo, &promotedType, node->line);
+    VarInfo rightPromoted = castType(&rightInfo, &promotedType, node->line);
 
     mlir::Value result;
 

@@ -42,10 +42,10 @@ mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
 // Create a VarInfo that contains an allocated memref with the compile-time
 // constant stored. Supports scalar types (int, real, bool, char). Throws on
 // unsupported types.
-VarInfo MLIRGen::createLiteralFromConstant(const ConstantValue &cv, const CompleteType &type) {
+VarInfo MLIRGen::createLiteralFromConstant(const ConstantValue &cv, const CompleteType &type, int line) {
     VarInfo lit(type);
     // allocate a literal container (memref) and mark it const
-    allocaLiteral(&lit);
+    allocaLiteral(&lit, line);
 
     switch (cv.type.baseType) {
         case BaseType::INTEGER: {
@@ -117,26 +117,26 @@ mlir::Value MLIRGen::createGlobalVariable(const std::string& name, const Complet
     return nullptr;
 }
 
-void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable) {
+void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
     // Tuple assignment: element-wise store with implicit scalar promotions
     if (variable->type.baseType == BaseType::TUPLE) {
         if (literal->type.baseType != BaseType::TUPLE) {
-            throw AssignError(1, "Cannot assign non-tuple to tuple variable '");
+            throw AssignError(line, "Cannot assign non-tuple to tuple variable '");
         }
         // Ensure destination tuple storage exists
         if (!variable->value) {
-            allocaVar(variable);
+            allocaVar(variable, line);
         }
         if (!literal->value) {
-            allocaVar(literal);
+            allocaVar(literal, line);
         }
         if (literal->type.baseType != BaseType::TUPLE ||
             literal->type.subTypes.size() != variable->type.subTypes.size()) {
-            throw AssignError(1, "Tuple arity mismatch in assignment.");
+            throw AssignError(line, "Tuple arity mismatch in assignment.");
         }
 
         // Use castType to perform any element-wise casts, then copy struct.
-        VarInfo converted = castType(literal, &variable->type);
+        VarInfo converted = castType(literal, &variable->type, line);
         mlir::Type structTy = getLLVMType(variable->type);
         mlir::Value srcStruct = builder_.create<mlir::LLVM::LoadOp>(
             loc_, structTy, converted.value);
@@ -148,10 +148,10 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable) {
     // Scalar assignment
     // ensure var has a memref allocated
     if (!variable->value) {
-        allocaVar(variable);
+        allocaVar(variable, line);
     }
 
-    VarInfo promoted = promoteType(literal, &variable->type); // handle type promotions + errors
+    VarInfo promoted = promoteType(literal, &variable->type, line); // handle type promotions + errors
 
     // Normalize promoted value to SSA (load memref if needed)
     mlir::Value loadedVal = getSSAValue(promoted);
@@ -160,16 +160,16 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable) {
     );
 }
 
-void MLIRGen::allocaLiteral(VarInfo* varInfo) {
+void MLIRGen::allocaLiteral(VarInfo* varInfo, int line) {
     varInfo->isConst = true;
-    allocaVar(varInfo);
+    allocaVar(varInfo, line);
 }
 
 bool MLIRGen::tryEmitConstantForNode(ExprNode* node) {
     if (!node) return false;
     if (!node->constant.has_value()) return false;
     try {
-        VarInfo lit = createLiteralFromConstant(node->constant.value(), node->type);
+        VarInfo lit = createLiteralFromConstant(node->constant.value(), node->type, node->line);
         pushValue(lit);
         return true;
     } catch (...) {
@@ -178,7 +178,7 @@ bool MLIRGen::tryEmitConstantForNode(ExprNode* node) {
     }
 }
 
-void MLIRGen::allocaVar(VarInfo* varInfo) {
+void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
     mlir::Block *block = builder_.getBlock();
     if (!block) block = builder_.getInsertionBlock();
     if (!block) {
@@ -225,7 +225,7 @@ void MLIRGen::allocaVar(VarInfo* varInfo) {
 
         case BaseType::TUPLE: {
             if (varInfo->type.subTypes.size() < 2) {
-                throw SizeError(1, "Error: Tuple must have at least 2 elements.");
+                throw SizeError(line, "Error: Tuple must have at least 2 elements.");
             }
             mlir::Type structTy = getLLVMType(varInfo->type);
             auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);

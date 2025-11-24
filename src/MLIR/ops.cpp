@@ -19,7 +19,7 @@ void MLIRGen::visit(UnaryExpr* node) {
 
         // Store scalar result into a memref-backed VarInfo and push
         VarInfo outVar(operand.type);
-        allocaLiteral(&outVar);
+        allocaLiteral(&outVar, node->line);
         builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
         outVar.identifier = "";
         pushValue(outVar);
@@ -55,8 +55,8 @@ void MLIRGen::visit(AddExpr* node){
     }
 
     // Cast both operands to the promoted type
-    VarInfo leftPromoted = castType(&leftInfo, &promotedType);
-    VarInfo rightPromoted = castType(&rightInfo, &promotedType);
+    VarInfo leftPromoted = castType(&leftInfo, &promotedType, node->line);
+    VarInfo rightPromoted = castType(&rightInfo, &promotedType, node->line);
 
     // Load the promoted values (getSSAValue handles memref vs SSA)
     mlir::Value leftLoaded = getSSAValue(leftPromoted);
@@ -84,7 +84,7 @@ void MLIRGen::visit(AddExpr* node){
     if (outVar.type.baseType == BaseType::UNKNOWN) {
         throw std::runtime_error("visit(AddExpr*): expression has UNKNOWN type");
     }
-    allocaLiteral(&outVar);
+    allocaLiteral(&outVar, node->line);
     builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
     outVar.identifier = "";
     pushValue(outVar);
@@ -101,7 +101,7 @@ void MLIRGen::visit(ExpExpr* node) {
         // Try to emit as constant, but if it fails,
         // fall through to runtime code generation
         try {
-            VarInfo lit = createLiteralFromConstant(node->constant.value(), node->type);
+            VarInfo lit = createLiteralFromConstant(node->constant.value(), node->type, node->line);
             pushValue(lit);
             return;
         } catch (...) {
@@ -177,7 +177,7 @@ void MLIRGen::visit(ExpExpr* node) {
     }
 
     VarInfo outVar(left.type);
-    allocaLiteral(&outVar);
+    allocaLiteral(&outVar, node->line);
     builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
     outVar.identifier = "";
     pushValue(outVar);
@@ -259,7 +259,7 @@ void MLIRGen::visit(MultExpr* node){
     }
 
     VarInfo outVar(leftInfo.type);
-    allocaLiteral(&outVar);
+    allocaLiteral(&outVar, node->line);
     builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
     outVar.identifier = "";
     pushValue(outVar);

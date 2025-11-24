@@ -17,13 +17,13 @@
       },
       {
         "stepName": "llc",
-        "executablePath": "/usr/local/llvm/bin/llc",
+        "executablePath": "/cshome/cmput415/415-resources/llvm-project/build/bin/llc",
         "arguments": ["-filetype=obj", "$INPUT", "-o", "$OUTPUT"],
         "output": "gaz.o"
       },
       {
         "stepName": "clang",
-        "executablePath": "/usr/local/llvm/bin/clang",
+        "executablePath": "/usr/bin/clang",
         "arguments": ["$INPUT", "-o", "$OUTPUT", "-L$RT_PATH", "-l$RT_LIB", "-no-pie"],
         "output": "gaz"
       },

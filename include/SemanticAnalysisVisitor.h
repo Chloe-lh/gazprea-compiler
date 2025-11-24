@@ -77,12 +77,13 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         std::unordered_map<const ASTNode*, Scope*> scopeByCtx_;
         bool seenMain_ = false;
 
-        void throwOperandError(const std::string op, const std::vector<CompleteType>& operands, std::string additionalInfo);
-        void handleAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType);
+        void throwOperandError(const std::string op, const std::vector<CompleteType>& operands, std::string additionalInfo, int line = 1);
+        void handleAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType, int line);
 
         // Helpers
         void enterScopeFor(const ASTNode* ownerCtx, const bool inLoop, const CompleteType* returnType);
         void exitScope();
         bool guaranteesReturn(const BlockNode* block) const;
+        CompleteType resolveUnresolvedType(Scope *scope, const CompleteType &t, int line);
 
 };

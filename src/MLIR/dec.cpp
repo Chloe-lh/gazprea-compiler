@@ -3,7 +3,7 @@
 
 void MLIRGen::visit(TypedDecNode* node) {
     // Resolve variable declared by semantic analysis
-    VarInfo* declaredVar = currScope_->resolveVar(node->name);
+    VarInfo* declaredVar = currScope_->resolveVar(node->name, node->line);
 
     // defensive sync for qualifier flag
     if (node->qualifier == "const") {
@@ -14,14 +14,14 @@ void MLIRGen::visit(TypedDecNode* node) {
 
     // Ensure storage exists regardless of initializer
     if (!declaredVar->value) {
-        allocaVar(declaredVar);
+        allocaVar(declaredVar, node->line);
     }
 
     // Handle optional initializer + promotion
     if (node->init) {
         node->init->accept(*this);
         VarInfo literal = popValue();
-        assignTo(&literal, declaredVar);
+        assignTo(&literal, declaredVar, node->line);
     } else {
         // Implicit zero-initialization for scalars
         zeroInitializeVar(declaredVar);
@@ -36,7 +36,7 @@ void MLIRGen::visit(InferredDecNode* node) {
     node->init->accept(*this); // Resolve init value
 
     VarInfo literal = popValue();
-    VarInfo* declaredVar = currScope_->resolveVar(node->name);
+    VarInfo* declaredVar = currScope_->resolveVar(node->name, node->line);
 
 
     // Semantic analysis should have handled this - this is just in casse
@@ -45,8 +45,8 @@ void MLIRGen::visit(InferredDecNode* node) {
     } else if (node->qualifier == "var") {
         declaredVar->isConst = false;
     } else {
-        throw StatementError(1, "Cannot infer variable '" + node->name + "' without qualifier."); // TODO: line number
+        throw StatementError(node->line, "Cannot infer variable '" + node->name + "' without qualifier."); // TODO: line number
     }
     
-    assignTo(&literal, declaredVar);
+    assignTo(&literal, declaredVar, node->line);
 }

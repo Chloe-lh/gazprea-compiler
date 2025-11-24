@@ -14,22 +14,22 @@ Scope::Scope(Scope* parent) : parent_(parent) {}
 
 Scope::Scope(Scope* parent, bool inLoop, const CompleteType* returnType) : parent_(parent), inLoop(inLoop), returnType(returnType) {}
 
-void Scope::declareVar(const std::string& identifier, const CompleteType& type, bool isConst) {
+void Scope::declareVar(const std::string& identifier, const CompleteType& type, bool isConst, int line) {
     if (symbols_.find(identifier) != symbols_.end()) {
-        SymbolError err = SymbolError(1, "Semantic Analysis: Variable '" + identifier + "' cannot be redeclared.");
+        SymbolError err = SymbolError(line, "Semantic Analysis: Variable '" + identifier + "' cannot be redeclared.");
         throw err;
     }
 
     symbols_.emplace(identifier, VarInfo{identifier, type, isConst});
 }
 
-void Scope::declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType) {
+void Scope::declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType, int line) {
     // Shared namespace: disallow conflict with any procedure of same name
     if (proceduresByName_.find(identifier) != proceduresByName_.end()) {
-        throw SymbolError(1, "Semantic Analysis: Name conflict: function and procedure share name '" + identifier + "'.");
+        throw SymbolError(line, "Semantic Analysis: Name conflict: function and procedure share name '" + identifier + "'.");
     }
     if (functionsByName_.find(identifier) != functionsByName_.end()) {
-        SymbolError err = SymbolError(1, "Semantic Analysis: Function '" + identifier + "' cannot be redeclared.");
+        SymbolError err = SymbolError(line, "Semantic Analysis: Function '" + identifier + "' cannot be redeclared.");
         throw err;
     }
 
@@ -37,13 +37,13 @@ void Scope::declareFunc(const std::string& identifier, const std::vector<VarInfo
     functionsByName_.emplace(identifier, newFunc);
 }
 
-void Scope::declareProc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType) {
+void Scope::declareProc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType, int line) {
     // Shared namespace: disallow conflict with any function of same name
     if (functionsByName_.find(identifier) != functionsByName_.end()) {
-        throw SymbolError(1, "Semantic Analysis: Name conflict: function and procedure share name '" + identifier + "'.");
+        throw SymbolError(line, "Semantic Analysis: Name conflict: function and procedure share name '" + identifier + "'.");
     }
     if (proceduresByName_.find(identifier) != proceduresByName_.end()) {
-        SymbolError err = SymbolError(1, "Semantic Analysis: Procedure '" + identifier + "' cannot be redeclared.");
+        SymbolError err = SymbolError(line, "Semantic Analysis: Procedure '" + identifier + "' cannot be redeclared.");
         throw err;
     }
 
@@ -51,88 +51,84 @@ void Scope::declareProc(const std::string& identifier, const std::vector<VarInfo
     proceduresByName_.emplace(identifier, newProc);
 }
 
-/*
-TODO add error line number to 2 errors below
-*/
-void Scope::declareAlias(const std::string& identifier, const CompleteType& type) {
+
+void Scope::declareAlias(const std::string& identifier, const CompleteType& type, int line) {
     if (!inGlobal) {
-        GlobalError err = GlobalError(1, "Semantic Analysis: Cannot declare alias '" + identifier + "' in non-global scope."); 
+        GlobalError err = GlobalError(line, "Semantic Analysis: Cannot declare alias '" + identifier + "' in non-global scope."); 
         throw err;
     }
 
     if (globalTypeAliases_.find(identifier) != globalTypeAliases_.end()) {
-        AliasingError err = AliasingError(1, "Semantic Analysis: Re-declaring existing alias '" + identifier + ".");
+        AliasingError err = AliasingError(line, "Semantic Analysis: Re-declaring existing alias '" + identifier + ".");
         throw err;
     }
 
     globalTypeAliases_.emplace(identifier, type);
 }
 
-
-// TODO add line number in error
-FuncInfo* Scope::resolveFunc(const std::string& identifier, const std::vector<VarInfo>& callParams) {
+FuncInfo* Scope::resolveFunc(const std::string& identifier, const std::vector<VarInfo>& callParams, int line) {
     auto it = functionsByName_.find(identifier);
     if (it != functionsByName_.end()) {
         // Validate parameter types (names may differ/omitted in prototypes)
         const auto& stored = it->second.params;
         if (stored.size() != callParams.size()) {
-            throw SymbolError(1, "Semantic Analysis: Function '" + identifier + "' called with wrong number of arguments.");
+            throw SymbolError(line, "Semantic Analysis: Function '" + identifier + "' called with wrong number of arguments.");
         }
         for (size_t i = 0; i < stored.size(); ++i) {
             // Use promote logic: if paramType == promote(argType, paramType), then it's compatible
             if (promote(callParams[i].type, stored[i].type) != stored[i].type) {
-                throw SymbolError(1, "Semantic Analysis: Function '" + identifier + "' called with incompatible argument types.");
+                throw SymbolError(line, "Semantic Analysis: Function '" + identifier + "' called with incompatible argument types.");
             }
         }
         return &it->second;
     }
     if (parent_ != nullptr) {
-        return parent_->resolveFunc(identifier, callParams);
+        return parent_->resolveFunc(identifier, callParams, line);
     }
-    throw SymbolError(1, "Semantic Analysis: Function '" + identifier + "' not defined.");
+    throw SymbolError(line, "Semantic Analysis: Function '" + identifier + "' not defined.");
 }
 
-ProcInfo* Scope::resolveProc(const std::string& identifier, const std::vector<VarInfo>& callParams) {
+ProcInfo* Scope::resolveProc(const std::string& identifier, const std::vector<VarInfo>& callParams, int line) {
     auto it = proceduresByName_.find(identifier);
     if (it != proceduresByName_.end()) {
         const auto& stored = it->second.params;
         if (stored.size() != callParams.size()) {
-            throw SymbolError(1, "Semantic Analysis: Procedure '" + identifier + "' called with wrong number of arguments.");
+            throw SymbolError(line, "Semantic Analysis: Procedure '" + identifier + "' called with wrong number of arguments.");
         }
         for (size_t i = 0; i < stored.size(); ++i) {
              // Use promote logic
             if (promote(callParams[i].type, stored[i].type) != stored[i].type) {
-                throw SymbolError(1, "Semantic Analysis: Procedure '" + identifier + "' called with incompatible argument types.");
+                throw SymbolError(line, "Semantic Analysis: Procedure '" + identifier + "' called with incompatible argument types.");
             }
         }
         return &it->second;
     }
     if (parent_ != nullptr) {
-        return parent_->resolveProc(identifier, callParams);
+        return parent_->resolveProc(identifier, callParams, line);
     }
-    throw SymbolError(1, "Semantic Analysis: Procedure '" + identifier + "' not defined.");
+    throw SymbolError(line, "Semantic Analysis: Procedure '" + identifier + "' not defined.");
 }
 
 // TODO add line number in error
-VarInfo* Scope::resolveVar(const std::string& identifier) {
+VarInfo* Scope::resolveVar(const std::string& identifier, int line) {
     auto it = symbols_.find(identifier);
     if (it != symbols_.end()) {
         return &it->second;
     }
     if (parent_ != nullptr) {
-        return parent_->resolveVar(identifier);
+        return parent_->resolveVar(identifier, line);
     }
-    throw SymbolError(1, "Semantic Analysis: Variable '" + identifier + "' not defined.");
+    throw SymbolError(line, "Semantic Analysis: Variable '" + identifier + "' not defined.");
 }
 
-CompleteType* Scope::resolveAlias(const std::string& identifier) {
+CompleteType* Scope::resolveAlias(const std::string& identifier, int line) {
     auto it = globalTypeAliases_.find(identifier);
 
     if (it != globalTypeAliases_.end()) {
         return &it->second;
     }
 
-    throw SymbolError(1, "Semantic Analysis: Type alias '" + identifier + "' not defined.");
+    throw SymbolError(line, "Semantic Analysis: Type alias '" + identifier + "' not defined.");
 }
 
 void Scope::disableDeclarations() {

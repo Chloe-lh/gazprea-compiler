@@ -2,18 +2,18 @@
 
 void MLIRGen::visit(TupleTypedDecNode* node) {
     // Resolve variable declared by semantic analysis
-    VarInfo* declaredVar = currScope_->resolveVar(node->name);
+    VarInfo* declaredVar = currScope_->resolveVar(node->name, node->line);
 
     // Ensure storage for tuple value exists
     if (!declaredVar->value) {
-        allocaVar(declaredVar);
+        allocaVar(declaredVar, node->line);
     }
 
     // Handle optional initializer
     if (node->init) {
         node->init->accept(*this);
         VarInfo literal = popValue();
-        assignTo(&literal, declaredVar);
+        assignTo(&literal, declaredVar, node->line);
     } else {
         // Implicit zero-initialization for tuple elements
         mlir::Value tuplePtr = declaredVar->value;
@@ -62,7 +62,7 @@ void MLIRGen::visit(TupleAccessAssignStatNode* node) {
 
     // Ensure tuple storage exists
     if (!tupleVar->value) {
-        allocaVar(tupleVar);
+        allocaVar(tupleVar, node->line);
     }
 
     if (target->index < 1 || static_cast<size_t>(target->index) > tupleVar->type.subTypes.size()) {
@@ -75,7 +75,7 @@ void MLIRGen::visit(TupleAccessAssignStatNode* node) {
     CompleteType elemType = tupleVar->type.subTypes[elemIndex];
 
     // Promote RHS to element type if needed and normalize to SSA
-    VarInfo promoted = promoteType(&from, &elemType);
+    VarInfo promoted = promoteType(&from, &elemType, node->line);
     mlir::Value elemVal = getSSAValue(promoted);
 
     // Load current tuple struct from LLVM pointer
@@ -114,7 +114,7 @@ void MLIRGen::visit(TupleAccessNode* node) {
                 builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
         } else {
             // Local but unallocated tuple
-            allocaVar(tupleVarInfo);
+            allocaVar(tupleVarInfo, node->line);
         }
     }
 
@@ -144,7 +144,7 @@ void MLIRGen::visit(TupleAccessNode* node) {
     CompleteType elemType =
         tupleVarInfo->type.subTypes[static_cast<size_t>(node->index - 1)];
     VarInfo elementVarInfo(elemType);
-    allocaLiteral(&elementVarInfo);
+    allocaLiteral(&elementVarInfo, node->line);
     builder_.create<mlir::memref::StoreOp>(
         loc_, elemVal, elementVarInfo.value, mlir::ValueRange{});
 
@@ -159,14 +159,14 @@ void MLIRGen::visit(TupleTypeCastNode* node) {
     // Evaluate the source tuple expression and delegate to castType.
     node->expr->accept(*this);
     VarInfo sourceTuple = popValue();
-    VarInfo resultTuple = castType(&sourceTuple, &node->targetTupleType);
+    VarInfo resultTuple = castType(&sourceTuple, &node->targetTupleType, node->line);
     pushValue(resultTuple);
 }
 
 // could be moved to tuple
 void MLIRGen::visit(TupleLiteralNode* node) {
     VarInfo tupleVarInfo(node->type);
-    allocaLiteral(&tupleVarInfo);
+    allocaLiteral(&tupleVarInfo, node->line);
 
     if (!tupleVarInfo.value) {
         throw std::runtime_error("TupleLiteralNode: failed to allocate tuple storage.");

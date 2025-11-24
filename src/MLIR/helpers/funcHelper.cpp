@@ -7,12 +7,13 @@ mlir::func::FuncOp MLIRGen::beginFunctionDefinitionWithConstants(
     const std::string &name,
     const std::vector<VarInfo> &params,
     const CompleteType &returnType,
-    Scope* &savedScope)
+    Scope* &savedScope
+    )
 {
     auto func = beginFunctionDefinition(funcOrProc, name, params, returnType, savedScope);
 
     // Bind parameters: use constant values if available
-    bindFunctionParametersWithConstants(func, params);
+    bindFunctionParametersWithConstants(func, params, funcOrProc->line);
 
     return func;
 }
@@ -100,13 +101,13 @@ mlir::func::FuncOp MLIRGen::createFunctionDeclaration(const std::string &name,
     return func;
 }
 
-void MLIRGen::bindFunctionParametersWithConstants(mlir::func::FuncOp func, const std::vector<VarInfo> &params) {
+void MLIRGen::bindFunctionParametersWithConstants(mlir::func::FuncOp func, const std::vector<VarInfo> &params, int line) {
     if (func.getBlocks().empty()) return;
     mlir::Block &entry = func.front();
 
     for (size_t i = 0; i < params.size(); ++i) {
         const auto &p = params[i];
-        VarInfo* vi = currScope_ ? currScope_->resolveVar(p.identifier) : nullptr;
+        VarInfo* vi = currScope_ ? currScope_->resolveVar(p.identifier,line) : nullptr;
         if (!vi) throw std::runtime_error("Codegen: missing parameter '" + p.identifier + "' in scope");
         
         mlir::Value argValue = entry.getArgument(i);
@@ -120,7 +121,7 @@ void MLIRGen::bindFunctionParametersWithConstants(mlir::func::FuncOp func, const
             } else {
                 // const tuple: argument is the struct value; allocate storage
                 // (if needed) and store into it.
-                if (!vi->value) allocaVar(vi);
+                if (!vi->value) allocaVar(vi, line);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, argValue, vi->value);
             }
         } else {
@@ -129,7 +130,7 @@ void MLIRGen::bindFunctionParametersWithConstants(mlir::func::FuncOp func, const
             if (!p.isConst && argValue.getType().isa<mlir::MemRefType>()) {
                 vi->value = argValue;
             } else {
-                if (!vi->value) allocaVar(vi);
+                if (!vi->value) allocaVar(vi, line);
                 builder_.create<mlir::memref::StoreOp>(
                     loc_, argValue, vi->value, mlir::ValueRange{});
             }

@@ -39,15 +39,15 @@ public:
     explicit Scope(Scope* parent = nullptr);
     explicit Scope(Scope* parent, bool inLoop, const CompleteType* returnType);
 
-    void declareVar(const std::string& identifier, const CompleteType& type, bool isConst);
-    void declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType);
-    void declareProc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType);
-    void declareAlias(const std::string& identifier, const CompleteType& type);
+    void declareVar(const std::string& identifier, const CompleteType& type, bool isConst, int line);
+    void declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType, int line);
+    void declareProc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType, int line);
+    void declareAlias(const std::string& identifier, const CompleteType& type, int line);
 
-    VarInfo* resolveVar(const std::string& identifier);
-    FuncInfo* resolveFunc(const std::string& identifier, const std::vector<VarInfo>& params);
-    ProcInfo* resolveProc(const std::string& identifier, const std::vector<VarInfo>& params);
-    CompleteType* resolveAlias(const std::string& identifier);
+    VarInfo* resolveVar(const std::string& identifier, int line);
+    FuncInfo* resolveFunc(const std::string& identifier, const std::vector<VarInfo>& params, int line);
+    ProcInfo* resolveProc(const std::string& identifier, const std::vector<VarInfo>& params, int line);
+    CompleteType* resolveAlias(const std::string& identifier, int line);
 
     void disableDeclarations(); // For ensuring declrs are at the top of each block
     bool isDeclarationAllowed();

@@ -95,7 +95,7 @@ void MLIRGen::visit(FuncCallExpr* node) {
     ProcInfo *procInfo = nullptr;
 
     try {
-        funcInfo = currScope_->resolveFunc(node->funcName, typeOnlyArgs);
+        funcInfo = currScope_->resolveFunc(node->funcName, typeOnlyArgs, node->line);
     } catch (const CompileTimeException &) {
         funcInfo = nullptr;
     }
@@ -105,7 +105,7 @@ void MLIRGen::visit(FuncCallExpr* node) {
     if (!isFunction) {
         // Not a function; try resolving as a procedure used as expression.
         try {
-            procInfo = currScope_->resolveProc(node->funcName, typeOnlyArgs);
+            procInfo = currScope_->resolveProc(node->funcName, typeOnlyArgs, node->line);
         } catch (const CompileTimeException &) {
             procInfo = nullptr;
         }
@@ -225,7 +225,7 @@ void MLIRGen::visit(FuncCallExpr* node) {
 
     // Wrap returned value in a VarInfo with appropriate storage.
     VarInfo resultVar(node->type);
-    allocaLiteral(&resultVar);
+    allocaLiteral(&resultVar, node->line);
     if (node->type.baseType == BaseType::TUPLE) {
         // For tuple returns, resultVar.value is an !llvm.ptr; store the
         // returned struct into it.
