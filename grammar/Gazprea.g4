@@ -44,6 +44,7 @@ type //this should include basic types
     | INTEGER
     | REAL
     | STRING
+    | VECTOR '<' type '>'  
     | ID
     ;
 
@@ -53,6 +54,7 @@ builtin_type
     | CHARACTER
     | INTEGER
     | REAL
+    | VECTOR '<' type '>'  
     | STRING
     ;
 
@@ -87,6 +89,7 @@ expr
     | ID                                                #IdExpr
     ;
 
+// composite types
 tuple_dec: TUPLE PARENLEFT type (COMMA type)+ PARENRIGHT;
 tuple_literal: PARENLEFT expr (COMMA expr)+ PARENRIGHT;
 tuple_access: ID DECIM INT

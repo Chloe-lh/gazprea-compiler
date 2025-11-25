@@ -249,7 +249,12 @@ ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
     else if (bt->STRING())
       typeAlias =
           std::make_shared<TypeAliasNode>("", CompleteType(BaseType::STRING));
-    else
+    else if (bt->VECTOR()) {
+      auto anyElem = visit(bt->type());
+      CompleteType subType = std::any_cast<CompleteType>(anyElem);
+      typeAlias =
+          std::make_shared<TypeAliasNode>("", CompleteType(BaseType::VECTOR, {subType}));
+    } else
       typeAlias =
           std::make_shared<TypeAliasNode>("", CompleteType(BaseType::UNKNOWN));
     id = ctx->ID(0)->getText();
@@ -421,6 +426,16 @@ std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
     return CompleteType(BaseType::REAL);
   if (ctx->CHARACTER())
     return CompleteType(BaseType::CHARACTER);
+
+  if (ctx->VECTOR()) {
+    CompleteType innerType(BaseType::UNKNOWN);
+    if (ctx->type()) {
+      auto anyElem = visit(ctx->type());
+      if (!anyElem.has_value()) throw std::runtime_error("FATAL: No subtype found for vector.");
+      innerType = std::any_cast<CompleteType>(anyElem);
+    } throw std::runtime_error("FATAL: No subtype found for vector.");
+    return CompleteType(BaseType::VECTOR, {innerType});
+  }
 
   throw std::runtime_error(
       "ASTBuilder::visitType: FATAL: Type with no known case.");
