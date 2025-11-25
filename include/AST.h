@@ -1,5 +1,6 @@
 // Tuple type node: represents a tuple type signature (e.g., tuple(int, char))
 #pragma once
+#include "GazpreaParser.h"
 #include "Scope.h"
 #include "Types.h"
 #include <memory>
@@ -89,6 +90,88 @@ public:
                  std::shared_ptr<ExprNode> right)
       : op(op), left(std::move(left)), right(std::move(right)) {}
 };
+// arrays
+class ArrayTypeNode;
+class ArrayLiteralNode;
+class ArrayRangeNode;
+class ArrayStrideExpr: public ExprNode{
+  std::string id;
+  std::shared_ptr<ExprNode> expr;
+  ArrayStrideExpr(const std::string &id, std::shared_ptr<ExprNode> expr):id(id), expr(std::move(expr)){}
+  void accept(ASTVisitor &visitor) override; 
+};
+class ArraySliceExpr: public ExprNode{
+  std::string id;
+  std::shared_ptr<RangeExprNode> range;
+  ArraySliceExpr(const std::string &id, std::shared_ptr<ArrayRangeNode> range): id(id), range(std::move(range)){}
+  void accept(ASTVisitor &visitor) override; 
+};
+class ArrayAccessExpr: public ExprNode{
+  std::string id;
+  std::shared_ptr<ExprNode> expr;
+  ArrayAccessExpr(const std::string &id, std::shared_ptr<ExprNode> expr): id(id), expr(std::move(expr)){}
+  void accept(ASTVisitor &visitor) override; 
+};
+class ArrayInitNode : public ASTNode{
+  std::string id; //nullable
+  std::shared_ptr<ArrayLiteralNode> lit;
+  ArrayInitNode(const std::string &id): id(id){}
+  ArrayInitNode(std::shared_ptr<ArrayLiteralNode> lit): lit(std::move(lit)){}
+  void accept(ASTVisitor &visitor) override; 
+};
+class ArrayDecNode : public DecNode{
+  std::shared_ptr<ArrayTypeNode> type;
+  std::string id;
+  std::shared_ptr<ArrayInitNode> init; //nullable
+  ArrayDecNode(const std::string &id, std::shared_ptr<ArrayTypeNode> type): 
+    type(std::move(type)), id(id){}
+  ArrayDecNode(const std::string &id, std::shared_ptr<ArrayTypeNode> type, std::shared_ptr<ArrayInitNode> i): 
+    type(std::move(type)), id(id), init(std::move(i)){} 
+  void accept(ASTVisitor &visitor) override; 
+};
+// semantic pass should resolve the element alias (or builtin) into a
+// CompleteType and optionally evaluate `sizeExpr` to populate
+// `resolvedSize`.
+class ArrayTypeNode : public ASTNode {
+public:
+  // Element type as written (either a builtin/alias represented by a
+  // TypeAliasNode). We keep this simple to avoid large refactors.
+  std::shared_ptr<TypeAliasNode> elementAlias;
+  // Optional size expression (null => open/unbounded if `isOpen` is true)
+  std::shared_ptr<ExprNode> sizeExpr = nullptr;
+  // Explicit '*' marker (when grammar uses MULT for open arrays)
+  bool isOpen = false;
+  // Semantic result filled later by SemanticAnalysisVisitor when the size is
+  // a compile-time constant.
+  std::optional<int64_t> resolvedSize;
+
+  ArrayTypeNode(std::shared_ptr<TypeAliasNode> elemAlias,
+                std::shared_ptr<ExprNode> size = nullptr,
+                bool open = false)
+      : elementAlias(std::move(elemAlias)), sizeExpr(std::move(size)),
+        isOpen(open) {}
+  void accept(ASTVisitor &visitor) override;
+};
+class ExprListNode: public ASTNode{
+  std::vector<ExprNode> list;
+  ExprListNode(std::vector<ExprNode> list): list(std::move(list)){}
+  void accept(ASTVisitor &visitor) override;
+};
+class ArrayLiteralNode: public ASTNode{
+  std::shared_ptr<ExprListNode> list;  //optional
+  ArrayLiteralNode(std::shared_ptr<ExprListNode> list): list(std::move(list)){}
+  void accept(ASTVisitor &visitor) override;
+};
+//   expr RANGE expr    (start..end)
+//   RANGE expr         (..end)    -> start == nullptr
+//   expr RANGE         (start..)  -> end == nullptr
+class RangeExprNode: public ASTNode{
+  std::shared_ptr<ExprNode> start; //nullable
+  std::shared_ptr<ExprNode> end; //nullable
+  ArrayExprNode(std::shared_ptr<ExprNode> s, std::shared_ptr<ExprNode> e):
+    start(std::move(s)), end(std::move(e)){}
+  void accept(ASTVisitor &visitor) override;
+};
 // functions
 class FuncNode : public ASTNode {
 public:
@@ -103,8 +186,8 @@ public:
            std::shared_ptr<StatNode> returnStat = nullptr)
       : name(name), parameters(parameters), returnType(std::move(returnType)),
         body(std::move(body)), returnStat(std::move(returnStat)) {}
+  void accept(ASTVisitor &visitor) override;
 };
-
 class FuncStatNode : public FuncNode {
 public:
   FuncStatNode(const std::string &name, const std::vector<VarInfo> &parameters,

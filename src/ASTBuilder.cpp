@@ -26,11 +26,9 @@ namespace gazprea {
     // Use ANTLR's 1-based token line directly. Tests and consumers expect
     // line numbers to match source file numbering where the first line is 1.
     int line = ctx->getStart()->getLine();
-  if (line <= 0){
-    line = 1;
-  }else{
-    --line;
-  }
+    if (line <= 0) {
+      line = 1;
+    }
     node->line = line;
   }
 
@@ -95,21 +93,25 @@ std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
       // Try casting to ASTNode first
       try {
         node = std::any_cast<std::shared_ptr<ASTNode>>(anyNode);
+        setLocationFromCtx(node, ctx);
       } catch (const std::bad_any_cast &) {
         // Try casting to StatNode and upcast
         try {
           auto statNode = std::any_cast<std::shared_ptr<StatNode>>(anyNode);
           node = std::static_pointer_cast<ASTNode>(statNode);
+          setLocationFromCtx(node, ctx);
         } catch (const std::bad_any_cast &) {
           // Try casting to DecNode and upcast
           try {
             auto decNode = std::any_cast<std::shared_ptr<DecNode>>(anyNode);
             node = std::static_pointer_cast<ASTNode>(decNode);
+            setLocationFromCtx(node, ctx);
           } catch (const std::bad_any_cast &) {
             // Try casting to ExprNode and upcast (unlikely but possible)
             try {
               auto exprNode = std::any_cast<std::shared_ptr<ExprNode>>(anyNode);
               node = std::static_pointer_cast<ASTNode>(exprNode);
+              setLocationFromCtx(node, ctx);
             } catch (const std::bad_any_cast &) {
               // Skip invalid node
             }
@@ -121,7 +123,6 @@ std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
     }
   }
   auto node = std::make_shared<FileNode>(std::move(nodes));
-  setLocationFromCtx(node, ctx);
   return node_any(std::move(node));
 }
 
@@ -682,7 +683,6 @@ ASTBuilder::visitFunctionBlock(GazpreaParser::FunctionBlockContext *ctx) {
   // Create a FuncBlockNode (function with a block body)
   auto node =
       std::make_shared<FuncBlockNode>(funcName, varParams, returnType, body);
-      setLocationFromCtx(node, ctx);
   return node_any(std::move(node));
 }
 // combines a function signature with a function body
@@ -706,7 +706,6 @@ std::any ASTBuilder::visitFunctionBlockTupleReturn(
   }
   auto node =
       std::make_shared<FuncBlockNode>(funcName, varParams, returnType, body);
-      setLocationFromCtx(node, ctx);
   return node_any(std::move(node));
 }
 
@@ -841,8 +840,10 @@ ASTBuilder::visitFunctionStat(GazpreaParser::FunctionStatContext *ctx) {
   if (ctx->expr()) {
     auto anyExpr = visit(ctx->expr());
     auto exprNode = safe_any_cast_ptr<ExprNode>(anyExpr);
+    setLocationFromCtx(exprNode, ctx);
     if (exprNode) {
       auto retNode = std::make_shared<ReturnStatNode>(exprNode);
+      setLocationFromCtx(exprNode, ctx);
       returnStat = retNode;
     }
   }
@@ -1157,6 +1158,7 @@ std::any ASTBuilder::visitIntExpr(GazpreaParser::IntExprContext *ctx) {
     auto node = std::make_shared<IntNode>(v32);
     setLocationFromCtx(node, ctx);
     node->type = CompleteType(BaseType::INTEGER);
+    node->value = 0;
     node->constant = ConstantValue(node->type, (int64_t)v32);
 
     return expr_any(std::move(node));
@@ -1301,7 +1303,7 @@ std::any ASTBuilder::visitParenExpr(GazpreaParser::ParenExprContext *ctx) {
 std::any ASTBuilder::visitRealExpr(GazpreaParser::RealExprContext *ctx) {
   std::string text = ctx->real()->getText();
   // apply leading zero
-  double value;
+  double value = 0; // initialize to zero
   if (!text.empty() && text[0] == '.') {
     text = "0" + text;
   } else if (text.size() >= 2 && text[0] == '-' && text[1] == '.') {

@@ -66,9 +66,12 @@ type_alias
 
 expr
     : tuple_access                                      #TupleAccessExpr
+    | ID SQLEFT expr SQRIGHT                            #ArrayAccessExpr
+    | ID SQLEFT rangeExpr SQRIGHT                       #ArraySliceExpr
+    | ID BY expr                                        #ArrayStrideExpr
     | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr
     | PARENLEFT expr PARENRIGHT                         #ParenExpr
-    | STRING_LIT                                       #StringExpr
+    | STRING_LIT                                        #StringExpr
     | <assoc=right>NOT expr                             #NotExpr
     | <assoc=right> (ADD|MINUS) expr                    #UnaryExpr
     | <assoc=right> expr EXP expr                       #ExpExpr
@@ -84,6 +87,7 @@ expr
     | INT                                               #IntExpr
     | real                                              #RealExpr
     | tuple_literal                                     #TupleLitExpr
+    | array_literal                                     #ArrayLitExpr
     | AS '<' type '>' PARENLEFT expr PARENRIGHT         #TypeCastExpr
     | AS '<' tuple_dec  '>' PARENLEFT expr PARENRIGHT   #TupleTypeCastExpr
     | ID                                                #IdExpr
@@ -96,6 +100,19 @@ tuple_access: ID DECIM INT
             | TUPACCESS
             ;
 
+array_init : array_literal
+           | ID
+           ;
+array_dec : array_type ID (EQ array_init)? ;
+array_type : type SQLEFT (INT|MULT) SQRIGHT ;
+array_literal : SQLEFT exprList? SQRIGHT ;
+exprList : expr (COMMA expr)* ;
+
+rangeExpr : RANGE expr
+          | expr RANGE
+          | expr RANGE expr
+          ;
+
 // declarations must be placed at the start of the block
 block: CURLLEFT dec* stat* CURLRIGHT;
 
@@ -104,13 +121,8 @@ if_stat: IF PARENLEFT expr PARENRIGHT (block|stat|dec) (ELSE (block|stat|dec))?;
 loop_stat
     : LOOP (block|stat) (WHILE PARENLEFT expr PARENRIGHT END)? #LoopDefault
     | LOOP (WHILE PARENLEFT expr PARENRIGHT) (block|stat) #WhileLoopBlock
-    | LOOP ID IN (rangeExpr | arrayLiteral) (block|stat) #ForLoopBlock
+    | LOOP ID IN (rangeExpr | array_literal) (block|stat) #ForLoopBlock
     ;
-
-rangeExpr: expr RANGE expr;
-
-arrayLiteral: SQLEFT expr (COMMA expr)* SQRIGHT;
-
 
 qualifier: VAR //mutable
         | CONST //immutable -  DEFAULT
