@@ -1,5 +1,4 @@
 //CHECK_FILE:gt.out
-
 procedure main() returns integer {
     integer a = 5;
     integer b = 3;

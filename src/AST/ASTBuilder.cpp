@@ -452,7 +452,7 @@ std::any ASTBuilder::visitIntExpr(GazpreaParser::IntExprContext *ctx) {
     auto node = std::make_shared<IntNode>(v32);
     setLocationFromCtx(node, ctx);
     node->type = CompleteType(BaseType::INTEGER);
-    node->value = 0;
+    node->value = v32;
     node->constant = ConstantValue(node->type, (int64_t)v32);
 
     return expr_any(std::move(node));

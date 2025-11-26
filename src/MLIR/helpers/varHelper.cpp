@@ -1,6 +1,5 @@
 #include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
 
 VarInfo MLIRGen::popValue() {
     if (v_stack_.empty()) {
@@ -170,9 +169,58 @@ bool MLIRGen::tryEmitConstantForNode(ExprNode* node) {
     if (!node) return false;
     if (!node->constant.has_value()) return false;
     try {
-        VarInfo lit = createLiteralFromConstant(node->constant.value(), node->type, node->line);
-        pushValue(lit);
-        return true;
+        const ConstantValue &cv = node->constant.value();
+        // For scalar constants, emit SSA arith::ConstantOp instead of
+        // allocating a memref and storing into it. Tuples and complex
+        // constants still use the memref literal path.
+        switch (cv.type.baseType) {
+            case BaseType::INTEGER: {
+                auto i32 = builder_.getI32Type();
+                int64_t v = std::get<int64_t>(cv.value);
+                auto c = builder_.create<mlir::arith::ConstantOp>(loc_, i32, builder_.getIntegerAttr(i32, v));
+                VarInfo out{CompleteType(BaseType::INTEGER)};
+                out.value = c.getResult();
+                out.isLValue = false;
+                pushValue(out);
+                return true;
+            }
+            case BaseType::REAL: {
+                auto f32 = builder_.getF32Type();
+                double dv = std::get<double>(cv.value);
+                auto c = builder_.create<mlir::arith::ConstantOp>(loc_, f32, builder_.getFloatAttr(f32, static_cast<float>(dv)));
+                VarInfo out{CompleteType(BaseType::REAL)};
+                out.value = c.getResult();
+                out.isLValue = false;
+                pushValue(out);
+                return true;
+            }
+            case BaseType::BOOL: {
+                auto i1 = builder_.getI1Type();
+                bool bv = std::get<bool>(cv.value);
+                auto c = builder_.create<mlir::arith::ConstantOp>(loc_, i1, builder_.getIntegerAttr(i1, bv ? 1 : 0));
+                VarInfo out{CompleteType(BaseType::BOOL)};
+                out.value = c.getResult();
+                out.isLValue = false;
+                pushValue(out);
+                return true;
+            }
+            case BaseType::CHARACTER: {
+                auto i8 = builder_.getI8Type();
+                char ch = std::get<char>(cv.value);
+                auto c = builder_.create<mlir::arith::ConstantOp>(loc_, i8, builder_.getIntegerAttr(i8, static_cast<int>(ch)));
+                VarInfo out{CompleteType(BaseType::CHARACTER)};
+                out.value = c.getResult();
+                out.isLValue = false;
+                pushValue(out);
+                return true;
+            }
+            default: {
+                // Fallback: use existing memref literal path for tuples and unsupported types
+                VarInfo lit = createLiteralFromConstant(node->constant.value(), node->type, node->line);
+                pushValue(lit);
+                return true;
+            }
+        }
     } catch (...) {
         // unsupported constant type or codegen error; fall back to normal lowering
         return false;
@@ -214,30 +262,14 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
         case BaseType::CHARACTER:
             varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
                 loc_, mlir::MemRefType::get({}, builder_.getI8Type()));
-            {
-                auto zero = entryBuilder.create<mlir::arith::ConstantOp>(
-                    loc_, builder_.getI1Type(), builder_.getIntegerAttr(builder_.getI1Type(), 0));
-                entryBuilder.create<mlir::memref::StoreOp>(loc_, zero, varInfo->value, mlir::ValueRange{});
-            }
             break;
         case BaseType::INTEGER:
             varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
                 loc_, mlir::MemRefType::get({}, builder_.getI32Type()));
-            {
-                auto zero = entryBuilder.create<mlir::arith::ConstantOp>(
-                    loc_, builder_.getI1Type(), builder_.getIntegerAttr(builder_.getI1Type(), 0));
-                entryBuilder.create<mlir::memref::StoreOp>(loc_, zero, varInfo->value, mlir::ValueRange{});
-            }
             break;
         case BaseType::REAL:
             varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
                 loc_, mlir::MemRefType::get({}, builder_.getF32Type()));
-            {
-                auto zero = entryBuilder.create<mlir::arith::ConstantOp>(
-                    loc_, builder_.getI1Type(), builder_.getIntegerAttr(builder_.getI1Type(), 0));
-                entryBuilder.create<mlir::memref::StoreOp>(loc_, zero, varInfo->value, mlir::ValueRange{});
-            }
-            
             break;
 
         case BaseType::TUPLE: {
@@ -249,7 +281,7 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
             auto i64Ty = builder_.getI64Type();
             auto oneAttr = builder_.getIntegerAttr(i64Ty, 1);
             mlir::Value one = entryBuilder.create<mlir::arith::ConstantOp>(loc_, i64Ty, oneAttr);
-            varInfo->value = entryBuilder.create<mlir::LLVM::AllocaOp>(loc_, ptrTy, structTy, one, 0);
+            varInfo->value = entryBuilder.create<mlir::LLVM::AllocaOp>(loc_, ptrTy, structTy, one, 0u);
             break;
         }
 
