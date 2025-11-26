@@ -1,5 +1,6 @@
 #include "ConstantFolding.h"
 #include "AST.h"
+#include "CompileTimeExceptions.h"
 #include "Types.h"
 #include <algorithm>
 #include <cstdio>
@@ -157,7 +158,15 @@ void ConstantFoldingVisitor::visit(FileNode *node){
     }
     popScope();
 }
-
+void ConstantFoldingVisitor::visit(ArrayStrideExpr *node) {throw MainError(1, "Not yet implemented");}
+void ConstantFoldingVisitor::visit(ArraySliceExpr *node) {throw MainError(1, "Not yet implemented");}
+void ConstantFoldingVisitor::visit(ArrayAccessExpr *node) {throw MainError(1, "Not yet implemented");}
+void ConstantFoldingVisitor::visit(ArrayInitNode *node) {throw MainError(1, "Not yet implemented");}
+void ConstantFoldingVisitor::visit(ArrayDecNode *node) {throw MainError(1, "Not yet implemented");}
+void ConstantFoldingVisitor::visit(ArrayTypeNode *node) {throw MainError(1, "Not yet implemented");}
+void ConstantFoldingVisitor::visit(ExprListNode *node) {throw MainError(1, "Not yet implemented");}
+void ConstantFoldingVisitor::visit(ArrayLiteralNode *node) {throw MainError(1, "Not yet implemented");}
+void ConstantFoldingVisitor::visit(RangeExprNode *node) {throw MainError(1, "Not yet implemented");}
 // Functions
 void ConstantFoldingVisitor::visit(FuncStatNode *node){ 
     pushScope();

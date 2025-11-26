@@ -72,6 +72,21 @@ public:
   explicit LiteralExprNode(const CompleteType &t) { this->type = t; }
   virtual ~LiteralExprNode() = default;
 };
+class FuncNode : public ASTNode {
+public:
+  std::string name;
+  std::vector<VarInfo> parameters;      //  prototypes may omit identifier
+  CompleteType returnType;              // optional
+  std::shared_ptr<BlockNode> body;      // optional
+  std::shared_ptr<StatNode> returnStat; // optional
+
+  FuncNode(const std::string &name, const std::vector<VarInfo> &parameters,
+           CompleteType returnType, std::shared_ptr<BlockNode> body = nullptr,
+           std::shared_ptr<StatNode> returnStat = nullptr)
+      : name(name), parameters(parameters), returnType(std::move(returnType)),
+        body(std::move(body)), returnStat(std::move(returnStat)) {}
+};
+
 // expressions
 class UnaryExprNode : public ExprNode {
 public:
@@ -94,25 +109,30 @@ public:
 class ArrayTypeNode;
 class ArrayLiteralNode;
 class ArrayRangeNode;
+class RangeExprNode;
 class ArrayStrideExpr: public ExprNode{
+  public:
   std::string id;
   std::shared_ptr<ExprNode> expr;
   ArrayStrideExpr(const std::string &id, std::shared_ptr<ExprNode> expr):id(id), expr(std::move(expr)){}
   void accept(ASTVisitor &visitor) override; 
 };
 class ArraySliceExpr: public ExprNode{
+  public:
   std::string id;
   std::shared_ptr<RangeExprNode> range;
-  ArraySliceExpr(const std::string &id, std::shared_ptr<ArrayRangeNode> range): id(id), range(std::move(range)){}
+  ArraySliceExpr(const std::string &id, std::shared_ptr<RangeExprNode> range): id(id), range(std::move(range)){}
   void accept(ASTVisitor &visitor) override; 
 };
 class ArrayAccessExpr: public ExprNode{
+  public:
   std::string id;
   std::shared_ptr<ExprNode> expr;
   ArrayAccessExpr(const std::string &id, std::shared_ptr<ExprNode> expr): id(id), expr(std::move(expr)){}
   void accept(ASTVisitor &visitor) override; 
 };
 class ArrayInitNode : public ASTNode{
+  public:
   std::string id; //nullable
   std::shared_ptr<ArrayLiteralNode> lit;
   ArrayInitNode(const std::string &id): id(id){}
@@ -120,6 +140,8 @@ class ArrayInitNode : public ASTNode{
   void accept(ASTVisitor &visitor) override; 
 };
 class ArrayDecNode : public DecNode{
+  public:
+  CompleteType resolvedType = CompleteType(BaseType::UNKNOWN); // filled by semantic analysis
   std::shared_ptr<ArrayTypeNode> type;
   std::string id;
   std::shared_ptr<ArrayInitNode> init; //nullable
@@ -134,8 +156,7 @@ class ArrayDecNode : public DecNode{
 // `resolvedSize`.
 class ArrayTypeNode : public ASTNode {
 public:
-  // Element type as written (either a builtin/alias represented by a
-  // TypeAliasNode). We keep this simple to avoid large refactors.
+  // Element type as written (builtin/alias represented by a Type)
   std::shared_ptr<TypeAliasNode> elementAlias;
   // Optional size expression (null => open/unbounded if `isOpen` is true)
   std::shared_ptr<ExprNode> sizeExpr = nullptr;
@@ -144,7 +165,6 @@ public:
   // Semantic result filled later by SemanticAnalysisVisitor when the size is
   // a compile-time constant.
   std::optional<int64_t> resolvedSize;
-
   ArrayTypeNode(std::shared_ptr<TypeAliasNode> elemAlias,
                 std::shared_ptr<ExprNode> size = nullptr,
                 bool open = false)
@@ -153,11 +173,13 @@ public:
   void accept(ASTVisitor &visitor) override;
 };
 class ExprListNode: public ASTNode{
-  std::vector<ExprNode> list;
-  ExprListNode(std::vector<ExprNode> list): list(std::move(list)){}
+  public:
+  std::vector<std::shared_ptr<ExprNode>> list;
+  ExprListNode(std::vector<std::shared_ptr<ExprNode>> list): list(std::move(list)){}
   void accept(ASTVisitor &visitor) override;
 };
-class ArrayLiteralNode: public ASTNode{
+class ArrayLiteralNode: public LiteralExprNode{
+  public:
   std::shared_ptr<ExprListNode> list;  //optional
   ArrayLiteralNode(std::shared_ptr<ExprListNode> list): list(std::move(list)){}
   void accept(ASTVisitor &visitor) override;
@@ -165,29 +187,15 @@ class ArrayLiteralNode: public ASTNode{
 //   expr RANGE expr    (start..end)
 //   RANGE expr         (..end)    -> start == nullptr
 //   expr RANGE         (start..)  -> end == nullptr
-class RangeExprNode: public ASTNode{
+class RangeExprNode: public ExprNode{
+  public:
   std::shared_ptr<ExprNode> start; //nullable
   std::shared_ptr<ExprNode> end; //nullable
-  ArrayExprNode(std::shared_ptr<ExprNode> s, std::shared_ptr<ExprNode> e):
+  RangeExprNode(std::shared_ptr<ExprNode> s, std::shared_ptr<ExprNode> e):
     start(std::move(s)), end(std::move(e)){}
   void accept(ASTVisitor &visitor) override;
 };
 // functions
-class FuncNode : public ASTNode {
-public:
-  std::string name;
-  std::vector<VarInfo> parameters;      //  prototypes may omit identifier
-  CompleteType returnType;              // optional
-  std::shared_ptr<BlockNode> body;      // optional
-  std::shared_ptr<StatNode> returnStat; // optional
-
-  FuncNode(const std::string &name, const std::vector<VarInfo> &parameters,
-           CompleteType returnType, std::shared_ptr<BlockNode> body = nullptr,
-           std::shared_ptr<StatNode> returnStat = nullptr)
-      : name(name), parameters(parameters), returnType(std::move(returnType)),
-        body(std::move(body)), returnStat(std::move(returnStat)) {}
-  void accept(ASTVisitor &visitor) override;
-};
 class FuncStatNode : public FuncNode {
 public:
   FuncStatNode(const std::string &name, const std::vector<VarInfo> &parameters,

@@ -42,6 +42,19 @@ void ASTPrinter::visit(BlockNode *node) {
   }
   indent--;
 }
+void ASTPrinter::visit(ArrayStrideExpr *node){
+  printTreeLine("ArrayStrideNode");
+}
+void ASTPrinter::visit(ArraySliceExpr *node) { 
+  printTreeLine("ArraySliceExpr"); 
+}
+void ASTPrinter::visit(ArrayAccessExpr *node) { printTreeLine("ArrayAccessExpr"); }
+void ASTPrinter::visit(ArrayInitNode *node) { printTreeLine("ArrayInitNode"); }
+void ASTPrinter::visit(ArrayDecNode *node) { printTreeLine("ArrayDecNode"); }
+void ASTPrinter::visit(ArrayTypeNode *node) { printTreeLine("ArrayTypeNode"); }
+void ASTPrinter::visit(ExprListNode *node) { printTreeLine("ExprListNode"); }
+void ASTPrinter::visit(ArrayLiteralNode *node) { printTreeLine("ArrayLiteralNode"); }
+void ASTPrinter::visit(RangeExprNode *node) { printTreeLine("RangeExprNode"); }
 
 void ASTPrinter::visit(IfNode *node) {
   printTreeLine("IfNode");

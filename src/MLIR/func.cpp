@@ -194,6 +194,7 @@ void MLIRGen::visit(FuncCallExpr* node) {
         mlir::Type expectedType = funcType.getInput(i);
         mlir::Type actualType = callArgs[i].getType();
         if (expectedType != actualType) {
+            // promote if possible?
             throw std::runtime_error("FuncCallExpr: type mismatch for argument " + std::to_string(i) + " in call to '" + node->funcName + "'");
         }
     }

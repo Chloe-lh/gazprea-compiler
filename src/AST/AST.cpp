@@ -64,6 +64,17 @@ void TupleAccessNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TypeCastNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TupleTypeCastNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
+// Array-related nodes
+void ArrayStrideExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void ArraySliceExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void ArrayAccessExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void ArrayInitNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void ArrayDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void ArrayTypeNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void ExprListNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void ArrayLiteralNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void RangeExprNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+
 // ─────────────────────────────────────────────────────────────
 // Constructors
 // ─────────────────────────────────────────────────────────────

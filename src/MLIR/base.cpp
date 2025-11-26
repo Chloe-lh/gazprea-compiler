@@ -1,3 +1,4 @@
+#include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
 
 MLIRGen::MLIRGen(BackEnd& backend)
@@ -52,7 +53,15 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<co
     createGlobalStringIfMissing("%s\0", "strFormat");
     createGlobalStringIfMissing("\n\0", "newline");
 }
-
+void MLIRGen::visit(ArrayStrideExpr *node) {throw MainError(1, "Not yet implemented");}
+void MLIRGen::visit(ArraySliceExpr *node) {throw MainError(1, "Not yet implemented");}
+void MLIRGen::visit(ArrayAccessExpr *node) {throw MainError(1, "Not yet implemented");}
+void MLIRGen::visit(ArrayInitNode *node) {throw MainError(1, "Not yet implemented");}
+void MLIRGen::visit(ArrayDecNode *node) {throw MainError(1, "Not yet implemented");}
+void MLIRGen::visit(ArrayTypeNode *node) {throw MainError(1, "Not yet implemented");}
+void MLIRGen::visit(ExprListNode *node) {throw MainError(1, "Not yet implemented");}
+void MLIRGen::visit(ArrayLiteralNode *node) {throw MainError(1, "Not yet implemented");}
+void MLIRGen::visit(RangeExprNode *node) {throw MainError(1, "Not yet implemented");}
 void MLIRGen::visit(FileNode* node) {
     // Initialize to semantic global scope (first child of root)
     currScope_ = root_;

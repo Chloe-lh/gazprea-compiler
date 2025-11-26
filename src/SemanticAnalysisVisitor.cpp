@@ -4,6 +4,7 @@
 #include "run_time_errors.h"
 #include <cstdio>
 #include <iostream>
+#include <ostream>
 #include <stdexcept>
 #include <sstream>
 #include <unordered_set>
@@ -65,7 +66,15 @@ void SemanticAnalysisVisitor::visit(FileNode* node) {
         throw MainError(node->line, "Semantic Analysis: procedure main() not defined.");
     }
 }
-
+void SemanticAnalysisVisitor::visit(ArrayStrideExpr *node) {throw MainError(1, "Not yet implemented");}
+void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {throw MainError(1, "Not yet implemented");}
+void SemanticAnalysisVisitor::visit(ArrayAccessExpr *node) {throw MainError(1, "Not yet implemented");}
+void SemanticAnalysisVisitor::visit(ArrayInitNode *node) {throw MainError(1, "Not yet implemented");}
+void SemanticAnalysisVisitor::visit(ArrayDecNode *node) {throw MainError(1, "Not yet implemented");}
+void SemanticAnalysisVisitor::visit(ArrayTypeNode *node) {throw MainError(1, "Not yet implemented");}
+void SemanticAnalysisVisitor::visit(ExprListNode *node) {throw MainError(1, "Not yet implemented");}
+void SemanticAnalysisVisitor::visit(ArrayLiteralNode *node) {throw MainError(1, "Not yet implemented");}
+void SemanticAnalysisVisitor::visit(RangeExprNode *node) {throw MainError(1, "Not yet implemented");}
 /* TODO insert line number for error
 */
 void SemanticAnalysisVisitor::visit(FuncStatNode* node) {
@@ -617,6 +626,7 @@ void SemanticAnalysisVisitor::visit(FuncCallExpr* node) {
         CompleteType argType = e ? resolveUnresolvedType(current_, e->type, node->line)
                                  : CompleteType(BaseType::UNKNOWN);
         args.push_back(VarInfo{"", argType, true});
+        
     }
 
     // Try resolving as function
@@ -628,11 +638,13 @@ void SemanticAnalysisVisitor::visit(FuncCallExpr* node) {
         finfo = nullptr;
     }
     if (finfo) {
+        std::cerr << "Function resolved";
         // Function call in expression
         node->type = finfo->funcReturn;
         node->resolvedFunc = *finfo; // cache resolved info for later passes
         return;
     }
+    std::cerr << "Function not resolved";
 
     // Then try resolving as procedure
     // -----------------------

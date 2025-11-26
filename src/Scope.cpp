@@ -1,5 +1,6 @@
 #include "Scope.h"
 #include "CompileTimeExceptions.h"
+#include "Types.h"
 
 #include <iostream>
 #include <stdexcept>
@@ -75,7 +76,9 @@ FuncInfo* Scope::resolveFunc(const std::string& identifier, const std::vector<Va
             throw SymbolError(line, "Semantic Analysis: Function '" + identifier + "' called with wrong number of arguments.");
         }
         for (size_t i = 0; i < stored.size(); ++i) {
-            if (stored[i].type != callParams[i].type) {
+            // Allow implicit promotions (e.g., integer -> real) when matching call args
+            CompleteType promoted = promote(callParams[i].type, stored[i].type);
+            if (promoted.baseType == BaseType::UNKNOWN) {
                 throw SymbolError(line, "Semantic Analysis: Function '" + identifier + "' called with incompatible argument types.");
             }
         }
@@ -95,7 +98,10 @@ ProcInfo* Scope::resolveProc(const std::string& identifier, const std::vector<Va
             throw SymbolError(line, "Semantic Analysis: Procedure '" + identifier + "' called with wrong number of arguments.");
         }
         for (size_t i = 0; i < stored.size(); ++i) {
-            if (stored[i].type != callParams[i].type) {
+            // Allow implicit promotions when matching call args to procedure params
+            CompleteType promoted = promote(callParams[i].type, stored[i].type);
+            
+            if (promoted.baseType == BaseType::UNKNOWN) {
                 throw SymbolError(line, "Semantic Analysis: Procedure '" + identifier + "' called with incompatible argument types.");
             }
         }
