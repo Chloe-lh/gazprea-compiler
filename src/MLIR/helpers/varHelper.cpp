@@ -35,6 +35,9 @@ mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
             }
             return mlir::LLVM::LLVMStructType::getLiteral(&context_, elemTys);
         }
+        case BaseType::VECTOR: {
+            throw std::runtime_error("getLLVMType: Vectors should not be called with this helper.");
+        }
         default:
             throw std::runtime_error("getLLVMType: Unsupported type: " + toString(type));
     }
@@ -233,6 +236,29 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
             auto oneAttr = builder_.getIntegerAttr(i64Ty, 1);
             mlir::Value one = entryBuilder.create<mlir::arith::ConstantOp>(loc_, i64Ty, oneAttr);
             varInfo->value = entryBuilder.create<mlir::LLVM::AllocaOp>(loc_, ptrTy, structTy, one, 0u);
+            break;
+        }
+
+        case BaseType::VECTOR: {
+            if (varInfo->type.subTypes.size() != 1) {
+                throw std::runtime_error("allocaVar: Vector with size != 1 found");
+            }
+
+            mlir::Type elemTy = getLLVMType(varInfo->type.subTypes[0]);
+            auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, elemTy);
+
+
+            auto idxTy = builder_.getIndexType();
+            mlir::Value zeroLen = entryBuilder.create<mlir::arith::ConstantOp>(
+                loc_, idxTy, builder_.getIntegerAttr(idxTy, 0));
+
+            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
+                loc_,
+                memTy,
+                mlir::ValueRange{zeroLen}, // one dynamic size operand
+                mlir::ValueRange{},        // symbol operands
+                mlir::IntegerAttr()        // no alignment
+            );
             break;
         }
 
