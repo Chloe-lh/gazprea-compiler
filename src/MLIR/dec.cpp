@@ -22,6 +22,9 @@ void MLIRGen::visit(TypedDecNode* node) {
         node->init->accept(*this);
         VarInfo literal = popValue();
         assignTo(&literal, declaredVar, node->line);
+    } else {
+        // Implicit zero-initialization for scalars
+        zeroInitializeVar(declaredVar);
     }
 }
 

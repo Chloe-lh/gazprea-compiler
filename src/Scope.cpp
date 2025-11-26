@@ -76,9 +76,8 @@ FuncInfo* Scope::resolveFunc(const std::string& identifier, const std::vector<Va
             throw SymbolError(line, "Semantic Analysis: Function '" + identifier + "' called with wrong number of arguments.");
         }
         for (size_t i = 0; i < stored.size(); ++i) {
-            // Allow implicit promotions (e.g., integer -> real) when matching call args
-            CompleteType promoted = promote(callParams[i].type, stored[i].type);
-            if (promoted.baseType == BaseType::UNKNOWN) {
+            // Use promote logic: if paramType == promote(argType, paramType), then it's compatible
+            if (promote(callParams[i].type, stored[i].type) != stored[i].type) {
                 throw SymbolError(line, "Semantic Analysis: Function '" + identifier + "' called with incompatible argument types.");
             }
         }
@@ -98,10 +97,8 @@ ProcInfo* Scope::resolveProc(const std::string& identifier, const std::vector<Va
             throw SymbolError(line, "Semantic Analysis: Procedure '" + identifier + "' called with wrong number of arguments.");
         }
         for (size_t i = 0; i < stored.size(); ++i) {
-            // Allow implicit promotions when matching call args to procedure params
-            CompleteType promoted = promote(callParams[i].type, stored[i].type);
-            
-            if (promoted.baseType == BaseType::UNKNOWN) {
+             // Use promote logic
+            if (promote(callParams[i].type, stored[i].type) != stored[i].type) {
                 throw SymbolError(line, "Semantic Analysis: Procedure '" + identifier + "' called with incompatible argument types.");
             }
         }
@@ -182,4 +179,4 @@ std::string Scope::printScope() const {
     }
     result += ">>\n";
     return result;
-} 
+}

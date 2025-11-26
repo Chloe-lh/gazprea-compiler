@@ -261,3 +261,45 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
         }
     }
 }
+
+void MLIRGen::zeroInitializeVar(VarInfo* var) {
+    if (!var->value) return;
+
+    mlir::Value zeroVal;
+    
+    // Determine scalar zero value based on type
+    switch(var->type.baseType) {
+        case BaseType::INTEGER: {
+            auto t = builder_.getI32Type();
+            zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, t, builder_.getIntegerAttr(t, 0));
+            break;
+        }
+        case BaseType::REAL: {
+            auto t = builder_.getF32Type();
+            zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, t, builder_.getFloatAttr(t, 0.0));
+            break;
+        }
+        case BaseType::BOOL: {
+            auto t = builder_.getI1Type();
+            zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, t, builder_.getIntegerAttr(t, 0));
+            break;
+        }
+        case BaseType::CHARACTER: {
+            auto t = builder_.getI8Type();
+            zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, t, builder_.getIntegerAttr(t, 0));
+            break;
+        }
+        default:
+            // Tuple zeroing logic is handled by iterating elements in visitor, not here
+            return;
+    }
+
+    if (zeroVal) {
+        if (var->value.getType().isa<mlir::MemRefType>()) {
+            builder_.create<mlir::memref::StoreOp>(loc_, zeroVal, var->value, mlir::ValueRange{});
+        } else {
+            // Assume LLVM pointer (e.g. tuple element via GEP)
+            builder_.create<mlir::LLVM::StoreOp>(loc_, zeroVal, var->value);
+        }
+    }
+}
