@@ -1,0 +1,44 @@
+//CHECK_FILE:vectorDecComposite.out
+
+procedure main() returns integer {
+    // Vec of arrays
+    const vector<real[*]> real_vec = [
+        [2.6, 2.1, 2.0, 1.9],
+        [3.4, 2.1, -12542.3, 99999]
+    ];
+    const vector<integer[2]> int_vec = [
+        [2, 4],
+        [-10000, 99999]
+    ];
+
+    // Vec of matrices
+    const vector<integer[4][2]> int_mat = [
+        [
+            [1, 2],
+            [3, 4],
+            [5, 6],
+            [7, 8]
+        ],
+        [
+            [1, 2],
+            [3, 4],
+            [5, 6],
+            [7, 8]
+        ],
+        [
+            [1, 2],
+            [3, 4],
+            [5, 6],
+            [7, 8]
+        ]
+    ];
+
+    // Vec of tuples
+    const vector<tuple(bool, integer)> tvec = [
+        (true, 1),
+        (false, 10),
+        (false, -333333)
+    ];
+
+    return 1;
+}
