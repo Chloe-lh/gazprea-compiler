@@ -1,0 +1,21 @@
+typealias int integer;
+
+procedure main() returns int {
+    int x;
+    int y;
+
+    "Enter one integer: " -> std_output;
+    x <- std_input;
+
+    y = x + 5;
+
+    "Five added to " -> std_output;
+    x -> std_output;
+    " is " -> std_output;
+    y -> std_output;
+
+    return 0;
+}
+
+
+//CHECK_FILE:input_simple.out
