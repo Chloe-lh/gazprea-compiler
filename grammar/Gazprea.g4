@@ -5,9 +5,11 @@ file: (dec|func|procedure|type_alias|stat)* EOF;
 func
     : FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS type block       #FunctionBlock
     | FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS tuple_dec block  #FunctionBlockTupleReturn
+    | FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS struct_dec block #FunctionBlockStructReturn
     | FUNCTION ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT RETURNS type EQ expr END #FunctionStat
     | FUNCTION ID PARENLEFT (type ID? (COMMA type ID?)*)? PARENRIGHT RETURNS type END       #FunctionPrototype
     | FUNCTION ID PARENLEFT (type ID? (COMMA type ID?)*)? PARENRIGHT RETURNS tuple_dec END  #FunctionPrototypeTupleReturn
+    | FUNCTION ID PARENLEFT (type ID? (COMMA type ID?)*)? PARENRIGHT RETURNS struct_dec END #FunctionPrototypeStructReturn
     ;
 
 procedure
@@ -21,6 +23,7 @@ dec
     : qualifier? (builtin_type ID | ID ID) (EQ expr)? END   #ExplicitTypedDec
     | qualifier ID EQ expr END                              #InferredTypeDec
     | qualifier? tuple_dec ID (EQ expr)? END                #TupleTypedDec
+    | qualifier? struct_dec ID (EQ expr)? END                #StructTypedDec
     ;
 
 stat
@@ -44,6 +47,8 @@ type //this should include basic types
     | INTEGER
     | REAL
     | STRING
+    | tuple_dec
+    | struct_dec
     | ID
     ;
 
@@ -59,6 +64,7 @@ builtin_type
 type_alias
     : TYPEALIAS type ID END   #BasicTypeAlias
     | TYPEALIAS tuple_dec ID END  #TupleTypeAlias
+    | TYPEALIAS struct_dec ID END #StructTypeAlias
     ;
 
 
@@ -87,11 +93,19 @@ expr
     | ID                                                #IdExpr
     ;
 
+
+// Tuples
 tuple_dec: TUPLE PARENLEFT type (COMMA type)+ PARENRIGHT;
 tuple_literal: PARENLEFT expr (COMMA expr)+ PARENRIGHT;
 tuple_access: ID DECIM INT
             | TUPACCESS
             ;
+
+// Structs
+struct_dec: STRUCT ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT;
+struct_literal: ID PARENLEFT expr (COMMA expr)* PARENRIGHT;
+struct_access: ID '.' ID;
+
 
 // declarations must be placed at the start of the block
 block: CURLLEFT dec* stat* CURLRIGHT;
