@@ -12,12 +12,7 @@ namespace gazprea {
   void ASTBuilder::setLocationFromCtx(std::shared_ptr<ASTNode> node, antlr4::ParserRuleContext *ctx) {
     if (!node || !ctx)
       return;
-    // Use ANTLR's 1-based token line directly. Tests and consumers expect
-    // line numbers to match source file numbering where the first line is 1.
     int line = ctx->getStart()->getLine();
-    if (line <= 0) {
-      line = 1;
-    }
     node->line = line;
   }
 

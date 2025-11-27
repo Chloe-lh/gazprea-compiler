@@ -69,7 +69,7 @@ void ArrayStrideExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArraySliceExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArrayAccessExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArrayInitNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
-void ArrayDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void ArrayTypedDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArrayTypeNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ExprListNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArrayLiteralNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
@@ -179,13 +179,12 @@ TypeAliasDecNode::TypeAliasDecNode(const std::string &aliasName,
 
 void TypeAliasDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
-TupleTypedDecNode::TupleTypedDecNode(const std::string &name,
-                                     const std::string &qualifier,
-                                     CompleteType tupleType)
-    : qualifier(qualifier), init(nullptr) {
-  this->name = name;
-  this->type = std::move(tupleType);
-}
+// TupleTypedDecNode::TupleTypedDecNode(const std::string &q,const std::string &name,
+//                                      CompleteType tupleType)
+//     : qualifier(q),{
+//   this->name = name;
+//   this->type = std::move(tupleType);
+// }
 
 TypedDecNode::TypedDecNode(const std::string &name,
                            std::shared_ptr<TypeAliasNode> type_alias,

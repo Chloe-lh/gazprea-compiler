@@ -123,7 +123,7 @@ public:
   std::any visitArraySliceExpr(GazpreaParser::ArraySliceExprContext *ctx) override;
   std::any visitArrayAccessExpr(gazprea::GazpreaParser::ArrayAccessExprContext *ctx) override;
   std::any visitArrayInit(gazprea::GazpreaParser::Array_initContext *ctx) ;
-  std::any visitArrayDec(gazprea::GazpreaParser::Array_decContext *ctx) ;
+  std::any visitArrayTypedDec(gazprea::GazpreaParser::ArrayTypedDecContext *ctx) override ;
   std::any visitArrayType(gazprea::GazpreaParser::Array_typeContext *ctx) ;
   std::any visitExprList(gazprea::GazpreaParser::ExprListContext *ctx) override;
   std::any visitArrayLiteral(gazprea::GazpreaParser::Array_literalContext *ctx) ;

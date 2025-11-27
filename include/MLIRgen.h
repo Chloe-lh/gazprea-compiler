@@ -86,7 +86,7 @@ public:
     void visit(ArraySliceExpr *node) override;
     void visit(ArrayAccessExpr *node) override;
     void visit(ArrayInitNode *node) override;
-    void visit(ArrayDecNode *node) override;
+    void visit(ArrayTypedDecNode *node) override;
     void visit(ArrayTypeNode *node) override;
     void visit(ExprListNode *node) override;
     void visit(ArrayLiteralNode *node) override;

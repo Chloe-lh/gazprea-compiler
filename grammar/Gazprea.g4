@@ -18,9 +18,10 @@ procedure
 param: qualifier? type ID;
 
 dec
-    : qualifier? (builtin_type ID | ID ID) (EQ expr)? END   #ExplicitTypedDec
-    | qualifier ID EQ expr END                              #InferredTypeDec
-    | qualifier? tuple_dec ID (EQ expr)? END                #TupleTypedDec
+    : qualifier? (builtin_type ID | ID ID) (EQ expr)? END               #ExplicitTypedDec
+    | qualifier ID EQ expr END                                          #InferredTypeDec
+    | qualifier? tuple_dec ID (EQ expr)? END                            #TupleTypedDec
+    | qualifier? array_type ID (EQ array_init)? END                     #ArrayTypedDec
     ;
 
 stat
@@ -28,11 +29,11 @@ stat
     | tuple_access EQ expr END                  #TupleAccessAssignStat     
     | tuple_access '->' STD_OUTPUT END          #OutputStat
     | { this->_input->LA(2) == GazpreaParser::EQ }? ID EQ expr END   #AssignStat
-    | expr '->' STD_OUTPUT END      #OutputStat
-    | ID '<-' STD_INPUT  END        #InputStat
-    | BREAK END                     #BreakStat
-    | CONTINUE END                  #ContinueStat
-    | RETURN expr? END              #ReturnStat
+    | expr '->' STD_OUTPUT END                                #OutputStat
+    | ID '<-' STD_INPUT  END                                  #InputStat
+    | BREAK END                                               #BreakStat
+    | CONTINUE END                                            #ContinueStat
+    | RETURN expr? END                                        #ReturnStat
     | CALL ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT END  #CallStat
     | if_stat                             #IfStat
     | loop_stat                           #LoopStat
@@ -100,7 +101,6 @@ tuple_access: ID DECIM INT
 array_init : array_literal
            | ID
            ;
-array_dec : array_type ID (EQ array_init)? ;
 array_type : type SQLEFT (INT|MULT) SQRIGHT ;
 array_literal : SQLEFT exprList? SQRIGHT ;
 exprList : expr (COMMA expr)* ;

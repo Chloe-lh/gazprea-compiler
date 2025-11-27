@@ -53,6 +53,7 @@ std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
     }
   }
   auto node = std::make_shared<FileNode>(std::move(nodes));
+  setLocationFromCtx(node, ctx);
   return node_any(std::move(node));
 }
 

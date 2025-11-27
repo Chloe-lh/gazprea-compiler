@@ -73,7 +73,6 @@ ASTBuilder::visitTupleTypedDec(GazpreaParser::TupleTypedDecContext *ctx) {
       }
     }
   }
-
   std::string id = ctx->ID()->getText();
   CompleteType tupleType = CompleteType(BaseType::UNKNOWN);
   if (ctx->tuple_dec()) {
@@ -96,9 +95,10 @@ ASTBuilder::visitTupleTypedDec(GazpreaParser::TupleTypedDecContext *ctx) {
     }
   }
 
-  auto node = std::make_shared<TupleTypedDecNode>(id, qualifier, tupleType);
+  auto node = std::make_shared<TupleTypedDecNode>(qualifier, id,tupleType);
   setLocationFromCtx(node, ctx);
   node->init = init;
+  node->qualifier = qualifier;
   return node_any(std::move(node));
 }
 //| AS '<' tuple_dec  '>' PARENLEFT expr PARENRIGHT   #TupleTypeCastExpr
