@@ -1,4 +1,3 @@
-//CHECK_FILE:complex10.out
 
 // Define functions that use tuples internally. We do not call these
 // functions yet (function-call codegen is not implemented), but their
@@ -27,3 +26,4 @@ procedure main() returns integer {
 
     return 0;
 }
+//CHECK_FILE:complex10.out

@@ -1,6 +1,6 @@
-//CHECK_FILE:typeError.out
 procedure main() returns integer {
     integer x = 5;
     character c = 'a';
     return x + c;   // Invalid addition between integer and character
 }
+//CHECK_FILE:typeError.out

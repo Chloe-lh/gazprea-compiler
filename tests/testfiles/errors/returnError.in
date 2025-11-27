@@ -1,5 +1,5 @@
-//CHECK_FILE:returnError.out
 procedure main() returns integer {
     integer x = 5;
     //Missing return statement
 }
+//CHECK_FILE:returnError.out

@@ -1,4 +1,3 @@
-//CHECK_FILE:./proc_io.out
 typealias tuple(integer, integer) point;
 
 procedure make_point() returns point {
@@ -20,3 +19,4 @@ procedure main() returns integer {
 
     return 0;
 }
+//CHECK_FILE:./proc_io.out

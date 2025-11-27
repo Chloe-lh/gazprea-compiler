@@ -77,7 +77,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         std::unordered_map<const ASTNode*, Scope*> scopeByCtx_;
         bool seenMain_ = false;
 
-        void throwOperandError(const std::string op, const std::vector<CompleteType>& operands, std::string additionalInfo, int line = 1);
+        void throwOperandError(const std::string op, const std::vector<CompleteType>& operands, std::string additionalInfo, int line);
         void handleAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType, int line);
 
         // Helpers

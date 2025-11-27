@@ -1,5 +1,5 @@
-//CHECK_FILE:statementError.out
 procedure main() returns integer {
     break;   // Break outside of loop
     return 0;
 }
+//CHECK_FILE:statementError.out

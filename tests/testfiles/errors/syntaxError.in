@@ -1,5 +1,5 @@
-//CHECK_FILE:syntaxError.out
 procedure main() returns integer {
     integer[3] x = [1, 2, 3];
     x(3) = 42;
 }
+//CHECK_FILE:syntaxError.out

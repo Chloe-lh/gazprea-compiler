@@ -1,7 +1,7 @@
-//CHECK_FILE:lt.out
 procedure main() returns integer {
     integer a = 2;
     integer b = 3;
     a < b -> std_output;
     return 0;
 }
+//CHECK_FILE:lt.out

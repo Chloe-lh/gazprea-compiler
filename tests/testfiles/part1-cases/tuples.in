@@ -1,4 +1,3 @@
-//CHECK_FILE:./tuples.out
 typealias tuple(integer, integer) point;
 
 function make_point(integer x, integer y) returns point {
@@ -18,3 +17,4 @@ procedure main() returns integer {
 
     return 0;
 }
+//CHECK_FILE:./tuples.out
