@@ -18,17 +18,35 @@
 
 #include <iostream>
 #include <fstream>
+#include <string>
+#include <vector>
+
+bool VERBOSE_ERRORS = false;
 
 int main(int argc, char **argv) {
-  if (argc < 3) {
+  std::vector<std::string> positional_args;
+  for (int i = 1; i < argc; ++i) {
+    std::string arg = argv[i];
+    if (arg == "--verbose-errors") {
+      VERBOSE_ERRORS = true;
+    } else {
+      positional_args.push_back(arg);
+    }
+  }
+
+  if (positional_args.size() < 2) {
     std::cout << "Missing required argument.\n"
-              << "Required arguments: <input file path> <output file path>\n";
+              << "Required arguments: <input file path> <output file path>\n"
+              << "Optional flags: --verbose-errors\n";
     return 1;
   }
 
+  const std::string &input_path = positional_args[0];
+  const std::string &output_path = positional_args[1];
+
   // Open the file then parse and lex it.
   antlr4::ANTLRFileStream afs;
-  afs.loadFromFile(argv[1]);
+  afs.loadFromFile(input_path);
   gazprea::GazpreaLexer lexer(&afs);
   antlr4::CommonTokenStream tokens(&lexer);
   gazprea::GazpreaParser parser(&tokens);
@@ -92,7 +110,7 @@ int main(int argc, char **argv) {
     // Run constant folding pass (uses semantic info from previous pass)
     ConstantFoldingVisitor cfv;
     ast->accept(cfv);
-    std::ofstream os(argv[2]);
+    std::ofstream os(output_path);
     BackEnd backend;
     
     // backend.emitModule(); demo module
