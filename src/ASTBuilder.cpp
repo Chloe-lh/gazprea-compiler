@@ -29,57 +29,6 @@ namespace gazprea {
     node->line = line;
   }
 
-// Helper to return an AST node wrapped in std::any with an upcast to the
-// common base `ASTNode`. Use this when a visitor wants to return a concrete
-// node but callers expect a `std::shared_ptr<ASTNode>` inside the any.
-template <typename T> static inline std::any node_any(std::shared_ptr<T> n) {
-  return std::static_pointer_cast<ASTNode>(std::move(n));
-}
-// Helpers that canonicalize the std::any payload for different AST families.
-template <typename T> static inline std::any expr_any(std::shared_ptr<T> n) {
-  return std::any(std::static_pointer_cast<ExprNode>(std::move(n)));
-}
-template <typename T> static inline std::any stat_any(std::shared_ptr<T> n) {
-  return std::any(std::static_pointer_cast<StatNode>(std::move(n)));
-}
-template <typename T> static inline std::any dec_any(std::shared_ptr<T> n) {
-  return std::any(std::static_pointer_cast<DecNode>(std::move(n)));
-}
-
-// Small helper for safely extracting shared_ptr<T> from a std::any produced
-// by the builder. Avoids repeating try/catch everywhere.
-template <typename T>
-static inline std::shared_ptr<T> safe_any_cast_ptr(const std::any &a) {
-  try {
-    if (!a.has_value())
-      return nullptr;
-    // Exact type match
-    if (a.type() == typeid(std::shared_ptr<T>))
-      return std::any_cast<std::shared_ptr<T>>(a);
-    // Upcast case: value stored as std::shared_ptr<ASTNode>
-    if (a.type() == typeid(std::shared_ptr<ASTNode>)) {
-      auto base = std::any_cast<std::shared_ptr<ASTNode>>(a);
-      return std::dynamic_pointer_cast<T>(base);
-    }
-    // Common families also derive from ASTNode; try those too
-    if (a.type() == typeid(std::shared_ptr<ExprNode>)) {
-      auto base = std::any_cast<std::shared_ptr<ExprNode>>(a);
-      return std::dynamic_pointer_cast<T>(base);
-    }
-    if (a.type() == typeid(std::shared_ptr<StatNode>)) {
-      auto base = std::any_cast<std::shared_ptr<StatNode>>(a);
-      return std::dynamic_pointer_cast<T>(base);
-    }
-    if (a.type() == typeid(std::shared_ptr<DecNode>)) {
-      auto base = std::any_cast<std::shared_ptr<DecNode>>(a);
-      return std::dynamic_pointer_cast<T>(base);
-    }
-  } catch (const std::bad_any_cast &) {
-    // fall through
-  }
-  return nullptr;
-}
-
 std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
   // if (getenv("GAZ_DEBUG")) std::cerr << "visiting file";
   std::vector<std::shared_ptr<ASTNode>> nodes;
@@ -543,7 +492,7 @@ std::any ASTBuilder::visitReturnStat(GazpreaParser::ReturnStatContext *ctx) {
 std::any
 ASTBuilder::visitFuncCallExpr(GazpreaParser::FuncCallExprContext *ctx) {
   std::string funcName = ctx->ID()->getText();
-  auto args = gazprea::builder_utils::collectArgs(*this, ctx->expr());
+  auto args = collectArgs(*this, ctx->expr());
   auto node = std::make_shared<FuncCallExpr>(funcName, std::move(args));
   setLocationFromCtx(node, ctx);
   return expr_any(std::move(node));
@@ -567,7 +516,7 @@ std::any ASTBuilder::visitCallStat(GazpreaParser::CallStatContext *ctx) {
     }
   }
 
-  auto args = gazprea::builder_utils::collectArgs(*this, exprCtxs);
+  auto args = collectArgs(*this, exprCtxs);
 
   // Build an expression-level call node and wrap it in a CallStatNode
   auto callExpr = std::make_shared<FuncCallExpr>(funcName, std::move(args));
@@ -644,13 +593,13 @@ ASTBuilder::visitFunctionBlock(GazpreaParser::FunctionBlockContext *ctx) {
   // Extract params and convert to VarInfo vector (parameters are const by
   // default)
   std::vector<std::pair<CompleteType, std::string>> params =
-      builder_utils::ExtractParams(*this, ctx);
+      ExtractParams(*this, ctx);
   // Convert parser-style param list to VarInfo vector expected by the AST
   // FuncNode
   std::vector<VarInfo> varParams =
-      builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
+      ParamsToVarInfo(params, /*isConstDefault=*/true);
   std::shared_ptr<BlockNode> body = nullptr;
-  CompleteType returnType = builder_utils::ExtractReturnType(*this, ctx);
+  CompleteType returnType = ExtractReturnType(*this, ctx);
 
   if (ctx->block()) { // function has a block body
     auto anyBody = visit(ctx->block());
@@ -670,13 +619,13 @@ std::any ASTBuilder::visitFunctionBlockTupleReturn(
     GazpreaParser::FunctionBlockTupleReturnContext *ctx) {
   std::string funcName = ctx->ID(0)->getText();
   std::vector<std::pair<CompleteType, std::string>> params =
-      builder_utils::ExtractParams(*this, ctx);
+      ExtractParams(*this, ctx);
   // Convert to VarInfo expected by AST FuncNode constructors
   std::vector<VarInfo> varParams =
-      builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
+      ParamsToVarInfo(params, /*isConstDefault=*/true);
   std::shared_ptr<BlockNode> body = nullptr;
   CompleteType returnType =
-      gazprea::builder_utils::ExtractReturnType(*this, ctx);
+      gazprea::ExtractReturnType(*this, ctx);
 
   if (ctx->block()) { // function has a block
     auto anyBody = visit(ctx->block());
@@ -694,7 +643,7 @@ std::any ASTBuilder::visitProcedurePrototype(
     GazpreaParser::ProcedurePrototypeContext *ctx) {
   std::string procName = ctx->ID()->getText();
   auto tuples =
-      gazprea::builder_utils::ExtractParamsWithQualifiers(*this, ctx->param());
+      gazprea::ExtractParamsWithQualifiers(*this, ctx->param());
   std::vector<VarInfo> varParams;
   varParams.reserve(tuples.size());
   for (size_t i = 0; i < tuples.size(); ++i) {
@@ -736,7 +685,7 @@ ASTBuilder::visitProcedureBlock(GazpreaParser::ProcedureBlockContext *ctx) {
   // Extract params with qualifiers via shared helper
   std::vector<VarInfo> varParams;
   auto tuples =
-      gazprea::builder_utils::ExtractParamsWithQualifiers(*this, ctx->param());
+      gazprea::ExtractParamsWithQualifiers(*this, ctx->param());
   varParams.reserve(tuples.size());
   for (size_t i = 0; i < tuples.size(); ++i) {
     CompleteType ptype(BaseType::UNKNOWN);
@@ -782,11 +731,11 @@ std::any ASTBuilder::visitFunctionPrototype(
     GazpreaParser::FunctionPrototypeContext *ctx) {
   std::string funcName = ctx->ID(0)->getText();
   std::vector<std::pair<CompleteType, std::string>> params =
-      gazprea::builder_utils::ExtractParams(*this, ctx);
+      gazprea::ExtractParams(*this, ctx);
   std::vector<VarInfo> varParams =
-      gazprea::builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
+      gazprea::ParamsToVarInfo(params, /*isConstDefault=*/true);
   CompleteType returnType =
-      gazprea::builder_utils::ExtractReturnType(*this, ctx);
+      gazprea::ExtractReturnType(*this, ctx);
   auto node =
       std::make_shared<FuncPrototypeNode>(funcName, varParams, returnType);
       setLocationFromCtx(node, ctx);
@@ -797,11 +746,11 @@ std::any ASTBuilder::visitFunctionPrototypeTupleReturn(
     GazpreaParser::FunctionPrototypeTupleReturnContext *ctx) {
   std::string funcName = ctx->ID(0)->getText();
   std::vector<std::pair<CompleteType, std::string>> params =
-      gazprea::builder_utils::ExtractParams(*this, ctx);
+      gazprea::ExtractParams(*this, ctx);
   std::vector<VarInfo> varParams =
-      gazprea::builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
+      gazprea::ParamsToVarInfo(params, /*isConstDefault=*/true);
   CompleteType returnType =
-      gazprea::builder_utils::ExtractReturnType(*this, ctx);
+      gazprea::ExtractReturnType(*this, ctx);
   // no body for a prototype
   auto node =
       std::make_shared<FuncPrototypeNode>(funcName, varParams, returnType);
@@ -812,11 +761,11 @@ std::any
 ASTBuilder::visitFunctionStat(GazpreaParser::FunctionStatContext *ctx) {
   std::string funcName = ctx->ID(0)->getText();
   std::vector<std::pair<CompleteType, std::string>> params =
-      gazprea::builder_utils::ExtractParams(*this, ctx);
+      gazprea::ExtractParams(*this, ctx);
   std::vector<VarInfo> varParams =
-      gazprea::builder_utils::ParamsToVarInfo(params, /*isConstDefault=*/true);
+      gazprea::ParamsToVarInfo(params, /*isConstDefault=*/true);
   CompleteType returnType =
-      gazprea::builder_utils::ExtractReturnType(*this, ctx);
+      gazprea::ExtractReturnType(*this, ctx);
   std::shared_ptr<StatNode> returnStat = nullptr;
   if (ctx->expr()) {
     auto anyExpr = visit(ctx->expr());
