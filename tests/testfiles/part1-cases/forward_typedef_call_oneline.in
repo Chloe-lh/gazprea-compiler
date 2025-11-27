@@ -1,4 +1,3 @@
-//CHECK_FILE:./forward_typedef_call_oneline.out
 typealias integer joe;
 typealias real zig;
 
@@ -16,3 +15,4 @@ procedure main() returns integer {
 }
 
 function x(joe x) returns zig = 3.4;
+//CHECK_FILE:./forward_typedef_call_oneline.out

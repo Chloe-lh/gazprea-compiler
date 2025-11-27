@@ -1,7 +1,7 @@
-//CHECK_FILE:./decl_impl.out
 procedure main() returns integer {
     tuple(integer, real) t;
     t.1 -> std_output;
     t.2 -> std_output;
     return 0;
 }
+//CHECK_FILE:./decl_impl.out

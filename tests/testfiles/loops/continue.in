@@ -1,4 +1,3 @@
-//CHECK_FILE:continue.out
 
 procedure main() returns integer {
     var integer x = 1;
@@ -16,3 +15,4 @@ procedure main() returns integer {
     }
     return 0;
 }
+//CHECK_FILE:continue.out

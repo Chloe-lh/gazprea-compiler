@@ -1,4 +1,3 @@
-//CHECK_FILE:if.out
 
 procedure main() returns integer {
     integer x = 5;
@@ -10,3 +9,4 @@ procedure main() returns integer {
     if (y < 6) y -> std_output;
     return 0;
 }
+//CHECK_FILE:if.out

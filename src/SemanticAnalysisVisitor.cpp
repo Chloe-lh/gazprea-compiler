@@ -1040,10 +1040,10 @@ void SemanticAnalysisVisitor::visit(ExpExpr* node) {
 
     // Ensure both operands legal
     if (std::find(std::begin(illegalTypes), std::end(illegalTypes), leftOperandType.baseType) != std::end(illegalTypes)) {
-        throwOperandError("^", {leftOperandType}, "Illegal left operand");
+        throwOperandError("^", {leftOperandType}, "Illegal left operand", node->line);
     }
     if (std::find(std::begin(illegalTypes), std::end(illegalTypes), rightOperandType.baseType) != std::end(illegalTypes)) {
-        throwOperandError("^", {rightOperandType}, "Illegal right operand");
+        throwOperandError("^", {rightOperandType}, "Illegal right operand", node->line);
     }
 
     CompleteType finalType = promote(leftOperandType, rightOperandType);
@@ -1131,10 +1131,10 @@ void SemanticAnalysisVisitor::visit(AddExpr* node) {
 
     // Ensure both operands legal
     if (std::find(std::begin(illegalTypes), std::end(illegalTypes), leftOperandType.baseType) != std::end(illegalTypes)) {
-        throwOperandError(node->op, {leftOperandType}, "Illegal left operand");
+        throwOperandError(node->op, {leftOperandType}, "Illegal left operand", node->line);
     }
     if (std::find(std::begin(illegalTypes), std::end(illegalTypes), rightOperandType.baseType) != std::end(illegalTypes)) {
-        throwOperandError(node->op, {rightOperandType}, "Illegal right operand");
+        throwOperandError(node->op, {rightOperandType}, "Illegal right operand", node->line);
     }
     // ! THIS IS A STUB METHOD, COMPILE TIME SIZE SHOULD BE EVALUATED IN CONSTANT FOLDING
     // If both are arrays, attempt to compare compile-time sizes.
@@ -1203,10 +1203,10 @@ void SemanticAnalysisVisitor::visit(CompExpr* node) {
 
     // Ensure both operands legal
     if (std::find(std::begin(illegalTypes), std::end(illegalTypes), leftOperandType.baseType) != std::end(illegalTypes)) {
-        throwOperandError(node->op, {leftOperandType}, "Illegal left operand");
+        throwOperandError(node->op, {leftOperandType}, "Illegal left operand", node->line);
     }
     if (std::find(std::begin(illegalTypes), std::end(illegalTypes), rightOperandType.baseType) != std::end(illegalTypes)) {
-        throwOperandError(node->op, {rightOperandType}, "Illegal right operand");
+        throwOperandError(node->op, {rightOperandType}, "Illegal right operand", node->line);
     }
 
     CompleteType finalType = promote(leftOperandType, rightOperandType);
@@ -1236,7 +1236,7 @@ void SemanticAnalysisVisitor::visit(NotExpr* node) {
         BaseType::TUPLE, BaseType::STRUCT, BaseType::STRING
     };
     if (std::find(std::begin(illegalTypes), std::end(illegalTypes), node->operand->type.baseType) != std::end(illegalTypes)) {
-        throwOperandError("not", {node->operand->type}, "");
+        throwOperandError("not", {node->operand->type}, "", node->line);
     }
 
     // Propagate type, i.e. bools remain bools, array/vec/matrix remain array/vec/matrix
@@ -1383,10 +1383,10 @@ void SemanticAnalysisVisitor::visit(EqExpr* node) {
 
     // Ensure both operands legal
     if (std::find(std::begin(illegalTypes), std::end(illegalTypes), leftOperandType.baseType) != std::end(illegalTypes)) {
-        throwOperandError(node->op, {leftOperandType}, "Illegal left operand");
+        throwOperandError(node->op, {leftOperandType}, "Illegal left operand", node->line);
     }
     if (std::find(std::begin(illegalTypes), std::end(illegalTypes), rightOperandType.baseType) != std::end(illegalTypes)) {
-        throwOperandError(node->op, {rightOperandType}, "Illegal right operand");
+        throwOperandError(node->op, {rightOperandType}, "Illegal right operand", node->line);
     }
 
     CompleteType finalType = promote(leftOperandType, rightOperandType);
@@ -1395,7 +1395,7 @@ void SemanticAnalysisVisitor::visit(EqExpr* node) {
     }
 
     if (finalType.baseType == BaseType::UNKNOWN) {
-        throwOperandError(node->op, {leftOperandType, rightOperandType}, "No promotion possible between operands");
+        throwOperandError(node->op, {leftOperandType, rightOperandType}, "No promotion possible between operands", node->line);
     }
 
     node->type = BaseType::BOOL;
@@ -1412,7 +1412,7 @@ void SemanticAnalysisVisitor::visit(AndExpr* node) {
     const CompleteType& leftOperandType = node->left->type;
     const CompleteType& rightOperandType = node->right->type;
     if (leftOperandType.baseType != BaseType::BOOL || rightOperandType.baseType != BaseType::BOOL) {
-        throwOperandError(node->op, {leftOperandType, rightOperandType}, "Illegal operand(s) in 'and' expr.");
+        throwOperandError(node->op, {leftOperandType, rightOperandType}, "Illegal operand(s) in 'and' expr.", node->line);
     }
 
     node->type = BaseType::BOOL;
@@ -1430,7 +1430,7 @@ void SemanticAnalysisVisitor::visit(OrExpr* node) {
     const CompleteType& leftOperandType = node->left->type;
     const CompleteType& rightOperandType = node->right->type;
     if (leftOperandType.baseType != BaseType::BOOL || rightOperandType.baseType != BaseType::BOOL) {
-        throwOperandError(node->op, {leftOperandType, rightOperandType}, "Illegal operand(s) in or/xor expr.");
+        throwOperandError(node->op, {leftOperandType, rightOperandType}, "Illegal operand(s) in or/xor expr.", node->line);
     }
 
     node->type = BaseType::BOOL;

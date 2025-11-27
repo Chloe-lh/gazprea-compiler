@@ -5,6 +5,8 @@
 #include <sstream>
 #include <iostream>
 
+extern bool VERBOSE_ERRORS;
+
 class CompileTimeException : public std::exception {
 protected:
     std::string msg;
@@ -20,7 +22,11 @@ class NAME : public CompileTimeException {                                      
 public:                                                                          \
     NAME(unsigned line, const std::string &description) {                        \
         std::stringstream buf;                                                   \
-        buf << #NAME << " on Line " << line << ": " << description << std::endl; \
+        if(VERBOSE_ERRORS){                                                      \
+            buf << #NAME << " on line " << line << ": " << description << std::endl; \
+        } else {                                                                 \
+            buf << #NAME << " on line " << line << std::endl;                    \
+        }                                                                        \
         msg = buf.str();                                                         \
     }                                                                            \
 }

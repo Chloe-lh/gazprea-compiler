@@ -1,7 +1,7 @@
-//CHECK_FILE:eq.out
 procedure main() returns integer {
     integer a = 5;
     integer b = 5;
     a == b -> std_output;
     return 0;
 }
+//CHECK_FILE:eq.out

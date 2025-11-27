@@ -1,4 +1,3 @@
-//CHECK_FILE:./func_char.out
 function foo() returns character {
     character c; 
     return c;
@@ -14,3 +13,4 @@ procedure main() returns integer {
     const j = bar();
     return 0;
 }
+//CHECK_FILE:./func_char.out

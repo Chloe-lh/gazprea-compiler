@@ -1,4 +1,3 @@
-//CHECK_FILE:./forward_typedef.out
 procedure x(integer x) returns real;
 
 typealias integer joe;
@@ -17,3 +16,4 @@ procedure x(joe x) returns zig {
     y -> std_output;
     return 3.4;
 }
+//CHECK_FILE:./forward_typedef.out

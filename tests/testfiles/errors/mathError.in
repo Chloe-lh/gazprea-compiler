@@ -1,4 +1,3 @@
-//CHECK_FILE:mathError.out
 
 procedure main() returns integer {
     var integer numerator = 10;
@@ -14,3 +13,4 @@ procedure main() returns integer {
 
     return 1; // Return a non-zero code if it somehow gets here.
 }
+//CHECK_FILE:mathError.out

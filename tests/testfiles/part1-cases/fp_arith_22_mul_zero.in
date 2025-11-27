@@ -1,7 +1,7 @@
-//CHECK_FILE:./fp_arith_22_mul_zero.out
 procedure main() returns integer {
     var real a = 0;
     var real b = 0;
     a * b -> std_output;
     return 0;
 }
+//CHECK_FILE:./fp_arith_22_mul_zero.out

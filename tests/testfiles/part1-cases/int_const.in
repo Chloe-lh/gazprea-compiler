@@ -1,7 +1,7 @@
-//CHECK_FILE:./int_const.out
 const a = 1;
 
 procedure main() returns integer {
     a -> std_output;
     return 0;
 }
+//CHECK_FILE:./int_const.out

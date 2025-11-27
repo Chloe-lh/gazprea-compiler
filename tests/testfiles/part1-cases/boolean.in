@@ -1,4 +1,3 @@
-//CHECK_FILE:./boolean.out
 procedure main() returns integer {
     tuple(boolean, boolean) t = (true, false);
     
@@ -17,3 +16,4 @@ procedure main() returns integer {
     
 	return 0;
 }
+//CHECK_FILE:./boolean.out
