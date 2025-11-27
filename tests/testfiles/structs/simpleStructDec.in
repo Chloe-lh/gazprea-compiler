@@ -1,0 +1,8 @@
+procedure main() returns integer {
+    struct s1 (integer i, real r, boolean iv) t1;
+    struct Another (character char, real float, boolean str, s1 struct_field);
+    var Another t2;
+    return 0;
+}
+
+//CHECK_FILE:simpleStructDec.out
