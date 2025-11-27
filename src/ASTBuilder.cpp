@@ -2,9 +2,9 @@
 #include "AST.h"
 #include "ASTBuilderUtils.h"
 #include "CompileTimeExceptions.h"
-#include "ParserRuleContext.h"
 #include "ConstantHelpers.h"
 #include "GazpreaParser.h"
+#include "ParserRuleContext.h"
 #include "Scope.h"
 #include "Types.h"
 #include "antlr4-runtime.h"
@@ -17,17 +17,18 @@
 
 namespace gazprea {
 
-  // Set source location (line/column) on an AST node from a parser context.
-  // Declared as a static member in `ASTBuilder` so it can be referenced
-  // from other translation units that include the header.
-  void ASTBuilder::setLocationFromCtx(std::shared_ptr<ASTNode> node, antlr4::ParserRuleContext *ctx) {
-    if (!node || !ctx)
-      return;
-    // Use ANTLR's 1-based token line directly. Tests and consumers expect
-    // line numbers to match source file numbering where the first line is 1.
-    int line = ctx->getStart()->getLine();
-    node->line = line;
-  }
+// Set source location (line/column) on an AST node from a parser context.
+// Declared as a static member in `ASTBuilder` so it can be referenced
+// from other translation units that include the header.
+void ASTBuilder::setLocationFromCtx(std::shared_ptr<ASTNode> node,
+                                    antlr4::ParserRuleContext *ctx) {
+  if (!node || !ctx)
+    return;
+  // Use ANTLR's 1-based token line directly. Tests and consumers expect
+  // line numbers to match source file numbering where the first line is 1.
+  int line = ctx->getStart()->getLine();
+  node->line = line;
+}
 
 // Helper to return an AST node wrapped in std::any with an upcast to the
 // common base `ASTNode`. Use this when a visitor wants to return a concrete
@@ -295,6 +296,7 @@ ASTBuilder::visitInferredTypeDec(GazpreaParser::InferredTypeDecContext *ctx) {
   setLocationFromCtx(node, ctx);
   return node_any(std::move(node));
 }
+
 std::any
 ASTBuilder::visitTupleTypedDec(GazpreaParser::TupleTypedDecContext *ctx) {
   std::string qualifier = "const"; // default to const
@@ -662,7 +664,7 @@ ASTBuilder::visitFunctionBlock(GazpreaParser::FunctionBlockContext *ctx) {
   // Create a FuncBlockNode (function with a block body)
   auto node =
       std::make_shared<FuncBlockNode>(funcName, varParams, returnType, body);
-      setLocationFromCtx(node, ctx);
+  setLocationFromCtx(node, ctx);
   return node_any(std::move(node));
 }
 // combines a function signature with a function body
@@ -686,7 +688,7 @@ std::any ASTBuilder::visitFunctionBlockTupleReturn(
   }
   auto node =
       std::make_shared<FuncBlockNode>(funcName, varParams, returnType, body);
-      setLocationFromCtx(node, ctx);
+  setLocationFromCtx(node, ctx);
   return node_any(std::move(node));
 }
 
@@ -722,7 +724,7 @@ std::any ASTBuilder::visitProcedurePrototype(
 
   auto node =
       std::make_shared<ProcedurePrototypeNode>(procName, varParams, returnType);
-      setLocationFromCtx(node, ctx);
+  setLocationFromCtx(node, ctx);
   // no body for a prototype
   return node_any(std::move(node));
 }
@@ -775,7 +777,7 @@ ASTBuilder::visitProcedureBlock(GazpreaParser::ProcedureBlockContext *ctx) {
 
   auto node = std::make_shared<ProcedureBlockNode>(funcName, varParams,
                                                    returnType, body);
-                                                   setLocationFromCtx(node, ctx);
+  setLocationFromCtx(node, ctx);
   return node_any(std::move(node));
 }
 std::any ASTBuilder::visitFunctionPrototype(
@@ -789,7 +791,7 @@ std::any ASTBuilder::visitFunctionPrototype(
       gazprea::builder_utils::ExtractReturnType(*this, ctx);
   auto node =
       std::make_shared<FuncPrototypeNode>(funcName, varParams, returnType);
-      setLocationFromCtx(node, ctx);
+  setLocationFromCtx(node, ctx);
   // no body for a prototype
   return node_any(std::move(node));
 }
@@ -805,7 +807,7 @@ std::any ASTBuilder::visitFunctionPrototypeTupleReturn(
   // no body for a prototype
   auto node =
       std::make_shared<FuncPrototypeNode>(funcName, varParams, returnType);
-      setLocationFromCtx(node, ctx);
+  setLocationFromCtx(node, ctx);
   return node_any(std::move(node));
 }
 std::any
@@ -829,7 +831,7 @@ ASTBuilder::visitFunctionStat(GazpreaParser::FunctionStatContext *ctx) {
   // construct FuncStatNode using VarInfo vector
   auto node = std::make_shared<FuncStatNode>(funcName, varParams, returnType,
                                              returnStat);
-                                             setLocationFromCtx(node, ctx);
+  setLocationFromCtx(node, ctx);
   return node_any(std::move(node));
 }
 std::any ASTBuilder::visitUnaryExpr(GazpreaParser::UnaryExprContext *ctx) {
@@ -839,15 +841,15 @@ std::any ASTBuilder::visitUnaryExpr(GazpreaParser::UnaryExprContext *ctx) {
     op = ctx->ADD()->getText();
   } else if (ctx->MINUS()) {
     op = ctx->MINUS()->getText();
-  } 
-  
+  }
+
   if (ctx->expr()) {
     auto anyExpr = visit(ctx->expr());
     if (anyExpr.has_value()) {
       expr = safe_any_cast_ptr<ExprNode>(anyExpr);
     }
   }
- 
+
   auto node = std::make_shared<UnaryExpr>(op, expr);
   setLocationFromCtx(node, ctx);
   node->constant.reset();
@@ -1108,38 +1110,37 @@ std::any ASTBuilder::visitOrExpr(GazpreaParser::OrExprContext *ctx) {
   return expr_any(std::move(node));
 }
 std::any ASTBuilder::visitIntExpr(GazpreaParser::IntExprContext *ctx) {
-    // Extract text
-    std::string text = ctx->INT()->getText();
+  // Extract text
+  std::string text = ctx->INT()->getText();
 
-    // Check range using manual parsing (better than std::stoll)
-    long long value64;
+  // Check range using manual parsing (better than std::stoll)
+  long long value64;
 
-    try {
-        value64 = std::stoll(text, nullptr, 10);
-    } catch (const std::out_of_range &) {
-        throw LiteralError(ctx->getStart()->getLine(),
-                           "integer literal out of bounds");
-    } catch (const std::invalid_argument &) {
-        throw LiteralError(ctx->getStart()->getLine(),
-                           "invalid integer literal");
-    }
+  try {
+    value64 = std::stoll(text, nullptr, 10);
+  } catch (const std::out_of_range &) {
+    throw LiteralError(ctx->getStart()->getLine(),
+                       "integer literal out of bounds");
+  } catch (const std::invalid_argument &) {
+    throw LiteralError(ctx->getStart()->getLine(), "invalid integer literal");
+  }
 
-    // Check 32-bit range
-    if (value64 < std::numeric_limits<int32_t>::min() ||
-        value64 > std::numeric_limits<int32_t>::max()) {
-        throw LiteralError(ctx->getStart()->getLine(),
-                           "integer literal exceeds 32 bits");
-    }
+  // Check 32-bit range
+  if (value64 < std::numeric_limits<int32_t>::min() ||
+      value64 > std::numeric_limits<int32_t>::max()) {
+    throw LiteralError(ctx->getStart()->getLine(),
+                       "integer literal exceeds 32 bits");
+  }
 
-    // Convert safely
-    int32_t v32 = static_cast<int32_t>(value64);
+  // Convert safely
+  int32_t v32 = static_cast<int32_t>(value64);
 
-    auto node = std::make_shared<IntNode>(v32);
-    setLocationFromCtx(node, ctx);
-    node->type = CompleteType(BaseType::INTEGER);
-    node->constant = ConstantValue(node->type, (int64_t)v32);
+  auto node = std::make_shared<IntNode>(v32);
+  setLocationFromCtx(node, ctx);
+  node->type = CompleteType(BaseType::INTEGER);
+  node->constant = ConstantValue(node->type, (int64_t)v32);
 
-    return expr_any(std::move(node));
+  return expr_any(std::move(node));
 }
 
 std::any ASTBuilder::visitIdExpr(GazpreaParser::IdExprContext *ctx) {
@@ -1505,7 +1506,7 @@ std::any ASTBuilder::visitIfStat(gazprea::GazpreaParser::IfStatContext *ctx) {
         node->elseStat = safe_any_cast_ptr<StatNode>(visit(ifCtx->stat(1)));
       }
     }
-  } 
+  }
 
   return node_any(std::move(node));
 }
