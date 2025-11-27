@@ -53,14 +53,14 @@ int main(int argc, char **argv) {
 
   // Add our custom error listener for syntax errors
   parser.removeErrorListeners();
-  parser.addErrorListener(new ErrorListener()); 
+  parser.addErrorListener(new ErrorListener());
 
-  // Get the root of the parse tree. Use your base rule name.
-  auto *tree = parser.file();
-  gazprea::ASTBuilder builder;
-  
   std::shared_ptr<FileNode> ast;
   try {
+      // Get the root of the parse tree. Use your base rule name.
+      auto *tree = parser.file();
+      gazprea::ASTBuilder builder;
+
       std::any astAny = builder.visitFile(tree);
       // visitFile returns node_any (ASTNode*), need to cast via ASTNode first
       auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(astAny);
