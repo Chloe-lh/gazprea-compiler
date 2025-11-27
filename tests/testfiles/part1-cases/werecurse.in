@@ -1,4 +1,3 @@
-//CHECK_FILE:./werecurse.out
 typealias integer joe;
 
 function rec_joe(joe n) returns joe {
@@ -20,3 +19,4 @@ procedure main() returns joe {
     '\n' -> std_output;
     return 0;
 }
+//CHECK_FILE:./werecurse.out

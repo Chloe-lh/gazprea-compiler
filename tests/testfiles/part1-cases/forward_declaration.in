@@ -1,4 +1,3 @@
-//CHECK_FILE:./forward_declaration.out
 procedure beans() returns integer;
 
 procedure main() returns integer {
@@ -14,3 +13,4 @@ procedure beans() returns integer {
     '\n' -> std_output;
     return a;
 }
+//CHECK_FILE:./forward_declaration.out

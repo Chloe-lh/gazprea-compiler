@@ -1,4 +1,3 @@
-//CHECK_FILE:call.out
 
 procedure increment(var integer x) {
     x = x + 1;
@@ -11,3 +10,4 @@ procedure main() returns integer {
     num -> std_output;
     return 0;
 }
+//CHECK_FILE:call.out

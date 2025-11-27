@@ -1,4 +1,3 @@
-//CHECK_FILE:./implicit_init.out
 function sum(integer a, integer b) returns integer {
     return a + b;
 }
@@ -9,3 +8,4 @@ procedure main() returns integer {
     sum(i_1, i_2) -> std_output;
     return 0;
 }
+//CHECK_FILE:./implicit_init.out

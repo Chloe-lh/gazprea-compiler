@@ -1,6 +1,6 @@
-//CHECK_FILE:sizeError.out
 procedure main() returns integer {
     integer[3] a = [1,2,3];
     integer[4] b = [4,5,6,7];
     return a + b;   // Size mismatch
 }
+//CHECK_FILE:sizeError.out

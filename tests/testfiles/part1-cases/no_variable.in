@@ -1,5 +1,5 @@
-//CHECK_FILE:./no_variable.out
 procedure main() returns integer {
     var integer i = i;
     return 0;
 }
+//CHECK_FILE:./no_variable.out

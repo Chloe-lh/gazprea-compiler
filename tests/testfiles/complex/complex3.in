@@ -1,4 +1,3 @@
-//CHECK_FILE:complex3.out
 
 const GLOBAL_INT = 10;
 const GLOBAL_CHAR = 'A';
@@ -62,3 +61,4 @@ procedure main() returns integer {
     call showTuple();
     return 0;
 }
+//CHECK_FILE:complex3.out

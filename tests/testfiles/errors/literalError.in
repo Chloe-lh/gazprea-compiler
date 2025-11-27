@@ -1,5 +1,5 @@
-//CHECK_FILE:literalError.out
 procedure main() returns integer {
     integer x = 999999999999999999999999;   // Too large for integer
     return 0;
 }
+//CHECK_FILE:literalError.out

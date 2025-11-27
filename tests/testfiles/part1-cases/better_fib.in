@@ -1,4 +1,3 @@
-//CHECK_FILE:./better_fib.out
 typealias tuple(integer, integer) point;
 
 procedure fib(integer n, var point p) returns integer{
@@ -31,3 +30,4 @@ procedure main() returns integer{
 
     return 0;
 }
+//CHECK_FILE:./better_fib.out

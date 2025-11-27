@@ -1,4 +1,3 @@
-//CHECK_FILE:typeCast.out
 
 procedure main() returns integer {
     // Declare a tuple with integer, character, real
@@ -14,3 +13,4 @@ procedure main() returns integer {
     
     return 0;
 }
+//CHECK_FILE:typeCast.out

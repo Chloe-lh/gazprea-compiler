@@ -1,4 +1,3 @@
-//CHECK_FILE:./forward_oneline.out
 function fact(integer x) returns integer;
 
 function fact(integer x) returns integer = 2 * x;
@@ -9,3 +8,4 @@ procedure main() returns integer {
 
     return 0;
 }
+//CHECK_FILE:./forward_oneline.out

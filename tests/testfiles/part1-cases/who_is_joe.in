@@ -1,4 +1,3 @@
-//CHECK_FILE:./who_is_joe.out
 typealias integer joe;
 
 function joe(joe joe) returns joe {
@@ -12,3 +11,4 @@ procedure main() returns joe {
     '\n' -> std_output;
     return 0;
 }
+//CHECK_FILE:./who_is_joe.out

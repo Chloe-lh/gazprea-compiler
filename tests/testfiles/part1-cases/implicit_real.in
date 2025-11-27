@@ -1,4 +1,3 @@
-//CHECK_FILE:./implicit_real.out
 function sum(real a, real b) returns real {
     return a + b;
 }
@@ -7,3 +6,4 @@ procedure main() returns integer {
     sum(1.5, 1) -> std_output;
     return 0;
 }
+//CHECK_FILE:./implicit_real.out

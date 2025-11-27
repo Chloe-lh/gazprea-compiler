@@ -1,6 +1,6 @@
-//CHECK_FILE:./constant_assignment.out
 procedure main() returns integer {
     const integer x = 0;
     x = 0;
     return 0;
 }
+//CHECK_FILE:./constant_assignment.out
