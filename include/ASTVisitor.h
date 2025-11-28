@@ -19,6 +19,7 @@ public:
   virtual void visit(TypedDecNode *node) = 0;
   virtual void visit(InferredDecNode *node) = 0;
   virtual void visit(TupleTypedDecNode *node) = 0;
+  virtual void visit(StructTypedDecNode *node) = 0;
   virtual void visit(TypeAliasDecNode *node) = 0;
   virtual void visit(TypeAliasNode *node) = 0;
   virtual void visit(TupleTypeAliasNode *node) = 0;

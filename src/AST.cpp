@@ -32,6 +32,7 @@ void RealNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
 // Declarations
 void TupleTypedDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void StructTypedDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
 void TypedDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void InferredDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
@@ -175,6 +176,15 @@ TupleTypedDecNode::TupleTypedDecNode(const std::string &name,
   this->name = name;
   this->type = std::move(tupleType);
 }
+
+StructTypedDecNode::StructTypedDecNode(const std::string &name,
+                                       const std::string &qualifier,
+                                       CompleteType structType)
+    : qualifier(qualifier), init(nullptr) {
+  this->name = name;
+  this->type = std::move(structType);
+}
+
 
 TypedDecNode::TypedDecNode(const std::string &name,
                            std::shared_ptr<TypeAliasNode> type_alias,

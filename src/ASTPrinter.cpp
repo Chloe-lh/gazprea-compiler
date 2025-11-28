@@ -310,6 +310,23 @@ void ASTPrinter::visit(TupleTypedDecNode *node) {
   indent--;
 }
 
+void ASTPrinter::visit(StructTypedDecNode *node) {
+  printTreeLine("StructTypedDecNode", "name: " + node->name + ", qualifier: " +
+                                       (node->qualifier.empty()
+                                            ? std::string("const")
+                                            : node->qualifier));
+  indent++;
+  pushChildContext(node->init == nullptr);
+  printTreeLine("StructType", toString(node->type));
+  popChildContext();
+  if (node->init) {
+    pushChildContext(true);
+    node->init->accept(*this);
+    popChildContext();
+  }
+  indent--;
+  }
+
 void ASTPrinter::visit(AssignStatNode *node) {
   printTreeLine("AssignStatNode", "name: " + node->name);
   indent++;

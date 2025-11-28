@@ -258,6 +258,15 @@ public:
   void accept(ASTVisitor &visitor) override;
 };
 
+class StructTypedDecNode : public DecNode {
+public:
+  std::string qualifier; // optional
+  std::shared_ptr<ExprNode> init; //optional
+  StructTypedDecNode(const std::string &name, const std::string &qualifier,
+                     CompleteType structType);
+  void accept(ASTVisitor &visitor) override;
+};
+
 class TypedDecNode : public DecNode {
 public:
   std::string qualifier;                     // optional
