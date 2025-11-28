@@ -25,6 +25,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         virtual void visit(TypedDecNode* node) override;
         virtual void visit(InferredDecNode* node) override;
         virtual void visit(TupleTypedDecNode* node) override;
+        virtual void visit(StructTypedDecNode *node) override;
         virtual void visit(TypeAliasDecNode* node) override;
         virtual void visit(TypeAliasNode* node) override;
         virtual void visit(TupleTypeAliasNode* node) override;

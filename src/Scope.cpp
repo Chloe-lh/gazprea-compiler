@@ -23,24 +23,56 @@ void Scope::declareVar(const std::string& identifier, const CompleteType& type, 
     symbols_.emplace(identifier, VarInfo{identifier, type, isConst});
 }
 
-void Scope::declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType, int line) {
-    // Shared namespace: disallow conflict with any procedure of same name
+void Scope::declareFunc(const std::string& identifier,
+                        const std::vector<VarInfo>& params,
+                        const CompleteType& returnType,
+                        int line,
+                        bool isStruct) {
+    // Shared namespace: disallow conflict with any procedure or struct of same
+    // name in this scope.
     if (proceduresByName_.find(identifier) != proceduresByName_.end()) {
-        throw SymbolError(line, "Semantic Analysis: Name conflict: function and procedure share name '" + identifier + "'.");
+        const std::string kind = isStruct ? "struct" : "function";
+        throw SymbolError(line, "Semantic Analysis: Name conflict: " + kind +
+                                   " and procedure share name '" + identifier + "'.");
     }
-    if (functionsByName_.find(identifier) != functionsByName_.end()) {
-        SymbolError err = SymbolError(line, "Semantic Analysis: Function '" + identifier + "' cannot be redeclared.");
-        throw err;
+    if (structTypesByName_.find(identifier) != structTypesByName_.end()) {
+        const std::string kind = isStruct ? "struct" : "function";
+        throw SymbolError(line, "Semantic Analysis: Name conflict: " + kind +
+                                   " and struct type share name '" + identifier + "'.");
     }
 
-    FuncInfo newFunc = { identifier, params, returnType };
+    auto it = functionsByName_.find(identifier);
+    if (it != functionsByName_.end()) {
+        const FuncInfo &existing = it->second;
+
+        // Same kind (function vs struct) being re-declared
+        if (existing.isStruct == isStruct) {
+            const std::string kindName = isStruct ? "Struct" : "Function";
+            throw SymbolError(line, "Semantic Analysis: " + kindName + " '" +
+                                       identifier + "' cannot be redeclared.");
+        }
+
+        // Different kinds trying to share the same name (e.g. struct vs function)
+        const std::string existingKind = existing.isStruct ? "struct" : "function";
+        const std::string newKind = isStruct ? "struct" : "function";
+        throw SymbolError(
+            line,
+            "Semantic Analysis: Name conflict: " + newKind + " and " + existingKind +
+                " share name '" + identifier + "'.");
+    }
+
+    FuncInfo newFunc{identifier, params, returnType};
+    newFunc.isStruct = isStruct;
     functionsByName_.emplace(identifier, newFunc);
 }
 
 void Scope::declareProc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType, int line) {
-    // Shared namespace: disallow conflict with any function of same name
+    // Shared namespace: disallow conflict with any function or struct type of same name
     if (functionsByName_.find(identifier) != functionsByName_.end()) {
         throw SymbolError(line, "Semantic Analysis: Name conflict: function and procedure share name '" + identifier + "'.");
+    }
+    if (structTypesByName_.find(identifier) != structTypesByName_.end()) {
+        throw SymbolError(line, "Semantic Analysis: Name conflict: procedure and struct type share name '" + identifier + "'.");
     }
     if (proceduresByName_.find(identifier) != proceduresByName_.end()) {
         SymbolError err = SymbolError(line, "Semantic Analysis: Procedure '" + identifier + "' cannot be redeclared.");
@@ -64,6 +96,21 @@ void Scope::declareAlias(const std::string& identifier, const CompleteType& type
     }
 
     globalTypeAliases_.emplace(identifier, type);
+}
+
+void Scope::declareStructType(const std::string& identifier, const CompleteType& type, int line) {
+    // Struct types are scoped, but share name-space with functions/procedures.
+    if (functionsByName_.find(identifier) != functionsByName_.end()) {
+        throw SymbolError(line, "Semantic Analysis: Name conflict: struct type and function share name '" + identifier + "'.");
+    }
+    if (proceduresByName_.find(identifier) != proceduresByName_.end()) {
+        throw SymbolError(line, "Semantic Analysis: Name conflict: struct type and procedure share name '" + identifier + "'.");
+    }
+    if (structTypesByName_.find(identifier) != structTypesByName_.end()) {
+        throw SymbolError(line, "Semantic Analysis: Struct type '" + identifier + "' cannot be redeclared in the same scope.");
+    }
+
+    structTypesByName_.emplace(identifier, type);
 }
 
 FuncInfo* Scope::resolveFunc(const std::string& identifier, const std::vector<VarInfo>& callParams, int line) {
@@ -129,6 +176,17 @@ CompleteType* Scope::resolveAlias(const std::string& identifier, int line) {
     }
 
     throw SymbolError(line, "Semantic Analysis: Type alias '" + identifier + "' not defined.");
+}
+
+CompleteType* Scope::resolveStructType(const std::string& identifier, int line) {
+    auto it = structTypesByName_.find(identifier);
+    if (it != structTypesByName_.end()) {
+        return &it->second;
+    }
+    if (parent_ != nullptr) {
+        return parent_->resolveStructType(identifier, line);
+    }
+    throw SymbolError(line, "Semantic Analysis: struct type '" + identifier + "' not defined.");
 }
 
 void Scope::disableDeclarations() {

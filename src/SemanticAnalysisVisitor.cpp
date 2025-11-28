@@ -12,7 +12,10 @@
 
 
 // Resolve a CompleteType whose baseType is UNRESOLVED using the current scope's
-// global type alias table. Throws bug if UNRESOLVED and no alias name provided
+// type information:
+//   1. global type aliases (TYPEALIAS)
+//   2. scoped struct types (struct declarations)
+// Throws if UNRESOLVED and no alias name provided or no matching type found.
 CompleteType SemanticAnalysisVisitor::resolveUnresolvedType(Scope *scope, const CompleteType &t, int line) {
     if (!scope) {
         return t;
@@ -26,9 +29,32 @@ CompleteType SemanticAnalysisVisitor::resolveUnresolvedType(Scope *scope, const 
             throw std::runtime_error(
                 "Semantic Analysis: encountered UNRESOLVED type with no alias name.");
         }
-        // Scope::resolveAlias will throw SymbolError if the alias is not defined.
-        CompleteType *aliased = scope->resolveAlias(result.aliasName, line);
-        result = *aliased;
+
+        CompleteType *resolved = nullptr;
+
+        // First try global/basic aliases.
+        try {
+            resolved = scope->resolveAlias(result.aliasName, line);
+        } catch (const CompileTimeException &) {
+            resolved = nullptr;
+        }
+
+        // Then try scoped struct types.
+        if (!resolved) {
+            try {
+                resolved = scope->resolveStructType(result.aliasName, line);
+            } catch (const CompileTimeException &) {
+                resolved = nullptr;
+            }
+        }
+
+        if (!resolved) {
+            throw SymbolError(
+                line, "Semantic Analysis: Type alias or struct type '" +
+                          result.aliasName + "' not defined.");
+        }
+
+        result = *resolved;
     }
 
     // Recursively normalise any composite subtypes as well.
@@ -384,7 +410,7 @@ void SemanticAnalysisVisitor::visit(InferredDecNode* node) {
 
 void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
     if (!current_->isDeclarationAllowed()) {
-        throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block."); // FIXME: placeholder error
+        throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block."); 
     }
     if (node->init) {
         node->init->accept(*this);
@@ -415,6 +441,61 @@ void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
     node->type = varType;
 }
 
+void SemanticAnalysisVisitor::visit(StructTypedDecNode* node) {
+    if (!current_->isDeclarationAllowed()) {
+        throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block."); 
+    }
+
+    if (node->init) {
+        node->init->accept(*this);
+    }
+
+    // Resolve underlying struct member types (may include aliases).
+    CompleteType structType = resolveUnresolvedType(current_, node->type, node->line);
+    if (structType.baseType != BaseType::STRUCT) {
+        throw std::runtime_error("Semantic Analysis: FATAL: StructTypedDecNode with non-struct type.");
+    }
+
+    bool isConst = true;
+    if (node->qualifier == "var") {
+        isConst = false;
+    } else if (node->qualifier == "const" || node->qualifier.empty()) {
+        // do nothing
+    } else {
+        throw std::runtime_error(
+            "Semantic Analysis: Invalid qualifier provided for struct declaration '" +
+            node->qualifier + "'.");
+    }
+
+    // If the struct was given a name in the declaration (via struct_dec),
+    // record it as a named struct type so it can be used later (e.g., `AType a;`).
+    if (!structType.aliasName.empty()) {
+        try {
+            current_->declareStructType(structType.aliasName, structType, node->line);
+        } catch (const CompileTimeException &) {
+            // Re-throw with a clearer message for duplicate struct type names.
+            throw SymbolError(node->line,
+                              "Semantic Analysis: Re-declaring existing struct type '" +
+                                  structType.aliasName + "'.");
+        }
+    } else throw std::runtime_error("SemanticAnalysis->StructTypedDecNode: Struct not provided alias name.");
+
+    // Optional: declare a variable of this struct type if a name was provided
+    // at the declaration site (e.g., `struct S (...) x;`).
+    if (!node->name.empty()) {
+        // Ensure not already declared in this scope
+        current_->declareVar(node->name, structType, isConst, node->line);
+
+        if (node->init != nullptr) {
+            CompleteType initType =
+                resolveUnresolvedType(current_, node->init->type, node->line);
+            handleAssignError(node->name, structType, initType, node->line);
+        }
+    }
+
+    node->type = structType;
+}
+
 void SemanticAnalysisVisitor::visit(TypeAliasDecNode* node) {
     if (!current_->isInGlobal()) {
         throw StatementError(node->line, "Alias declaration in non-global scope '" + node->alias + "'.");
@@ -435,13 +516,19 @@ void SemanticAnalysisVisitor::visit(TypeAliasDecNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(TypeAliasNode *node) {
-    if (node->aliasName != "") {
-        CompleteType aliased = *current_->resolveAlias(node->aliasName, node->line);
-        // Resolve any unresolved subtypes in the aliased type
-        node->type = resolveUnresolvedType(current_, aliased, node->line);
+    if (!current_) {
+        throw std::runtime_error("Semantic Analysis: TypeAliasNode visited with no current scope.");
     }
 
-    // if no alias, assume node already initialized with correct type
+    if (!node->aliasName.empty()) {
+        // Treat aliasName as an unresolved type name that may refer to either
+        // a basic type-alias or a struct type in the current scope chain.
+        CompleteType unresolved(node->aliasName); // BaseType::UNRESOLVED
+        node->type = resolveUnresolvedType(current_, unresolved, node->line);
+        return;
+    }
+
+    // If no alias name, assume node->type already holds a concrete type.
 }
 
 void SemanticAnalysisVisitor::visit(TupleTypeAliasNode *node) {
