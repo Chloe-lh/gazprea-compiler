@@ -258,6 +258,11 @@ public:
   void accept(ASTVisitor &visitor) override;
 };
 
+
+// Handles both standalone struct type declarations,
+//    e.g. struct MyStruct (integer memb1, boolean memb2);
+// As well as struct + variable declarations
+//    e.g. struct MyStruct (integer memb1, boolean memb2) varDec;
 class StructTypedDecNode : public DecNode {
 public:
   std::string qualifier; // optional
