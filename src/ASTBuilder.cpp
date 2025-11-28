@@ -356,14 +356,22 @@ ASTBuilder::visitStructTypedDec(GazpreaParser::StructTypedDecContext *ctx) {
   }
 
   // Resolve parser type -> AST type system
-  std::string id = ctx->ID()->getText();
   CompleteType structType = CompleteType(BaseType::UNKNOWN);
   auto anyType = visit(ctx->struct_dec());
   structType = std::any_cast<CompleteType>(anyType);
 
+  // If there is a variable declaration, parse its ID. Otherwise leave
+  // the variable name empty; only the struct type is being declared.
+  // Grammar: `struct_dec (ID (EQ expr)?)?`
+  std::string id;
+  if (ctx->ID()) {
+    id = ctx->ID()->getText();
+  }
+
   // optional initializer expression
   std::shared_ptr<ExprNode> init = nullptr;
   if (ctx->expr()) {
+    if (id == "") throw std::runtime_error("ASTBuilder::visitStructTypedDec: initializer provided but no variable identifier provided.");
     auto anyInit = visit(ctx->expr());
     if (anyInit.has_value()) {
       init = safe_any_cast_ptr<ExprNode>(anyInit);

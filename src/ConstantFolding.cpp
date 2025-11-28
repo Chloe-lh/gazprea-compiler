@@ -216,10 +216,15 @@ void ConstantFoldingVisitor::visit(InferredDecNode *node){
         }
     } 
 }
-  void ConstantFoldingVisitor::visit(TupleTypedDecNode *node){ if (node->init) node->init->accept(*this); }
-  void ConstantFoldingVisitor::visit(TypeAliasDecNode *node){} 
-  void ConstantFoldingVisitor::visit(TypeAliasNode *node){}
-  void ConstantFoldingVisitor::visit(TupleTypeAliasNode *node){}
+void ConstantFoldingVisitor::visit(TupleTypedDecNode *node){
+    if (node->init) node->init->accept(*this);
+}
+void ConstantFoldingVisitor::visit(StructTypedDecNode *node){
+    if (node->init) node->init->accept(*this);
+}
+void ConstantFoldingVisitor::visit(TypeAliasDecNode *node){}
+void ConstantFoldingVisitor::visit(TypeAliasNode *node){}
+void ConstantFoldingVisitor::visit(TupleTypeAliasNode *node){}
 
   // Statements
   void ConstantFoldingVisitor::visit(AssignStatNode *node){ 

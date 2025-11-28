@@ -34,6 +34,7 @@ public:
     void visit(TypedDecNode* node) override;
     void visit(InferredDecNode* node) override;
     void visit(TupleTypedDecNode* node) override;
+    void visit(StructTypedDecNode* node) override;
     void visit(TypeAliasDecNode* node) override;
     void visit(TypeAliasNode* node) override;
     void visit(TupleTypeAliasNode* node) override;

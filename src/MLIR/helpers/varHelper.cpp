@@ -24,9 +24,10 @@ mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
         case BaseType::CHARACTER: return builder_.getI8Type();
         case BaseType::INTEGER: return builder_.getI32Type();
         case BaseType::REAL: return builder_.getF32Type();
-        case BaseType::TUPLE: {
+        case BaseType::TUPLE:
+        case BaseType::STRUCT: {
             if (type.subTypes.empty()) {
-                throw std::runtime_error("getLLVMType: empty tuple type is invalid");
+                throw std::runtime_error("getLLVMType: empty aggregate type is invalid");
             }
             llvm::SmallVector<mlir::Type, 4> elemTys;
             elemTys.reserve(type.subTypes.size());
@@ -223,9 +224,10 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
                 loc_, mlir::MemRefType::get({}, builder_.getF32Type()));
             break;
 
-        case BaseType::TUPLE: {
-            if (varInfo->type.subTypes.size() < 2) {
-                throw SizeError(line, "Error: Tuple must have at least 2 elements.");
+        case BaseType::TUPLE:
+        case BaseType::STRUCT: {
+            if (varInfo->type.subTypes.size() < 1) {
+                throw SizeError(line, "Error: aggregate must have at least 1 element.");
             }
             mlir::Type structTy = getLLVMType(varInfo->type);
             auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
