@@ -23,7 +23,7 @@ dec
     : qualifier? (builtin_type ID | ID ID) (EQ expr)? END   #ExplicitTypedDec
     | qualifier ID EQ expr END                              #InferredTypeDec
     | qualifier? tuple_dec ID (EQ expr)? END                #TupleTypedDec
-    | qualifier? struct_dec ID (EQ expr)? END                #StructTypedDec
+    | qualifier? struct_dec (ID (EQ expr)?)? END              #StructTypedDec
     ;
 
 stat
