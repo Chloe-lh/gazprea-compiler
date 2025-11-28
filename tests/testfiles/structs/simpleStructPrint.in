@@ -18,4 +18,4 @@ procedure main() returns integer {
 
 }
 
-//CHECK_FILE:simpleStructInit.out
+//CHECK_FILE:simpleStructPrint.out
