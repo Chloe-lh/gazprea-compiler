@@ -338,6 +338,44 @@ ASTBuilder::visitTupleTypedDec(GazpreaParser::TupleTypedDecContext *ctx) {
   node->init = init;
   return node_any(std::move(node));
 }
+
+std::any
+ASTBuilder::visitStructTypedDec(GazpreaParser::StructTypedDecContext *ctx) {
+  std::string qualifier = "const";
+
+  // 
+  if (ctx->qualifier()) {
+    auto qualAny = visit(ctx->qualifier());
+    if (qualAny.has_value()) {
+      try {
+        qualifier = std::any_cast<std::string>(qualAny);
+      } catch (const std::bad_any_cast &) {
+        throw std::runtime_error("ASTBuilder::visitStructTypedDec(): Failed to cast qualifier");
+      }
+    }
+  }
+
+  // Resolve parser type -> AST type system
+  std::string id = ctx->ID()->getText();
+  CompleteType structType = CompleteType(BaseType::UNKNOWN);
+  auto anyType = visit(ctx->struct_dec());
+  structType = std::any_cast<CompleteType>(anyType);
+
+  // optional initializer expression
+  std::shared_ptr<ExprNode> init = nullptr;
+  if (ctx->expr()) {
+    auto anyInit = visit(ctx->expr());
+    if (anyInit.has_value()) {
+      init = safe_any_cast_ptr<ExprNode>(anyInit);
+    }
+  }
+
+  auto node = std::make_shared<StructTypedDecNode>(id, qualifier, structType);
+  setLocationFromCtx(node, ctx);
+  node->init = init;
+  return node_any(std::move(node));
+}
+
 std::any
 ASTBuilder::visitTupleAccessExpr(GazpreaParser::TupleAccessExprContext *ctx) {
   // tuple_access: ID '.' INT | TUPACCESS
@@ -692,6 +730,11 @@ std::any ASTBuilder::visitFunctionBlockTupleReturn(
   return node_any(std::move(node));
 }
 
+std::any 
+ASTBuilder::visitFunctionBlockStructReturn(GazpreaParser::FunctionBlockStructReturnContext *ctx) {
+      throw std::runtime_error("visitFunctionBlockStructReturn: not implemented");
+}
+
 std::any ASTBuilder::visitProcedurePrototype(
     GazpreaParser::ProcedurePrototypeContext *ctx) {
   std::string procName = ctx->ID()->getText();
@@ -810,6 +853,14 @@ std::any ASTBuilder::visitFunctionPrototypeTupleReturn(
   setLocationFromCtx(node, ctx);
   return node_any(std::move(node));
 }
+
+std::any
+ASTBuilder::visitFunctionPrototypeStructReturn(
+    GazpreaParser::FunctionPrototypeStructReturnContext *ctx) {
+  throw std::runtime_error("visitFunctionPrototypeStructReturn: not implemented");
+}
+
+
 std::any
 ASTBuilder::visitFunctionStat(GazpreaParser::FunctionStatContext *ctx) {
   std::string funcName = ctx->ID(0)->getText();
@@ -1363,11 +1414,30 @@ std::any ASTBuilder::visitTuple_dec(GazpreaParser::Tuple_decContext *ctx) {
     if (anyType.has_value() && anyType.type() == typeid(CompleteType)) {
       elemTypes.push_back(std::any_cast<CompleteType>(anyType));
     } else {
-      elemTypes.push_back(CompleteType(BaseType::UNKNOWN));
+      throw std::runtime_error("ASTBuilder::visitTupleLitExpr: Could not cast sub-type to CompleteType");
     }
   }
   return CompleteType(BaseType::TUPLE, std::move(elemTypes));
 }
+
+std::any ASTBuilder::visitStruct_dec(GazpreaParser::Struct_decContext *ctx) {
+  std::vector<CompleteType> elemTypes;
+  for (auto typeCtx : ctx->type()) {
+    auto anyType = visit(typeCtx);
+    elemTypes.push_back(std::any_cast<CompleteType>(anyType));
+  }
+
+  // Capture the struct's declared name so semantic analysis can
+  // register a named struct type (e.g., for use in `var Name x;`).
+  std::string structName;
+  if (!ctx->ID().empty()) {
+      structName = ctx->ID(0)->getText();
+  }
+  CompleteType structType(BaseType::STRUCT, std::move(elemTypes));
+  structType.aliasName = structName;
+  return structType;
+}
+
 // LOOP (WHILE PARENLEFT expr PARENRIGHT) (block|stat) #WhileLoopBlock
 std::any
 ASTBuilder::visitWhileLoopBlock(GazpreaParser::WhileLoopBlockContext *ctx) {
