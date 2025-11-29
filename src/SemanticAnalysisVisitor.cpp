@@ -149,17 +149,19 @@ void SemanticAnalysisVisitor::visit(ArrayAccessExpr *node) {
     }
     // element type is the single subtype of the array
     if (baseType.subTypes.empty()) {
+        std::cout << toString(node->type);
         node->type = CompleteType(BaseType::UNKNOWN);
+        std::cout << toString(node->type);
     } else {
         node->type = baseType.subTypes[0];
+        std::cout << toString(node->type);
     }
 
     // If index is a compile-time integer literal and the array has a known size, check bounds
-    VarInfo* varInfo = current_->resolveVar(node->id, node->line);
-    if (varInfo && varInfo->arraySize.has_value()) {
+    if (var && var->arraySize.has_value()) {
         if (auto in = std::dynamic_pointer_cast<IntNode>(node->expr)) {
             int64_t idx = in->value;
-            int64_t sz = varInfo->arraySize.value();
+            int64_t sz = var->arraySize.value();
             if (idx <= 0 || idx > sz) {
                 IndexError((std::string("Index ") + std::to_string(idx) + " out of range for array of len " + std::to_string(sz)).c_str());
                 return;
@@ -168,112 +170,155 @@ void SemanticAnalysisVisitor::visit(ArrayAccessExpr *node) {
     }
 }
 
-void SemanticAnalysisVisitor::visit(ArrayInitNode *node) {
-    // either an identifier initializer or an array literal
-    if (!node) return;
-    if (!node->id.empty()) {
-        VarInfo* src = current_->resolveVar(node->id, node->line);
-        if (!src) {
-            throw SymbolError(node->line, "Semantic Analysis: unknown identifier '" + node->id + "' in array initializer.");
-        }
-        node->type = src->type;
-    } else if (node->lit) {
-        node->lit->accept(*this);
-        node->type = node->lit->type;
-    } else {
-        // No identifier or literal provided: treat as array of unknown element type
-        // (avoid creating an ARRAY with zero subtypes which fails validateSubtypes())
-        node->type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{CompleteType(BaseType::UNKNOWN)});
-    }
-}
 void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
     if (!current_->isDeclarationAllowed()) {
-        throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block.");
+        throw DefinitionError(node->line,
+            "Semantic Analysis: Declarations must appear at the top of a block.");
     }
 
-    // Resolve the ArrayTypeNode (this will resolve element alias and sizeExpr)
-    if (node->arrayType) node->arrayType->accept(*this);
-
-    // Determine element type (resolve aliases)
-    CompleteType elemType = CompleteType(BaseType::UNKNOWN);
-    if (node->arrayType && node->arrayType->elementAlias) {
-        elemType = resolveUnresolvedType(current_, node->arrayType->elementAlias->type, node->line);
+    // --- Resolve the array type node (size + element type) 
+    if (node->typeInfo) {
+        node->typeInfo->accept(*this);
     }
 
-    // Build the declared array complete type
-    CompleteType arrayType = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{elemType});
+    // Resolve element type (after aliasing)
+    CompleteType elemType = resolveUnresolvedType(current_, 
+                                                  node->typeInfo->elementType, 
+                                                  node->line);
 
-    // Determine const/var qualifier (arrays default to const unless 'var')
-    bool isConst = true;
-    if (node->qualifier == "var") {
-        if (current_->isInGlobal()) {
-            throw GlobalError(node->line, "Cannot use var in global");
-        }
-        isConst = false;
+    // Build the complete array/vector type
+    BaseType container = node->typeInfo->isVec ? BaseType::VECTOR : BaseType::ARRAY;
+    CompleteType arrayType(container, { elemType });
+
+    // Store resolved type on node immediately
+    node->type = arrayType;
+
+    //--- Qualifier checks ---
+    bool isConst = (node->qualifier != "var");
+    if (!isConst && current_->isInGlobal()) {
+        throw GlobalError(node->line, "'var' is not allowed in global scope.");
     }
 
-    // Declare the variable in current scope
+    // Declare the variable
     current_->declareVar(node->id, arrayType, isConst, node->line);
+    VarInfo *declared = current_->resolveVar(node->id, node->line);
 
-    // Attach compile-time size from the ArrayTypeNode if available
-    VarInfo* declared = current_->resolveVar(node->id, node->line);
-    if (declared && node->arrayType && node->arrayType->resolvedSize.has_value()) {
-        declared->arraySize = node->arrayType->resolvedSize.value();
+    // --- Compile-time size from type declaration ---
+    if (declared && node->typeInfo) {
+        auto &dims = node->typeInfo->resolvedDims;
+        if (!dims.empty() && dims[0].has_value()) {
+            declared->arraySize = dims[0].value();
+        }
     }
 
-    // Handle initializer if present
-    if (node->init) {
-        node->init->accept(*this);
+    // --- No initializer
+    if (!node->init)
+        return;
 
-        // If initializer is a literal with a list, compare/infer size
-        if (node->init->lit && node->init->lit->list) {
-            int64_t litLen = static_cast<int64_t>(node->init->lit->list->list.size());
-            if (declared) {
-                if (declared->arraySize.has_value()) {
-                    if (declared->arraySize.value() != litLen) {
-                        return SizeError("Semantic Analysis: declared array size does not match initializer length.");
-                    }
-                } else {
-                    // Infer declared size from literal
-                    declared->arraySize = litLen;
-                }
+    // Analyze initializer expression
+    node->init->accept(*this);
+
+    // Resolve its complete type
+    CompleteType initType = resolveUnresolvedType(current_, node->init->type, node->line);
+
+    //  Array literal initializer ---
+    if (auto lit = std::dynamic_pointer_cast<ArrayLiteralNode>(node->init)) {
+
+        // literal size
+        int64_t litSize = lit->list ? lit->list->list.size() : 0;
+
+        // declared size must match literal if given
+        if (declared->arraySize.has_value()) {
+            if (declared->arraySize.value() != litSize) {
+                throw TypeError(node->line,
+                    "Array initializer length does not match declared size");
             }
+        } else {
+            // infer declared size from literal
+            declared->arraySize = litSize;
         }
 
-        // Type-compatibility check between declared array type and initializer expression
-        handleAssignError(node->id, arrayType, node->init->type, node->line);
+        // if literal contains elements, check element type:
+        if (lit->list && !lit->list->list.empty()) {
+            CompleteType litElemType = resolveUnresolvedType(
+                current_, lit->type.subTypes[0], node->line);
+
+            // compare element types
+            handleAssignError(node->id, elemType, litElemType, node->line);
+        }
+
+        return;
     }
 
-    // Record resolved type on the AST node
-    node->resolvedType = arrayType;
+    // ID initializer (assign array to array) 
+    if (std::dynamic_pointer_cast<IdNode>(node->init)) {
+        // Full array-to-array type checking
+        handleAssignError(node->id, arrayType, initType, node->line);
+        return;
+    }
+
+    // other expression evaluates to an array 
+    if (initType.baseType == BaseType::ARRAY) {
+
+        CompleteType initElem = initType.subTypes.empty()
+                                    ? CompleteType(BaseType::UNKNOWN)
+                                    : resolveUnresolvedType(current_,
+                                                            initType.subTypes[0],
+                                                            node->line);
+
+        handleAssignError(node->id, elemType, initElem, node->line);
+    }
 }
 
+
+// arrays do not have aliases
 void SemanticAnalysisVisitor::visit(ArrayTypeNode *node) {
     if (!node) return;
-    // Resolve element alias/type first
-    if (node->elementAlias) {
-        node->elementAlias->accept(*this);
-    }
-    CompleteType elemType = CompleteType(BaseType::UNKNOWN);
-    if (node->elementAlias) {
-        elemType = resolveUnresolvedType(current_, node->elementAlias->type, node->line);
-    }
 
-    // If sizeExpr present, ensure it is integer and capture compile-time size if available
-    if (node->sizeExpr) {
-        node->sizeExpr->accept(*this);
-        if (node->sizeExpr->constant.has_value()) {
-            // extract integer constant
-            int64_t v = std::get<int64_t>(node->sizeExpr->constant->value);
+    // Validate element type: must be one of INTEGER, BOOL, CHARACTER or REAL
+    // `elementType` is a CompleteType; check its baseType field.
+    if (!(node->elementType.baseType == BaseType::INTEGER ||
+          node->elementType.baseType == BaseType::BOOL ||
+          node->elementType.baseType == BaseType::CHARACTER ||
+          node->elementType.baseType == BaseType::REAL)) {
+        throw TypeError(node->line, "Semantic Analysis: Invalid declared array element type");
+    }
+  
+    // ensure that the size expressions are valid
+    for (auto &s : node->sizeExprs) {
+        if (!s) { // '*' wildcard -> dynamic
+            node->resolvedDims.emplace_back(std::nullopt);
+            continue;
+        }
+        s->accept(*this);
+        if (s->type.baseType != BaseType::INTEGER) {
+            throw TypeError(node->line, "Semantic Analysis: array size must be integer.");
+        }
+
+        // Prefer explicit integer literal values even if constant folding
+        // hasn't run yet. This ensures sizes like `[3]` are known at
+        // semantic-analysis time so bounds checks can be performed.
+        if (auto in = std::dynamic_pointer_cast<IntNode>(s)) {
+            int64_t v = in->value;
             if (v < 0) {
                 throw TypeError(node->line, "Semantic Analysis: array size must be non-negative.");
             }
-            node->resolvedSize = v;
+            node->resolvedDims.emplace_back(v);
+            continue;
+        }
+
+        if (s->constant.has_value()) {
+            int64_t v = std::get<int64_t>(s->constant->value);
+            if (v < 0) {
+                throw TypeError(node->line, "Semantic Analysis: array size must be non-negative.");
+            }
+            node->resolvedDims.emplace_back(v);
+        } else {
+            node->resolvedDims.emplace_back(std::nullopt); // runtime/dynamic size
         }
     }
 
-    // Construct the CompleteType for this array type
-    node->type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{elemType});
+    node->type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{node->elementType});
 }
 
 void SemanticAnalysisVisitor::visit(ExprListNode *node) {
@@ -357,6 +402,7 @@ void SemanticAnalysisVisitor::visit(FuncStatNode* node) {
     node->returnType = resolveUnresolvedType(current_, node->returnType, node->line);
 
     try {
+        std::cerr << "declareFunc: " << node->name << " line " << node->line << std::endl;
         current_->declareFunc(node->name, params, node->returnType, node->line);
     } catch (...) {
         // If already declared, ensure it resolves to the same signature
@@ -477,6 +523,7 @@ void SemanticAnalysisVisitor::visit(ProcedurePrototypeNode* node) {
 
     // Declare the procedure signature in the current (global) scope
     try {
+        std::cerr << "declareProc: " << node->name << " line " << node->line << std::endl;
         current_->declareProc(node->name, params, node->returnType, node->line);
     } catch (...) {
         ProcInfo *existing = current_->resolveProc(node->name, params, node->line);
@@ -723,13 +770,12 @@ void SemanticAnalysisVisitor::visit(AssignStatNode* node) {
     const VarInfo* varInfo = current_->resolveVar(node->name, node->line);
     
     if (varInfo->isConst) {
-        throw AssignError(node->line, "");
-
-        // throw AssignError(node->line, "Semantic Analysis: cannot assign to const variable '" + node->name + "'."); // TODO add line num
+        throw AssignError(node->line, "Semantic Analysis: cannot assign to const variable '" + node->name + "'."); // TODO add line num
     }
 
     CompleteType varType = resolveUnresolvedType(current_, varInfo->type, node->line);
     CompleteType exprType = resolveUnresolvedType(current_, node->expr->type, node->line);
+ 
     handleAssignError(node->name, varType, exprType, node->line);
 
     node->type = varType;
@@ -1164,7 +1210,7 @@ void SemanticAnalysisVisitor::visit(AddExpr* node) {
         auto lsz = getCompileTimeSize(node->left);
         auto rsz = getCompileTimeSize(node->right);
         if (lsz.has_value() && rsz.has_value() && lsz.value() != rsz.value()) {
-            throw std::runtime_error("Size Error: Semantic Analysis: Arrays must have same size");
+            SizeError("Semantic Analysis: Arrays must have same size");
         }
     }
     CompleteType finalType = promote(leftOperandType, rightOperandType);
@@ -1460,7 +1506,6 @@ void SemanticAnalysisVisitor::throwOperandError(const std::string op, const std:
 If empty string provided, prints non-variable promotion error msg
 */
 void SemanticAnalysisVisitor::handleAssignError(const std::string varName, const CompleteType &varType, const CompleteType &exprType, int line) {
-    std::cout << "visiting handleAssignError";
     // Normalise any alias-based types before checking compatibility.
     CompleteType resolvedVarType = resolveUnresolvedType(current_, varType, line);
     CompleteType resolvedExprType = resolveUnresolvedType(current_, exprType, line);
@@ -1483,8 +1528,6 @@ void SemanticAnalysisVisitor::handleAssignError(const std::string varName, const
             throw err;
         }
     }
-    std::cout << toString(resolvedVarType.baseType);
-    std::cout << toString(resolvedExprType.baseType);
     if (resolvedVarType.baseType == BaseType::ARRAY && resolvedExprType.baseType == BaseType::ARRAY) {
         throw AliasingError(line, "Semantic Analysis: Arrays are not mutable");
     }

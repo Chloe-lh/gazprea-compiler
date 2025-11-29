@@ -39,6 +39,7 @@ void Scope::declareFunc(const std::string& identifier, const std::vector<VarInfo
 }
 
 void Scope::declareProc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType, int line) {
+    std::cout << "declareProc Called\n";
     // Shared namespace: disallow conflict with any function of same name
     if (functionsByName_.find(identifier) != functionsByName_.end()) {
         throw SymbolError(line, "Semantic Analysis: Name conflict: function and procedure share name '" + identifier + "'.");

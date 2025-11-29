@@ -197,36 +197,35 @@ void ConstantFoldingVisitor::visit(ArrayAccessExpr *node) {
     node->type = vec[pos].type;
 }
 
-void ConstantFoldingVisitor::visit(ArrayInitNode *node) {}
 void ConstantFoldingVisitor::visit(ArrayTypedDecNode *node) { // resolve size from init if available
     // Type node stores resolved size (declared size)
-    if (node->arrayType) node->arrayType->accept(*this);
+    // if (node->arrayType) node->arrayType->accept(*this);
 
     // If we have an initializer literal, derive its length and compare to any
     // already-resolved declared size. If they differ, report a compile-time
     // SizeError so the user gets a clear diagnostic during folding.
-    if (node->init && node->init->lit) {
-        auto lit = node->init->lit;
-        if (lit->list) {
-            int64_t len = static_cast<int64_t>(lit->list->list.size());
-            if (node->arrayType && node->arrayType->resolvedSize.has_value()) {
-                if (node->arrayType->resolvedSize.value() != len) {
-                    throw SizeError(node->line, "Semantic Analysis: declared array size does not match initializer length.");
-                }
-            } else {
-                if (node->arrayType) node->arrayType->resolvedSize = len;
-            }
-        }
-    }
+    // if (node->init && node->init->lit) {
+    //     auto lit = node->init->lit;
+    //     if (lit->list) {
+    //         int64_t len = static_cast<int64_t>(lit->list->list.size());
+    //         if (node->arrayType && node->arrayType->resolvedSize.has_value()) {
+    //             if (node->arrayType->resolvedSize.value() != len) {
+    //                 throw SizeError(node->line, "Semantic Analysis: declared array size does not match initializer length.");
+    //             }
+    //         } else {
+    //             if (node->arrayType) node->arrayType->resolvedSize = len;
+    //         }
+    //     }
+    // }
 }
 void ConstantFoldingVisitor::visit(ArrayTypeNode *node) {
-    if(!node->isOpen){ // int expr
-        node->sizeExpr->accept(*this);
-        if(node->sizeExpr->constant.has_value() && node->sizeExpr->constant->type.baseType == BaseType::INTEGER){
-            int64_t v = std::get<int64_t>(node->sizeExpr->constant->value);
-            node->resolvedSize = v;
-        }
-    }
+    // if(!node->isOpen){ // int expr
+    //     node->sizeExpr->accept(*this);
+    //     if(node->sizeExpr->constant.has_value() && node->sizeExpr->constant->type.baseType == BaseType::INTEGER){
+    //         int64_t v = std::get<int64_t>(node->sizeExpr->constant->value);
+    //         node->resolvedSize = v;
+    //     }
+    // }
 }
 void ConstantFoldingVisitor::visit(ExprListNode *node) {
     if(!node) return;

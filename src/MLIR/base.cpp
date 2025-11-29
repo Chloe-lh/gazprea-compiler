@@ -56,7 +56,6 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<co
 void MLIRGen::visit(ArrayStrideExpr *node)        { std::cout << "ArrayStrideExpr not implemented\n"; }
 void MLIRGen::visit(ArraySliceExpr *node)         { std::cout << "ArraySliceExpr not implemented\n"; }
 void MLIRGen::visit(ArrayAccessExpr *node)        { std::cout << "ArrayAccessExpr not implemented\n"; }
-void MLIRGen::visit(ArrayInitNode *node)          { std::cout << "ArrayInitNode not implemented\n"; }
 void MLIRGen::visit(ArrayTypedDecNode *node)      { std::cout << "ArrayTypedDecNode not implemented\n"; }
 void MLIRGen::visit(ArrayTypeNode *node)          { std::cout << "ArrayTypeNode not implemented\n"; }
 void MLIRGen::visit(ExprListNode *node)           { std::cout << "ExprListNode not implemented\n"; }

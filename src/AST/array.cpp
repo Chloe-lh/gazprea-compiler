@@ -1,13 +1,17 @@
 #include "AST.h"
 #include "ASTBuilderUtils.h"
+#include "CompileTimeExceptions.h"
 #include "GazpreaParser.h"
 #include "ASTBuilder.h"
 #include "Types.h"
 #include <any>
 #include <memory>
+#include <ostream>
 
 namespace gazprea{
-  
+  std::any ASTBuilder::visitArrayLitExpr(GazpreaParser::ArrayLitExprContext *ctx) {
+    return visit(ctx->array_literal());
+  }
   std::any ASTBuilder::visitArrayAccessExpr(GazpreaParser::ArrayAccessExprContext *ctx){
     std::string id="";
     std::shared_ptr<ExprNode> expr = nullptr;
@@ -21,67 +25,6 @@ namespace gazprea{
     auto node = std::make_shared<ArrayAccessExpr>(id, expr);
     return expr_any(node);
   }
-  std::any ASTBuilder::visitArrayTypedDec(GazpreaParser::ArrayTypedDecContext *ctx){
-    std::string qual;
-    std::shared_ptr<ArrayTypeNode> typeNode = nullptr;
-    std::string id = "";
-    if(ctx->qualifier()){
-      qual = ctx->qualifier()->getText();
-    }else{
-      qual = "const";
-    }
-    if(ctx->ID()){
-      id = ctx->ID()->getText();
-    }
-    if(ctx->array_type()){
-      auto anyType = visit(ctx->array_type());
-      if (anyType.has_value()) {
-        typeNode = safe_any_cast_ptr<ArrayTypeNode>(anyType);
-      }
-    }
-    std::shared_ptr<ArrayInitNode> init = nullptr;
-    if (ctx->array_init()) {
-      auto anyInit = visit(ctx->array_init());
-      if (anyInit.has_value()) {
-        init = safe_any_cast_ptr<ArrayInitNode>(anyInit);
-      }
-    }
-    std::shared_ptr<ArrayTypedDecNode> node;
-    if (init) {
-      node = std::make_shared<ArrayTypedDecNode>(qual, id, typeNode, init);
-    } else {
-      node = std::make_shared<ArrayTypedDecNode>(qual, id, typeNode);
-    }
-    node->resolvedType = CompleteType(BaseType::ARRAY);
-    // node->type = CompleteType(BaseType::ARRAY);
-    setLocationFromCtx(node, ctx);
-    return dec_any(std::move(node));
-  }
-  std::any ASTBuilder::visitArrayType(gazprea::GazpreaParser::Array_typeContext *ctx) {
-    // get the element type
-    auto elemAny = visit(ctx->type());
-    auto elemType = safe_any_cast_ptr<TypeAliasNode>(elemAny);
-
-    // extract size
-    std::shared_ptr<ExprNode> sizeExpr = nullptr;
-    bool isOpen = false;
-
-    if (ctx->INT()) {
-        // fixed size array
-        int sizeValue = std::stoi(ctx->INT()->getText());
-        sizeExpr = std::make_shared<IntNode>(sizeValue);
-
-    } else if (ctx->MULT()) {
-        // open array: '*'
-        isOpen = true;
-        // sizeExpr remains null
-    }
-    auto node = std::make_shared<ArrayTypeNode>(elemType, sizeExpr, isOpen);
-    node->type = CompleteType(BaseType::ARRAY);
-
-    setLocationFromCtx(node, ctx);
-    return node;
-}
 
   std::any ASTBuilder::visitArrayStrideExpr(GazpreaParser::ArrayStrideExprContext *ctx){
     std::string id="";
@@ -103,7 +46,7 @@ namespace gazprea{
     if(ctx->rangeExpr()){
       auto anyRange = visit(ctx->rangeExpr());
       if(anyRange.has_value()){
-        range = safe_any_cast_ptr<RangeExprNode>(range);
+        range = safe_any_cast_ptr<RangeExprNode>(anyRange);
       }
     }
     std::shared_ptr<ArraySliceExpr> node = std::make_shared<ArraySliceExpr>(id, range);
@@ -112,7 +55,7 @@ namespace gazprea{
     return expr_any(std::move(node));
   };
 
-  std::any ASTBuilder::visitArrayLiteral(GazpreaParser::Array_literalContext *ctx){
+  std::any ASTBuilder::visitArray_literal(GazpreaParser::Array_literalContext *ctx){
     std::shared_ptr<ExprListNode> list = nullptr; //optional expression list
     if (ctx->exprList()) {
       auto anyList = visit(ctx->exprList());

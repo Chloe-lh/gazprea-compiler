@@ -68,7 +68,6 @@ void TupleTypeCastNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArrayStrideExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArraySliceExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArrayAccessExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
-void ArrayInitNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArrayTypedDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArrayTypeNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ExprListNode::accept(ASTVisitor &visitor) { visitor.visit(this); }

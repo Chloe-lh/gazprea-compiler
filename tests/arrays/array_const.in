@@ -1,0 +1,6 @@
+procedure main()
+    const integer[3] arr = [10, 20, 30];
+    print(arr);
+    arr = [40, 50, 60];   // illegal reassignment
+end
+//array_decl.out

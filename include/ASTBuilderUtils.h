@@ -108,6 +108,10 @@ static inline std::shared_ptr<T> safe_any_cast_ptr(const std::any &a) {
             auto base = std::any_cast<std::shared_ptr<DecNode>>(a);
             return std::dynamic_pointer_cast<T>(base);
         }
+        if (a.type() == typeid(std::shared_ptr<LiteralExprNode>)){
+            auto base = std::any_cast<std::shared_ptr<LiteralExprNode>>(a);
+            return std::dynamic_pointer_cast<T>(base);
+        }
     } catch (const std::bad_any_cast &) {
         // fall through
     }
@@ -128,6 +132,9 @@ template <typename T> static inline std::any stat_any(std::shared_ptr<T> n) {
 }
 template <typename T> static inline std::any dec_any(std::shared_ptr<T> n) {
   return std::any(std::static_pointer_cast<DecNode>(std::move(n)));
+}
+template <typename T> static inline std::any litexpr_any(std::shared_ptr<T> n) {
+  return std::any(std::static_pointer_cast<LiteralExprNode>(std::move(n)));
 }
 
 } // namespace gazprea::builder_utils

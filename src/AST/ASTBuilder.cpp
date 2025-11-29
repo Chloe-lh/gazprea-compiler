@@ -5,6 +5,7 @@
 #include "ParserRuleContext.h"
 #include "ConstantHelpers.h"
 #include "GazpreaParser.h"
+#include "TerminalNode.h"
 #include "Types.h"
 #include <any>
 #include <memory>
@@ -55,6 +56,69 @@ std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
   auto node = std::make_shared<FileNode>(std::move(nodes));
   setLocationFromCtx(node, ctx);
   return node_any(std::move(node));
+}
+std::any ASTBuilder::visitBuiltin_type(GazpreaParser::Builtin_typeContext *ctx) {
+    // 1. Base scalar type
+    CompleteType base(BaseType::UNKNOWN);
+
+    if (ctx->BOOLEAN())   base = CompleteType(BaseType::BOOL);
+    if (ctx->STRING())    base = CompleteType(BaseType::STRING);
+    if (ctx->INTEGER())   base = CompleteType(BaseType::INTEGER);
+    if (ctx->REAL())      base = CompleteType(BaseType::REAL);
+    if (ctx->CHARACTER()) base = CompleteType(BaseType::CHARACTER);
+
+    // 2. Vector<T> case
+    if (ctx->VECTOR()) {
+        // get inner T
+        CompleteType elemType = std::any_cast<CompleteType>(visit(ctx->type()));
+
+        auto vecNode = std::make_shared<ArrayTypeNode>(
+            elemType,
+            std::vector<std::shared_ptr<ExprNode>>{},   // no sizes
+            std::vector<std::optional<int64_t>>{},      // no dims
+            true                                        // isVec = true
+        );
+
+        setLocationFromCtx(vecNode, ctx);
+        return node_any(vecNode);
+    }
+
+    // 3. Scalar type (no array size)
+    if (!ctx->size()) {
+        // Return a simple CompleteType wrapped in std::any.
+        return base;
+    }
+    // 4. Array dimensions
+    // Extract INT or "*" tokens
+    auto *sizectx = ctx->size();
+    std::vector<std::shared_ptr<ExprNode>> sizeExprs;
+    std::vector<std::optional<int64_t>> resolvedDims;
+
+    for (auto child : sizectx->children) {
+        auto *t = dynamic_cast<antlr4::tree::TerminalNode*>(child);
+        if (!t) continue;
+
+        int token = t->getSymbol()->getType();
+
+        if (token == GazpreaParser::INT) {
+            int64_t val = std::stoll(t->getText());
+            sizeExprs.push_back(std::make_shared<IntNode>((int)val));
+            resolvedDims.push_back(std::nullopt);
+        }
+        else if (token == GazpreaParser::MULT) { // '*'
+            sizeExprs.push_back(nullptr); // open dimension
+            resolvedDims.push_back(std::nullopt);
+        }
+    }
+    // 5. Create ArrayTypeNode
+    auto arrNode = std::make_shared<ArrayTypeNode>(
+        base,
+        std::move(sizeExprs),
+        std::move(resolvedDims),
+        false               // isVec = false
+    );
+    setLocationFromCtx(arrNode, ctx);
+    return node_any(arrNode);
 }
 
 std::any ASTBuilder::visitBlock(GazpreaParser::BlockContext *ctx) {
@@ -116,6 +180,7 @@ ASTBuilder::visitTypeCastExpr(GazpreaParser::TypeCastExprContext *ctx) {
 }
 /*
 dec
+  Also has support for arrays 
 : qualifier? (builtin_type ID | ID ID) (EQ expr)? END   #ExplicitTypedDec
 | qualifier ID EQ expr END                              #InferredTypeDec
 | qualifier? tuple_dec ID (EQ expr)? END                #TupleTypedDec
@@ -134,32 +199,51 @@ ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
       }
     }
   }
-
   std::shared_ptr<TypeAliasNode> typeAlias;
   std::string id;
 
+  // optional initializer (evaluate early so array-case can use it)
+  std::shared_ptr<ExprNode> init = nullptr;
+  std::any exprAny;
+  if (ctx->expr()) {
+    auto anyExpr = visit(ctx->expr());
+    if (anyExpr.has_value()) {
+    init = safe_any_cast_ptr<ExprNode>(anyExpr);
+    }
+  }
+
   // builtin_type ID case
   if (ctx->builtin_type()) {
-    auto bt = ctx->builtin_type();
-    if (bt->BOOLEAN())
-      typeAlias =
-          std::make_shared<TypeAliasNode>("", CompleteType(BaseType::BOOL));
-    else if (bt->CHARACTER())
-      typeAlias = std::make_shared<TypeAliasNode>(
-          "", CompleteType(BaseType::CHARACTER));
-    else if (bt->INTEGER())
-      typeAlias =
-          std::make_shared<TypeAliasNode>("", CompleteType(BaseType::INTEGER));
-    else if (bt->REAL())
-      typeAlias =
-          std::make_shared<TypeAliasNode>("", CompleteType(BaseType::REAL));
-    else if (bt->STRING())
-      typeAlias =
-          std::make_shared<TypeAliasNode>("", CompleteType(BaseType::STRING));
-    else
-      typeAlias =
-          std::make_shared<TypeAliasNode>("", CompleteType(BaseType::UNKNOWN));
-    id = ctx->ID(0)->getText();
+    // visiting built in type might return a CompleteType or an ArrayTypeNode or a VectorTypeNode
+    auto anyType = visit(ctx->builtin_type());
+    // variable name is always the ID after the type
+    if (ctx->ID().size() > 0) {
+      id = ctx->ID(0)->getText();
+    }
+
+    // First try CompleteType (scalar) case
+    if (anyType.has_value() && anyType.type() == typeid(CompleteType)) {
+      try {
+        CompleteType ct = std::any_cast<CompleteType>(anyType);
+        // For a concrete builtin type, store it directly in a TypeAliasNode
+        // with an empty alias name so semantic analysis does not attempt to
+        // resolve it as a separate alias in the global alias table.
+        typeAlias = std::make_shared<TypeAliasNode>(std::string(""), ct);
+      } catch (const std::bad_any_cast &) {
+        // fallthrough to try node-cast below
+      }
+    }
+    // If we didn't get a CompleteType, maybe it's an ArrayTypeNode returned as a node_any
+    if (!typeAlias && anyType.has_value()) {
+      auto arrType = safe_any_cast_ptr<ArrayTypeNode>(anyType);
+      if (arrType) {
+        // Build an ArrayTypedDecNode using the initializer wrapper computed
+        // above so we preserve array literal/identifier initializers.
+        std::shared_ptr<ArrayTypedDecNode> arrDec = std::make_shared<ArrayTypedDecNode>(qualifier, id, arrType, init);
+        setLocationFromCtx(arrDec, ctx);
+        return node_any(std::move(arrDec));
+      }
+    }
   } else {
     // alias ID ID case: ID(0) alias name, ID(1) variable name
     std::string aliasName = ctx->ID(0)->getText();
@@ -167,22 +251,13 @@ ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
     typeAlias = std::make_shared<TypeAliasNode>(
         aliasName, CompleteType(BaseType::UNKNOWN));
   }
-
-  // optional initializer
-  std::shared_ptr<ExprNode> init = nullptr;
-  if (ctx->expr()) {
-    auto exprAny = visit(ctx->expr());
-    if (exprAny.has_value())
-      init = safe_any_cast_ptr<ExprNode>(exprAny);
-  }
-
+  
   auto node = std::make_shared<TypedDecNode>(id, typeAlias, qualifier, init);
   setLocationFromCtx(node, ctx);
   return node_any(std::move(node));
 }
 
-std::any
-ASTBuilder::visitInferredTypeDec(GazpreaParser::InferredTypeDecContext *ctx) {
+std::any ASTBuilder::visitInferredTypeDec(GazpreaParser::InferredTypeDecContext *ctx) {
   // qualifier is returned as a std::any holding a std::string
   std::string qualifier;
   if (ctx->qualifier()) {
@@ -220,6 +295,7 @@ std::any ASTBuilder::visitQualifier(GazpreaParser::QualifierContext *ctx) {
 }
 // returns CompleteType object based on grammar else returns unknown
 std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
+  //FOR ARRAYS
   if (ctx->BOOLEAN())
     return CompleteType(BaseType::BOOL);
   if (ctx->STRING())

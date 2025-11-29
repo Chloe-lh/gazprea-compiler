@@ -167,8 +167,8 @@ public:
                     CompleteType returnType); // optional return type
   void accept(ASTVisitor &visitor) override;
 };
-// arrays
-// Array-related AST nodes
+
+// Arrays
 class ArraySliceExpr: public ExprNode{
   public:
   std::string id;
@@ -190,53 +190,86 @@ class ArrayAccessExpr: public ExprNode{
   ArrayAccessExpr(const std::string &id, std::shared_ptr<ExprNode> expr): id(id), expr(std::move(expr)){}
   void accept(ASTVisitor &visitor) override; 
 };
-class ArrayInitNode : public ASTNode{
-  public:
-  std::string id; //nullable
-  std::shared_ptr<class ArrayLiteralNode> lit;
-  ArrayInitNode(const std::string &id): id(id){}
-  ArrayInitNode(std::shared_ptr<class ArrayLiteralNode> lit): lit(std::move(lit)){
-    type = CompleteType(BaseType::ARRAY);
-  }
-  void accept(ASTVisitor &visitor) override; 
-};
+class ArrayLiteralNode;
+
 class ArrayTypeNode;
 class ArrayTypedDecNode : public DecNode{
   public:
-  std::string qualifier; //optional
-  CompleteType resolvedType = CompleteType(BaseType::UNKNOWN); // filled by semantic analysis
-  std::shared_ptr<ArrayTypeNode> arrayType;
+  std::string qualifier = "const"; //optional default const
   std::string id;
-  std::shared_ptr<ArrayInitNode> init; //nullable
+  std::shared_ptr<ArrayTypeNode> typeInfo; //MAY hold size if not vector
+  std::shared_ptr<ExprNode> init; //nullable
   ArrayTypedDecNode(const std::string &q, const std::string &id, std::shared_ptr<class ArrayTypeNode> type): 
-    qualifier(id), arrayType(std::move(type)), id(id){
+    qualifier(q), id(id), typeInfo(std::move(type)){
     }
-  ArrayTypedDecNode(const std::string &q, const std::string &id, std::shared_ptr<class ArrayTypeNode> type, std::shared_ptr<ArrayInitNode> i): 
-    arrayType(std::move(type)), id(id), init(std::move(i)){
-    } 
+  ArrayTypedDecNode(const std::string &q, const std::string &id, std::shared_ptr<class ArrayTypeNode> type, std::shared_ptr<ExprNode> i): 
+    qualifier(q), id(id), typeInfo(std::move(type)), init(std::move(i)){
+    }
+
   void accept(ASTVisitor &visitor) override; 
 };
-// semantic pass should resolve the element alias (or builtin) into a
-// CompleteType and optionally evaluate `sizeExpr` to populate
-// `resolvedSize`.
+// ARRAY TYPE NODE MAY HAVE A VECTOR TYPE OR ARRAY TYPE
+// Represents either an array type (with optional dimensions)
+// or a vector type (vector<T>), depending on `isVec`.
 class ArrayTypeNode : public ASTNode {
 public:
-  // Element type as written (builtin/alias represented by a Type)
-  std::shared_ptr<TypeAliasNode> elementAlias;
-  // Optional size expression (null => open/unbounded if `isOpen` is true)
-  std::shared_ptr<ExprNode> sizeExpr = nullptr;
-  // Explicit '*' marker (when grammar uses MULT for open arrays)
-  bool isOpen = false; //default declared size
-  // Semantic result filled later by SemanticAnalysisVisitor when the size is
-  // a compile-time constant.
-  std::optional<int64_t> resolvedSize;
-  ArrayTypeNode(std::shared_ptr<TypeAliasNode> elemAlias,
-                std::shared_ptr<ExprNode> size = nullptr,
-                bool open = false)
-      : elementAlias(std::move(elemAlias)), sizeExpr(std::move(size)),
-        isOpen(open) {}
-  void accept(ASTVisitor &visitor) override;
+    // True if this is a vector<T>, false if this is a T[...] array
+    bool isVec = false;
+
+    // The element type (e.g., integer, real, char, bool, or alias)
+    CompleteType elementType;
+
+    // Raw dimension-size expressions (null pointer = open "*")
+    // For vectors: this is always empty.
+    std::vector<std::shared_ptr<ExprNode>> sizeExprs;
+
+    // Results after semantic resolution:
+    // - integer value if compile-time known
+    // - nullopt if "*"
+    std::vector<std::optional<int64_t>> resolvedDims;
+
+    // --- Constructors ---
+
+    // Simple constructor for 1D array or vector
+    ArrayTypeNode(CompleteType elem,
+                  std::shared_ptr<ExprNode> sizeExpr,
+                  bool isOpen = false,
+                  bool isVector = false)
+        : isVec(isVector),
+          elementType(std::move(elem))
+    {
+        if (isVec) {
+            // A vector<T> has no explicit size
+            return;
+        }
+
+        // Normal array
+        sizeExprs.push_back(sizeExpr); // may be null for open dimension
+        resolvedDims.push_back(isOpen ? std::nullopt : std::nullopt);
+    }
+
+    // Constructor for multi-dimensional arrays OR vector<T>
+    ArrayTypeNode(CompleteType elem,
+                  std::vector<std::shared_ptr<ExprNode>> sizes,
+                  std::vector<std::optional<int64_t>> resolved = {},
+                  bool isVector = false)
+        : isVec(isVector),
+          elementType(std::move(elem)),
+          sizeExprs(std::move(sizes)),
+          resolvedDims(std::move(resolved))
+    {
+        // For vector<T>, sizes/resolvedDims must be empty.
+        // This keeps the model clean and consistent.
+        if (isVec) {
+            sizeExprs.clear();
+            resolvedDims.clear();
+        }
+        // Otherwise let array dims pass through (0D–2D)
+    }
+
+    void accept(ASTVisitor &visitor) override;
 };
+
 class ExprListNode: public ASTNode{
   public:
   std::vector<std::shared_ptr<ExprNode>> list;
@@ -249,6 +282,8 @@ class ArrayLiteralNode: public LiteralExprNode{
   ArrayLiteralNode(std::shared_ptr<ExprListNode> list): list(std::move(list)){}
   void accept(ASTVisitor &visitor) override;
 };
+// Vectors
+
 //   expr RANGE expr    (start..end)
 //   RANGE expr         (..end)    -> start == nullptr
 //   expr RANGE         (start..)  -> end == nullptr

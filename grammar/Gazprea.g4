@@ -17,11 +17,12 @@ procedure
 
 param: qualifier? type ID;
 
+// added support for arrays in ExplicitTypedDec -> checks legality in semantic analysis
+// ei const Integer[][] id;
 dec
     : qualifier? (builtin_type ID | ID ID) (EQ expr)? END               #ExplicitTypedDec
     | qualifier ID EQ expr END                                          #InferredTypeDec
     | qualifier? tuple_dec ID (EQ expr)? END                            #TupleTypedDec
-    | qualifier? array_type ID (EQ array_init)? END                     #ArrayTypedDec
     ;
 
 stat
@@ -40,10 +41,10 @@ stat
     ;
 
 type //this should include basic types
-    : BOOLEAN
-    | CHARACTER
-    | INTEGER
-    | REAL
+    : BOOLEAN 
+    | CHARACTER 
+    | INTEGER 
+    | REAL 
     | STRING
     | VECTOR '<' type '>'  
     | ID
@@ -51,19 +52,23 @@ type //this should include basic types
 
 // Built-in scalar types (used to disambiguate declarations)
 builtin_type
-    : BOOLEAN
-    | CHARACTER
-    | INTEGER
-    | REAL
+    : BOOLEAN size?
+    | CHARACTER size?
+    | INTEGER size?
+    | REAL size?
     | VECTOR '<' type '>'  
     | STRING
     ;
+
+// size specification for an array
+size
+  : SQLEFT (INT | MULT) SQRIGHT (SQLEFT (INT|MULT) SQRIGHT)? // only up to 2D
+  ;
 
 type_alias
     : TYPEALIAS type ID END   #BasicTypeAlias
     | TYPEALIAS tuple_dec ID END  #TupleTypeAlias
     ;
-
 
 expr
     : tuple_access                                      #TupleAccessExpr
@@ -101,11 +106,7 @@ tuple_access: ID DECIM INT
             | TUPACCESS
             ;
 
-array_init : array_literal
-           | ID
-           ;
-array_type : type SQLEFT (INT|MULT) SQRIGHT ;
-array_literal : SQLEFT exprList? SQRIGHT ;
+array_literal : SQLEFT exprList? SQRIGHT;
 exprList : expr (COMMA expr)* ;
 
 rangeExpr : RANGE expr
