@@ -752,9 +752,7 @@ void SemanticAnalysisVisitor::visit(StructTypedDecNode* node) {
         throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block."); 
     }
 
-    if (node->init) {
-        node->init->accept(*this);
-    }
+    // defer the handling of init because we must first resolve the struct type name.
 
     // Resolve underlying struct member types (may include aliases).
     CompleteType structType = resolveUnresolvedType(current_, node->type, node->line);
@@ -786,8 +784,13 @@ void SemanticAnalysisVisitor::visit(StructTypedDecNode* node) {
         }
     } else throw std::runtime_error("SemanticAnalysis->StructTypedDecNode: Struct not provided alias name.");
 
+
+    // visit initializer once struct type declared
+    if (node->init) {
+        node->init->accept(*this);
+    }
+
     // Optional: declare a variable of this struct type if a name was provided
-    // at the declaration site (e.g., `struct S (...) x;`).
     if (!node->name.empty()) {
         // Ensure not already declared in this scope
         current_->declareVar(node->name, structType, isConst, node->line);
@@ -943,7 +946,7 @@ void SemanticAnalysisVisitor::visit(ReturnStatNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(CallStatNode* node) {
-    // The CallStatNode wraps an expression-style FuncCallExpr in `call`.
+    // The CallStatNode wraps an expression-style FuncCallExprOrStructLiteral in `call`.
     if (!node->call) {
         throw std::runtime_error("Semantic Analysis: FATAL: empty call statement");
     }
@@ -1000,7 +1003,7 @@ void SemanticAnalysisVisitor::visit(TupleAccessAssignStatNode* node) {
     node->type = CompleteType(BaseType::UNKNOWN);
 }
 
-void SemanticAnalysisVisitor::visit(FuncCallExpr* node) {
+void SemanticAnalysisVisitor::visit(FuncCallExprOrStructLiteral* node) {
     // Evaluate argument expressions and build a signature to resolve the callee
     std::vector<VarInfo> args;
     args.reserve(node->args.size());
@@ -1027,7 +1030,6 @@ void SemanticAnalysisVisitor::visit(FuncCallExpr* node) {
         node->resolvedFunc = *finfo; // cache resolved info for later passes
         return;
     }
-    std::cerr << "Function not resolved";
 
     // Then try resolving as procedure
     // -----------------------
@@ -1048,7 +1050,39 @@ void SemanticAnalysisVisitor::visit(FuncCallExpr* node) {
         return;
     }
 
-    throw SymbolError(node->line, "Semantic Analysis: Unknown function/procedure '" +
+    // Try resolving as struct literal (struct constructor call)
+    // -----------------------
+    CompleteType* structType = nullptr;
+    try {
+        structType = current_->resolveStructType(node->funcName, node->line);
+    } catch (...) {
+        structType = nullptr;
+    }
+    if (structType) {
+        node->type = *structType;
+
+        // If the struct type tracks element subtypes, validate arity and types
+        if (structType->subTypes.empty()) throw std::runtime_error("SemanticAnalysis::FuncCallExprOrStructLiteral: Empty subtpyes for struct literal.");
+        if (node->args.size() != structType->subTypes.size()) {
+            throw TypeError(
+                node->line,
+                "Semantic Analysis: Struct literal for '" + node->funcName +
+                    "' has argument count mismatch. Expected " +
+                    std::to_string(structType->subTypes.size()) + ", got " +
+                    std::to_string(node->args.size()) + ".");
+        }
+        for (size_t i = 0; i < node->args.size(); ++i) {
+            handleAssignError(
+                node->funcName + "." + std::to_string(i),
+                structType->subTypes[i],
+                node->args[i]->type,
+                node->line);
+        }
+        return;
+    }
+
+
+    throw SymbolError(node->line, "Semantic Analysis: Unknown function/procedure/struct '" +
                             node->funcName + "' in expression.");
 }
 

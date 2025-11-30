@@ -199,7 +199,19 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
             break;
         case BaseType::STRUCT:
             switch (to.baseType) {
-                case BaseType::STRUCT:     return BaseType::STRUCT;    
+                case BaseType::STRUCT: {
+                    if (from.subTypes.size() != to.subTypes.size()) return CompleteType(BaseType::UNKNOWN);
+
+                    CompleteType result(BaseType::STRUCT);
+                    result.subTypes.reserve(from.subTypes.size());
+                    for (size_t i = 0; i < from.subTypes.size(); ++i) {
+                        CompleteType promotedElem = promote(from.subTypes[i], to.subTypes[i]);
+                        if (promotedElem.baseType == BaseType::UNKNOWN) return CompleteType(BaseType::UNKNOWN);
+
+                        result.subTypes.push_back(promotedElem);
+                    }
+                    return result;
+                }
             }
             break;
         case BaseType::ARRAY:
