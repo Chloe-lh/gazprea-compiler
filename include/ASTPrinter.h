@@ -52,7 +52,7 @@ public:
 
   // Expressions
   void visit(ParenExpr *node) override;
-  void visit(FuncCallExpr *node) override;
+  void visit(FuncCallExprOrStructLiteral *node) override;
   void visit(UnaryExpr *node) override;
   void visit(ExpExpr *node) override;
   void visit(MultExpr *node) override;

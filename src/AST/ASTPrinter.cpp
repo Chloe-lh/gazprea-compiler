@@ -560,8 +560,8 @@ void ASTPrinter::visit(ReturnStatNode *node) {
   }
 }
 
-void ASTPrinter::visit(FuncCallExpr *node) {
-  printTreeLine("FuncCallExpr", "name: " + node->funcName);
+void ASTPrinter::visit(FuncCallExprOrStructLiteral *node) {
+  printTreeLine("FuncCallExprOrStructLiteral", "name: " + node->funcName);
   indent++;
   for (size_t i = 0; i < node->args.size(); ++i) {
     pushChildContext(i == node->args.size() - 1);

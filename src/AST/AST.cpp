@@ -130,7 +130,7 @@ CallExprNode::CallExprNode(const std::string &name,
 void CallExprNode::accept(ASTVisitor &v) { v.visit(this); }
 
 // FuncCallExpr accept implementation (visitor expects FuncCallExpr*)
-void FuncCallExpr::accept(ASTVisitor &v) { v.visit(this); }
+void FuncCallExprOrStructLiteral::accept(ASTVisitor &v) { v.visit(this); }
 
 // Function nodes
 FuncStatNode::FuncStatNode(const std::string &name,

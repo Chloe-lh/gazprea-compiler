@@ -9,11 +9,13 @@
 #include <stdlib.h>
 
 namespace gazprea{
-//  | CALL ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT END  #CallStat
+//  | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr
+// Also used as struct_literal in the grammar, but always lowered to a
+// FuncCallExprOrStructLiteral AST node.
 std::any ASTBuilder::visitFuncCallExpr(GazpreaParser::FuncCallExprContext *ctx) {
   std::string funcName = ctx->ID()->getText();
   auto args = gazprea::collectArgs(*this, ctx->expr());
-  auto node = std::make_shared<FuncCallExpr>(funcName, std::move(args));
+  auto node = std::make_shared<FuncCallExprOrStructLiteral>(funcName, std::move(args));
   setLocationFromCtx(node, ctx);
   return expr_any(std::move(node));
 }

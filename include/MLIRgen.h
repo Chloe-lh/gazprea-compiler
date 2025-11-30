@@ -56,7 +56,7 @@ public:
 
     // Expressions / Operators
     void visit(ParenExpr* node) override;
-    void visit(FuncCallExpr* node) override;
+    void visit(FuncCallExprOrStructLiteral* node) override;
     void visit(UnaryExpr* node) override;   // unary+, unary-, not
     void visit(ExpExpr* node) override;     // ^
     void visit(MultExpr* node) override;    // *,/,%

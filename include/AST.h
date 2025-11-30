@@ -503,9 +503,8 @@ public:
   CallExprNode(const std::string &, std::vector<std::shared_ptr<ExprNode>>);
   void accept(ASTVisitor &v) override;
 };
-// Expression-style function call node (grammar: ID '(' expr* ')')
-// This preserves the older "FuncCallExpr" name used by the visitor API.
-class FuncCallExpr : public CallExprNode {
+// Expression-style function call OR struct literal node (grammar: ID '(' expr* ')')
+class FuncCallExprOrStructLiteral : public CallExprNode {
 public:
   using CallExprNode::CallExprNode; // inherit constructor
   void accept(ASTVisitor &v) override;
@@ -513,8 +512,10 @@ public:
 // can be used in statements
 class CallStatNode : public StatNode {
 public:
-  std::shared_ptr<FuncCallExpr> call; // wrapper around expression-style call
-  CallStatNode(std::shared_ptr<FuncCallExpr> c) : call(std::move(c)) {}
+  // Wrapper around expression-style call/struct literal expression node
+  std::shared_ptr<FuncCallExprOrStructLiteral> call;
+  explicit CallStatNode(std::shared_ptr<FuncCallExprOrStructLiteral> c)
+      : call(std::move(c)) {}
   void accept(ASTVisitor &v) override;
 };
 

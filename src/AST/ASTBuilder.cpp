@@ -396,7 +396,7 @@ std::any ASTBuilder::visitCallStat(GazpreaParser::CallStatContext *ctx) {
   auto args = collectArgs(*this, exprCtxs);
 
   // Build an expression-level call node and wrap it in a CallStatNode
-  auto callExpr = std::make_shared<FuncCallExpr>(funcName, std::move(args));
+  auto callExpr = std::make_shared<FuncCallExprOrStructLiteral>(funcName, std::move(args));
   auto node = std::make_shared<CallStatNode>(callExpr);
   setLocationFromCtx(node, ctx);
   return stat_any(std::move(node));

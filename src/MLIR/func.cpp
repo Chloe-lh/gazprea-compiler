@@ -60,12 +60,12 @@ void MLIRGen::visit(ProcedureBlockNode* node) {
 /*
 Handles both functions AND procedures when called as an expression.
 */
-void MLIRGen::visit(FuncCallExpr* node) {
+void MLIRGen::visit(FuncCallExprOrStructLiteral* node) {
     if (!currScope_) {
-        throw std::runtime_error("FuncCallExpr: no current scope");
+        throw std::runtime_error("FuncCallExprOrStructLiteral: no current scope");
     }
     if (!node) {
-        throw std::runtime_error("FuncCallExpr: null node");
+        throw std::runtime_error("FuncCallExprOrStructLiteral: null node");
     }
 
     // Evaluate argument expressions and collect their VarInfo
@@ -73,11 +73,11 @@ void MLIRGen::visit(FuncCallExpr* node) {
     argInfos.reserve(node->args.size());
     for (const auto &argExpr : node->args) {
         if (!argExpr) {
-            throw std::runtime_error("FuncCallExpr: null argument expression");
+            throw std::runtime_error("FuncCallExprOrStructLiteral: null argument expression");
         }
         argExpr->accept(*this);
         if (v_stack_.empty()) {
-            throw std::runtime_error("FuncCallExpr: argument evaluation did not produce a value");
+            throw std::runtime_error("FuncCallExprOrStructLiteral: argument evaluation did not produce a value");
         }
         VarInfo argInfo = popValue();
         argInfos.push_back(argInfo);
@@ -111,16 +111,16 @@ void MLIRGen::visit(FuncCallExpr* node) {
         }
 
         if (!procInfo) {
-            throw std::runtime_error("FuncCallExpr: callee '" + node->funcName + "' not found as function or procedure during codegen");
+            throw std::runtime_error("FuncCallExprOrStructLiteral: callee '" + node->funcName + "' not found as function or procedure during codegen");
         }
         // safety check - should not happen
         if (procInfo->procReturn.baseType == BaseType::UNKNOWN) {
-            throw std::runtime_error("FuncCallExpr: procedure '" + node->funcName + "' used as expression but has no return type (codegen)");
+            throw std::runtime_error("FuncCallExprOrStructLiteral: procedure '" + node->funcName + "' used as expression but has no return type (codegen)");
         }
     } else {
         // For functions, semantic analysis ensures a concrete return type.
         if (funcInfo->funcReturn.baseType == BaseType::UNKNOWN) {
-            throw std::runtime_error("FuncCallExpr: function '" + node->funcName + "' has UNKNOWN return type in codegen");
+            throw std::runtime_error("FuncCallExprOrStructLiteral: function '" + node->funcName + "' has UNKNOWN return type in codegen");
         }
     }
 
@@ -128,7 +128,7 @@ void MLIRGen::visit(FuncCallExpr* node) {
     mlir::func::FuncOp calleeFunc =
         module_.lookupSymbol<mlir::func::FuncOp>(node->funcName);
     if (!calleeFunc) {
-        throw std::runtime_error("FuncCallExpr: callee function '" + node->funcName + "' not found in module");
+        throw std::runtime_error("FuncCallExprOrStructLiteral: callee function '" + node->funcName + "' not found in module");
     }
 
     // Build argument values for MLIR call
@@ -146,7 +146,7 @@ void MLIRGen::visit(FuncCallExpr* node) {
             // tuple uses ptr to llvm struct repr
             if (!argInfo.value) {
                 throw std::runtime_error(
-                    "FuncCallExpr: tuple argument has no value");
+                    "FuncCallExprOrStructLiteral: tuple argument has no value");
             }
             if (!param.isConst) {           // var tuple, pass ptr in
                 callArgs.push_back(argInfo.value);
@@ -162,18 +162,18 @@ void MLIRGen::visit(FuncCallExpr* node) {
                 // Scalar var parameter: pass memref directly.
                 if (!argInfo.value) {
                     throw std::runtime_error(
-                        "FuncCallExpr: var parameter requires mutable argument (variable), but argument has no value");
+                        "FuncCallExprOrStructLiteral: var parameter requires mutable argument (variable), but argument has no value");
                 }
                 mlir::Type argType = argInfo.value.getType();
                 if (!argType.isa<mlir::MemRefType>()) {
                     throw std::runtime_error(
-                        "FuncCallExpr: var parameter requires mutable argument (variable) with memref type");
+                        "FuncCallExprOrStructLiteral: var parameter requires mutable argument (variable) with memref type");
                 }
                 callArgs.push_back(argInfo.value);
             } else {
                 // Const parameter: implicit promotion if needed (int->real)
                 if (!argInfo.value) {
-                    throw std::runtime_error("FuncCallExpr: argument has no value");
+                    throw std::runtime_error("FuncCallExprOrStructLiteral: argument has no value");
                 }
                 CompleteType targetType = param.type;
                 VarInfo argCopy = argInfo;
@@ -190,7 +190,7 @@ void MLIRGen::visit(FuncCallExpr* node) {
 
     auto funcType = calleeFunc.getFunctionType();
     if (funcType.getNumInputs() != callArgs.size()) {
-        throw std::runtime_error("FuncCallExpr: argument count mismatch for callee '" + node->funcName + "'");
+        throw std::runtime_error("FuncCallExprOrStructLiteral: argument count mismatch for callee '" + node->funcName + "'");
     }
 
     // Verify each argument type matches the function signature
@@ -200,12 +200,12 @@ void MLIRGen::visit(FuncCallExpr* node) {
         if (expectedType != actualType) {
             // If we land here, promoteType didn't produce the type expected by getFunctionType.
             // This shouldn't happen if promoteType works correctly for scalar types.
-            throw std::runtime_error("FuncCallExpr: type mismatch for argument " + std::to_string(i+1) + " in call to '" + node->funcName + "'");
+            throw std::runtime_error("FuncCallExprOrStructLiteral: type mismatch for argument " + std::to_string(i+1) + " in call to '" + node->funcName + "'");
         }
     }
 
     if (!builder_.getBlock()) {
-        throw std::runtime_error("FuncCallExpr: builder has no current block");
+        throw std::runtime_error("FuncCallExprOrStructLiteral: builder has no current block");
     }
 
     auto callOp =
@@ -213,11 +213,11 @@ void MLIRGen::visit(FuncCallExpr* node) {
 
     // Handle return value (must exist for expression use)
     if (funcType.getNumResults() == 0) {
-        throw std::runtime_error("FuncCallExpr: callee '" + node->funcName +
+        throw std::runtime_error("FuncCallExprOrStructLiteral: callee '" + node->funcName +
                                  "' used as expression but has no return value");
     }
     if (funcType.getNumResults() != 1) {
-        throw std::runtime_error("FuncCallExpr: multiple return values not supported for callee '" +
+        throw std::runtime_error("FuncCallExprOrStructLiteral: multiple return values not supported for callee '" +
                                  node->funcName + "'");
     }
 

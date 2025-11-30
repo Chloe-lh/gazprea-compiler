@@ -437,8 +437,8 @@ void ConstantFoldingVisitor::visit(TupleTypeAliasNode *node){}
         if (node->expr->constant.has_value()) node->constant = node->expr->constant;
     }
   }
-  //this handles constant folding for all functions
-void ConstantFoldingVisitor::visit(FuncCallExpr *node) {
+  // This handles constant folding for all function/struct-constructor calls
+void ConstantFoldingVisitor::visit(FuncCallExprOrStructLiteral *node) {
   // 1) Visit args so their .constant gets computed
   for (auto &a : node->args) if (a) a->accept(*this);
 
