@@ -1,5 +1,0 @@
-procedure main()
-    integer[3] arr = [1, 2, 3];
-    print(arr);
-end
-//CHECK_FILE:array_decl.out

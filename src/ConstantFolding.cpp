@@ -125,14 +125,12 @@ std::optional<ConstantValue> ConstantFoldingVisitor::lookup(const std::string &i
             return var->second;
         }
     }
-    std::cout << "No constant found for " << ident << std::endl;
     return std::nullopt;
 }
 
 void ConstantFoldingVisitor::setConstInCurrentScope(const std::string &ident, const ConstantValue &cv) {
     if (scopes_.empty()) pushScope();
     scopes_.back()[ident] = cv;
-    debugPrintScopes();
 }
 
 void ConstantFoldingVisitor::removeConst(const std::string &id) {

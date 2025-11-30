@@ -149,12 +149,9 @@ void SemanticAnalysisVisitor::visit(ArrayAccessExpr *node) {
     }
     // element type is the single subtype of the array
     if (baseType.subTypes.empty()) {
-        std::cout << toString(node->type);
         node->type = CompleteType(BaseType::UNKNOWN);
-        std::cout << toString(node->type);
     } else {
         node->type = baseType.subTypes[0];
-        std::cout << toString(node->type);
     }
 
     // If index is a compile-time integer literal and the array has a known size, check bounds

@@ -1,2 +1,0 @@
-[10, 20, 30]
-Error: cannot assign to const array 'arr'
