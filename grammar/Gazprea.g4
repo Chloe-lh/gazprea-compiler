@@ -70,7 +70,7 @@ type_alias
 
 expr
     : tuple_access                                      #TupleAccessExpr
-    | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr
+    | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr // Also used for struct_literal
     | PARENLEFT expr PARENRIGHT                         #ParenExpr
     | STRING_LIT                                       #StringExpr
     | <assoc=right>NOT expr                             #NotExpr
