@@ -77,7 +77,8 @@ type_alias
     ;
 
 expr
-    : tuple_access                                      #TupleAccessExpr // Also used for struct access
+    : tuple_access                                      #TupleAccessExpr 
+    | struct_access                                     #StructAccessExpr  
     | ID SQLEFT expr SQRIGHT                            #ArrayAccessExpr
     | ID SQLEFT rangeExpr SQRIGHT                       #ArraySliceExpr
     | ID BY expr                                        #ArrayStrideExpr
