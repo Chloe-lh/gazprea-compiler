@@ -1,4 +1,3 @@
-//CHECK_FILE:complex11.out
 
 // Tuple alias used with a loop and tuple reassignment.
 
@@ -34,3 +33,4 @@ procedure main() returns integer {
 
     return 0;
 }
+//CHECK_FILE:complex11.out

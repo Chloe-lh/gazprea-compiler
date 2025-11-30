@@ -1,4 +1,3 @@
-//CHECK_FILE:ifBlock.out
 
 procedure main() returns integer {
     integer x = 5;
@@ -15,3 +14,4 @@ procedure main() returns integer {
     }
     return 0;
 }
+//CHECK_FILE:ifBlock.out

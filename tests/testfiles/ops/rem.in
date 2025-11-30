@@ -1,7 +1,7 @@
-//CHECK_FILE:rem.out
 procedure main() returns integer {
     integer a = 17;
     integer b = 5;
     a % b -> std_output;
     return 0;
 }
+//CHECK_FILE:rem.out

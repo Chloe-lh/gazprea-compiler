@@ -1,4 +1,4 @@
-//CHECK_FILE:mainError.out
 procedure foo() returns integer {
     return 0;
 }
+//CHECK_FILE:mainError.out

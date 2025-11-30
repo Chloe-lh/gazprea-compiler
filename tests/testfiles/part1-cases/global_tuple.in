@@ -1,7 +1,7 @@
-//CHECK_FILE:./global_tuple.out
 const a = ('A', 'B');
 
 procedure main() returns integer {
     a.1 -> std_output;
     return 0;
 }
+//CHECK_FILE:./global_tuple.out

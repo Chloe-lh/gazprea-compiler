@@ -26,11 +26,6 @@ namespace gazprea {
     // Use ANTLR's 1-based token line directly. Tests and consumers expect
     // line numbers to match source file numbering where the first line is 1.
     int line = ctx->getStart()->getLine();
-  if (line <= 0){
-    line = 1;
-  }else{
-    --line;
-  }
     node->line = line;
   }
 

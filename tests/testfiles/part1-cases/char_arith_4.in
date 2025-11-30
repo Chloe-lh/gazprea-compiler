@@ -1,7 +1,7 @@
-//CHECK_FILE:./char_arith_4.out
 procedure main() returns integer {
     var character a = 'a';
     var character b = 'b';
     (a != b) == (a == b) -> std_output;
     return 0;
 }
+//CHECK_FILE:./char_arith_4.out

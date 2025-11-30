@@ -1,4 +1,3 @@
-//CHECK_FILE:./basic.out
 procedure main() returns integer {
     var integer x;
     var integer y;
@@ -18,3 +17,4 @@ procedure main() returns integer {
 
     return 0;
 }
+//CHECK_FILE:./basic.out

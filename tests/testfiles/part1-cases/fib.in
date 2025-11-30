@@ -1,4 +1,3 @@
-//CHECK_FILE:./fib.out
 function fib(integer n) returns integer{
     if(n < 2) {
         return n;
@@ -14,3 +13,4 @@ procedure main() returns integer{
 
     return 0;
 }
+//CHECK_FILE:./fib.out

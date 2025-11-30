@@ -1,4 +1,3 @@
-//CHECK_FILE:complex6.out
 
 // Nested loops, procedure calls, break and continue.
 
@@ -42,3 +41,4 @@ procedure main() returns integer {
     return 0;
 }
 
+//CHECK_FILE:complex6.out

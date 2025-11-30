@@ -1,7 +1,7 @@
-//CHECK_FILE:neg.out
 
 procedure main() returns integer {
     integer a = -5;
     a -> std_output;
     return 0;
 }
+//CHECK_FILE:neg.out

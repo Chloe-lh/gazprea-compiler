@@ -1,4 +1,3 @@
-//CHECK_FILE:./global.out
 function x() returns integer;
 
 procedure main() returns integer {
@@ -10,3 +9,4 @@ procedure main() returns integer {
 const y = 3;
 
 function x() returns integer = y;
+//CHECK_FILE:./global.out
