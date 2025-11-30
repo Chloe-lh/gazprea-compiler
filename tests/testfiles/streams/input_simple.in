@@ -1,8 +1,8 @@
-typealias int integer;
+typealias integer int;
 
 procedure main() returns int {
-    int x;
-    int y;
+    var int x;
+    var int y;
 
     "Enter one integer: " -> std_output;
     x <- std_input;
@@ -17,5 +17,5 @@ procedure main() returns int {
     return 0;
 }
 
-
+//INPUT:10
 //CHECK_FILE:input_simple.out
