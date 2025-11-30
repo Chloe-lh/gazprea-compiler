@@ -18,6 +18,7 @@ set(
     "${CMAKE_CURRENT_SOURCE_DIR}/AST/func.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/AST/ops.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/AST/tuple.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/AST/struct.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/AST/controlFlow.cpp"
 
     # MLIR lowering sources

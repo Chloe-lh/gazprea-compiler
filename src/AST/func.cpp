@@ -71,6 +71,11 @@ std::any ASTBuilder::visitFunctionBlockTupleReturn(
   return node_any(std::move(node));
 }
 
+std::any 
+ASTBuilder::visitFunctionBlockStructReturn(GazpreaParser::FunctionBlockStructReturnContext *ctx) {
+      throw std::runtime_error("visitFunctionBlockStructReturn: not implemented");
+}
+
 std::any ASTBuilder::visitProcedurePrototype(
     GazpreaParser::ProcedurePrototypeContext *ctx) {
   std::string procName = ctx->ID()->getText();
@@ -188,6 +193,13 @@ std::any ASTBuilder::visitFunctionPrototypeTupleReturn(
       setLocationFromCtx(node, ctx);
   return node_any(std::move(node));
 }
+
+std::any
+ASTBuilder::visitFunctionPrototypeStructReturn(
+    GazpreaParser::FunctionPrototypeStructReturnContext *ctx) {
+  throw std::runtime_error("visitFunctionPrototypeStructReturn: not implemented");
+}
+
 std::any
 ASTBuilder::visitFunctionStat(GazpreaParser::FunctionStatContext *ctx) {
   std::string funcName = ctx->ID(0)->getText();
