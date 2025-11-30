@@ -10,4 +10,5 @@ procedure main() returns integer {
   '\n' -> std_output;
   return 0;
 }
-//CHECK_FILE:./ret_promote.out
+
+//CHECK_FILE:ret_promote.out

@@ -1,0 +1,24 @@
+typealias integer int;
+typealias real float;
+typealias character char;
+
+procedure main() returns int {
+
+    var int x;
+    var char y;
+    var float z;
+
+    x <- std_input;
+    y <- std_input;
+    z <- std_input;
+
+    // Print all the inputs
+    x -> std_output;
+    y -> std_output;
+    z -> std_output;
+
+    return 0;
+}
+
+//CHECK_FILE:input_all.out
+//INPUT_FILE:input_all_file
