@@ -32,8 +32,8 @@ public:
   std::any visitBasicTypeAlias(
       gazprea::GazpreaParser::BasicTypeAliasContext *ctx) override;
   std::any visitType(gazprea::GazpreaParser::TypeContext *ctx) override;
-  std::any
-  visitQualifier(gazprea::GazpreaParser::QualifierContext *ctx) override;
+  std::any visitBuiltin_type(GazpreaParser::Builtin_typeContext *ctx) override;
+  std::any visitQualifier(gazprea::GazpreaParser::QualifierContext *ctx) override;
 
   // Statements
   std::any
@@ -127,5 +127,15 @@ public:
       gazprea::GazpreaParser::WhileLoopBlockContext *ctx) override;
   std::any
   visitLoopDefault(gazprea::GazpreaParser::LoopDefaultContext *ctx) override;
+  //Arrays
+  std::any visitArrayStrideExpr(GazpreaParser::ArrayStrideExprContext *ctx) override;
+  std::any visitArraySliceExpr(GazpreaParser::ArraySliceExprContext *ctx) override;
+  std::any visitArrayAccessExpr(gazprea::GazpreaParser::ArrayAccessExprContext *ctx) override;
+  std::any visitArrayLitExpr(gazprea::GazpreaParser::ArrayLitExprContext *ctx) override;
+//   std::any visitArrayTypedDec(gazprea::GazpreaParser::ArrayTypedDecContext *ctx) override ;
+//   std::any visitArrayType(gazprea::GazpreaParser::Array_typeContext *ctx) ;
+  std::any visitExprList(gazprea::GazpreaParser::ExprListContext *ctx) override;
+    std::any visitArray_literal(gazprea::GazpreaParser::Array_literalContext *ctx) override;
+  std::any visitRangeExpr(gazprea::GazpreaParser::RangeExprContext *ctx) override;
 };
 } // namespace gazprea

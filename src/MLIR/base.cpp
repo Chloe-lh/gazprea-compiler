@@ -1,3 +1,4 @@
+#include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
 
 MLIRGen::MLIRGen(BackEnd& backend)
@@ -46,12 +47,48 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<co
         auto mathErrorType = mlir::LLVM::LLVMFunctionType::get(voidTy, ptrTy, false);
         builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "MathError", mathErrorType);
     }
+    // Declarations for runtime input functions
+    auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+    auto voidTy = mlir::LLVM::LLVMVoidType::get(&context_);
+    auto i32Ty = builder_.getI32Type();
+    auto f32Ty = builder_.getF32Type();
+    auto i8Ty = builder_.getI8Type();
+    auto i1Ty = builder_.getI1Type();
+    
+    // readInt(int*)
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("readInt")) {
+        auto readIntType = mlir::LLVM::LLVMFunctionType::get(voidTy, ptrTy, false);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "readInt", readIntType);
+    }
+    // readReal(float*)
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("readReal")) {
+        auto readRealType = mlir::LLVM::LLVMFunctionType::get(voidTy, ptrTy, false);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "readReal", readRealType);
+    }
+    // readChar(char*)
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("readChar")) {
+        auto readCharType = mlir::LLVM::LLVMFunctionType::get(voidTy, ptrTy, false);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "readChar", readCharType);
+    }
+    // readBool(bool*)
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("readBool")) {
+        auto readBoolType = mlir::LLVM::LLVMFunctionType::get(voidTy, ptrTy, false);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "readBool", readBoolType);
+    }
     createGlobalStringIfMissing("%d\0", "intFormat");
     createGlobalStringIfMissing("%c\0", "charFormat");
     createGlobalStringIfMissing("%g\0", "floatFormat");
     createGlobalStringIfMissing("%s\0", "strFormat");
     createGlobalStringIfMissing("\n\0", "newline");
 }
+void MLIRGen::visit(ArrayStrideExpr *node)        { std::cout << "ArrayStrideExpr not implemented\n"; }
+void MLIRGen::visit(ArraySliceExpr *node)         { std::cout << "ArraySliceExpr not implemented\n"; }
+void MLIRGen::visit(ArrayAccessExpr *node)        { std::cout << "ArrayAccessExpr not implemented\n"; }
+void MLIRGen::visit(ArrayTypedDecNode *node)      { std::cout << "ArrayTypedDecNode not implemented\n"; }
+void MLIRGen::visit(ArrayTypeNode *node)          { std::cout << "ArrayTypeNode not implemented\n"; }
+void MLIRGen::visit(ExprListNode *node)           { std::cout << "ExprListNode not implemented\n"; }
+void MLIRGen::visit(ArrayLiteralNode *node)       { std::cout << "ArrayLiteralNode not implemented\n"; }
+void MLIRGen::visit(RangeExprNode *node)          { std::cout << "RangeExprNode not implemented\n"; }
 
 void MLIRGen::visit(FileNode* node) {
     // Initialize to semantic global scope (first child of root)

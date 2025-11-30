@@ -7,6 +7,7 @@
 #include <vector>
 #include <memory>
 #include <mlir/IR/Value.h>
+#include <optional>
 
 
 struct VarInfo {
@@ -15,6 +16,7 @@ struct VarInfo {
     bool isConst = false;
     bool isLValue = false;
     mlir::Value value = nullptr;
+    std::optional<int64_t> arraySize; // optional compile-time known size for arrays
 
     VarInfo(CompleteType completeType): type(completeType) {}
     VarInfo(std::string identifier, CompleteType completeType, bool isConst): identifier(identifier), type(completeType), isConst(isConst) {} // for part 1 compatability

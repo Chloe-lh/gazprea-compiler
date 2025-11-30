@@ -1,0 +1,9 @@
+//CHECK_FILE:simpleVectorDec.out
+
+procedure main() returns integer {
+    vector<character> emptyVec;
+    vector<boolean> boolVec;
+    vector<character> vec;
+
+    return 1;
+}

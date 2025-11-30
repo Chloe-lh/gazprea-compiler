@@ -1,7 +1,77 @@
+#include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
 
-// Not necessary. For part 2
-void MLIRGen::visit(InputStatNode* node) { throw std::runtime_error("InputStatNode not implemented"); }
+void MLIRGen::visit(InputStatNode* node) {
+    // Resolve the variable to read into
+    VarInfo* targetVar = currScope_->resolveVar(node->name, node->line);
+    if (!targetVar) {
+        throw SymbolError(node->line, "InputStat: variable '" + node->name + "' not found.");
+    }
+    
+    if (targetVar->isConst) {
+        throw AssignError(node->line, "InputStat: cannot read into const variable '" + node->name + "'.");
+    }
+    
+    // Ensure the variable has storage allocated
+    if (!targetVar->value) {
+        allocaVar(targetVar, node->line);
+    }
+    
+    // Get a pointer to the variable for the runtime function
+    mlir::Value varPtr;
+    if (targetVar->value.getType().isa<mlir::MemRefType>()) {
+        // For memref variables, extract the base pointer and convert to LLVM pointer
+        auto memrefType = targetVar->value.getType().cast<mlir::MemRefType>();
+        auto elemType = memrefType.getElementType();
+        auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+        
+        // Extract the base pointer from the memref descriptor
+        // This gets the actual pointer value from the memref
+        mlir::Value baseIndex = builder_.create<mlir::memref::ExtractAlignedPointerAsIndexOp>(
+            loc_, targetVar->value
+        );
+        
+        // Convert the index to an LLVM pointer
+        // Use IndexCastOp to convert index to pointer-sized integer, then cast to pointer
+        auto indexTy = builder_.getIndexType();
+        auto i64Ty = builder_.getI64Type();
+        mlir::Value ptrInt = builder_.create<mlir::arith::IndexCastOp>(
+            loc_, i64Ty, baseIndex
+        );
+        
+        // Convert integer to LLVM pointer
+        varPtr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptrTy, ptrInt);
+    } else {
+        // Already an LLVM pointer (e.g., for tuples)
+        varPtr = targetVar->value;
+    }
+    
+    // Determine which runtime function to call based on type
+    mlir::LLVM::LLVMFuncOp readFunc = nullptr;
+    switch (targetVar->type.baseType) {
+        case BaseType::INTEGER:
+            readFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("readInt");
+            break;
+        case BaseType::REAL:
+            readFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("readReal");
+            break;
+        case BaseType::CHARACTER:
+            readFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("readChar");
+            break;
+        case BaseType::BOOL:
+            readFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("readBool");
+            break;
+        default:
+            throw std::runtime_error("InputStat: unsupported type for input: " + toString(targetVar->type));
+    }
+    
+    if (!readFunc) {
+        throw std::runtime_error("InputStat: runtime function not found for type: " + toString(targetVar->type));
+    }
+    
+    // Call the runtime function with the variable pointer
+    builder_.create<mlir::LLVM::CallOp>(loc_, readFunc, mlir::ValueRange{varPtr});
+}
 
 void MLIRGen::visit(OutputStatNode* node) {
     

@@ -66,6 +66,15 @@ public:
   void visit(RealNode *node) override;
   void visit(StringNode *node) override;
 
+  void visit(ArrayStrideExpr *node) override;
+  void visit(ArraySliceExpr *node)override;
+  void visit(ArrayAccessExpr *node) override;
+  void visit(ArrayTypedDecNode *node) override;
+  void visit(ArrayTypeNode *node)override;
+  void visit(ExprListNode *node) override;
+  void visit(ArrayLiteralNode *node) override;
+  void visit(RangeExprNode *node) override;
+
 private:
   // stack of lexical scopes mapping identifier -> ConstantValue
   std::vector<std::unordered_map<std::string, ConstantValue>> scopes_;

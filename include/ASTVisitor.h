@@ -66,4 +66,12 @@ public:
   virtual void visit(TupleTypeCastNode *node) = 0;
   virtual void visit(RealNode *node) = 0;
   virtual void visit(StringNode *node) = 0;
+  virtual void visit(ArrayStrideExpr *node) = 0;
+  virtual void visit(ArraySliceExpr *node)= 0;
+  virtual void visit(ArrayAccessExpr *node) = 0;
+  virtual void visit(ArrayTypedDecNode *node) = 0;
+  virtual void visit(ArrayTypeNode *node) =0;
+  virtual void visit(ExprListNode *node) = 0;
+  virtual void visit(ArrayLiteralNode *node) = 0;
+  virtual void visit(RangeExprNode *node) = 0;
 };

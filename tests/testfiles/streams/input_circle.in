@@ -1,0 +1,26 @@
+typealias integer int;
+
+procedure main() returns int {
+
+    var real radius;
+    const real pi = 3.14159265359;
+    var real area;
+    var real circumference;
+
+    "Enter your circle's radius: " -> std_output;
+    radius <- std_input;
+
+    area = pi * radius ^ 2;
+    circumference = 2 * pi * radius;
+    "Your circle's area is " -> std_output;
+    area -> std_output;
+    "\n" -> std_output;
+    "Your circle's circumference is " -> std_output;
+    circumference -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+
+//CHECK_FILE:input_circle.out
+//INPUT:2

@@ -82,6 +82,16 @@ public:
     void visit(StringNode* node) override;
     void visit(TupleLiteralNode* node) override;
 
+    // arrays
+    void visit(ArrayStrideExpr *node) override;
+    void visit(ArraySliceExpr *node) override;
+    void visit(ArrayAccessExpr *node) override;
+    void visit(ArrayTypedDecNode *node) override;
+    void visit(ArrayTypeNode *node) override;
+    void visit(ExprListNode *node) override;
+    void visit(ArrayLiteralNode *node) override;
+    void visit(RangeExprNode *node) override;
+
     // helpers
     void assignTo(VarInfo* literal, VarInfo* variable, int line);
     void allocaLiteral(VarInfo* varInfo, int line);
