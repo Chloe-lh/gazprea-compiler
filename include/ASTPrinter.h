@@ -73,6 +73,18 @@ public:
   void visit(RealNode *node) override;
   void visit(StringNode *node) override;
 
+  // Array & Range Expressions
+  void visit(ArrayStrideExpr *node) override;
+  void visit(ArraySliceExpr *node) override;
+  void visit(ArrayAccessExpr *node) override;
+  void visit(ArrayTypedDecNode *node) override;
+  void visit(ArrayTypeNode *node) override;
+  void visit(ExprListNode *node) override;
+  void visit(ArrayLiteralNode *node) override;
+  void visit(RangeExprNode *node) override;
+
+  
+
 private:
   std::ostream &out;
   int indent = 0;

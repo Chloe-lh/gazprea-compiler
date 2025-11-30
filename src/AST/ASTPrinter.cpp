@@ -42,6 +42,157 @@ void ASTPrinter::visit(BlockNode *node) {
   }
   indent--;
 }
+void ASTPrinter::visit(ArrayStrideExpr *node){
+  printTreeLine("ArrayStrideExpr", "id: " + node->id);
+  indent++;
+  pushChildContext(true);
+  printTreeLine("StrideExpr");
+  indent++;
+  pushChildContext(true);
+  if (node->expr) node->expr->accept(*this);
+  else printTreeLine("<null>");
+  popChildContext();
+  indent--;
+  popChildContext();
+  indent--;
+}
+void ASTPrinter::visit(ArraySliceExpr *node) { 
+  printTreeLine("ArraySliceExpr", "id: " + node->id);
+  indent++;
+  pushChildContext(true);
+  printTreeLine("Range");
+  indent++;
+  pushChildContext(true);
+  if (node->range) node->range->accept(*this);
+  else printTreeLine("<null>");
+  popChildContext();
+  indent--;
+  popChildContext();
+  indent--;
+}
+void ASTPrinter::visit(ArrayAccessExpr *node) { 
+  printTreeLine("ArrayAccessExpr", "id: " + node->id);
+  indent++;
+  pushChildContext(true);
+  printTreeLine("IndexExpr");
+  indent++;
+  pushChildContext(true);
+  if (node->expr) node->expr->accept(*this);
+  else printTreeLine("<null>");
+  popChildContext();
+  indent--;
+  popChildContext();
+  indent--;
+}
+void ASTPrinter::visit(ArrayTypedDecNode *node) {
+  if (!node) { printTreeLine("ArrayTypedDecNode", "<null>"); return; }
+  printTreeLine("ArrayTypedDecNode", "name: " + node->id + ", qualifier: " + (node->qualifier.empty() ? std::string("const") : node->qualifier));
+  indent++;
+  // pushChildContext(node->init == nullptr);
+  if (node->typeInfo){
+    node->typeInfo->accept(*this);
+  }else{
+    printTreeLine("<null type>");
+  }
+  popChildContext();
+
+  if (node->init) {
+    pushChildContext(true);
+    indent++;
+    pushChildContext(true);
+    node->init->accept(*this);
+    popChildContext();
+    indent--;
+    popChildContext();
+  } else {
+    printTreeLine("<null init>");
+  }
+
+  indent--;
+}
+void ASTPrinter::visit(ArrayTypeNode *node) {
+  if (!node) { printTreeLine("ArrayTypeNode"); return; }
+  std::string details = "element: " + toString(node->elementType);
+  // Include resolved dims info (if any) in the summary
+  if (!node->resolvedDims.empty()) {
+    details += " (dims:";
+    for (size_t i = 0; i < node->resolvedDims.size(); ++i) {
+      if (i) details += ",";
+      if (node->resolvedDims[i].has_value()) details += std::to_string(*node->resolvedDims[i]);
+      else details += "?";
+    }
+    details += ")";
+  }
+
+  printTreeLine("ArrayTypeNode", details);
+  indent++;
+
+  // Print each dimension's size expression (or wildcard)
+  for (size_t i = 0; i < node->sizeExprs.size(); ++i) {
+    bool isLast = (i + 1 == node->sizeExprs.size());
+    pushChildContext(isLast);
+    std::string dimLabel = "Dimension " + std::to_string(i);
+    // If there is no size expression (wildcard '*')
+    if (!node->sizeExprs[i]) {
+      printTreeLine(dimLabel, "*");
+    } else {
+      printTreeLine(dimLabel);
+      indent++;
+      pushChildContext(true);
+      node->sizeExprs[i]->accept(*this);
+      popChildContext();
+      indent--;
+    }
+    popChildContext();
+  }
+
+  indent--;
+}
+void ASTPrinter::visit(ExprListNode *node) {
+  printTreeLine("ExprListNode");
+  indent++;
+  for (size_t i = 0; i < node->list.size(); ++i) {
+    pushChildContext(i == node->list.size() - 1);
+    if (node->list[i]) node->list[i]->accept(*this);
+    else printTreeLine("<null>");
+    popChildContext();
+  }
+  indent--;
+}
+void ASTPrinter::visit(ArrayLiteralNode *node) {
+  printTreeLine("ArrayLiteralNode");
+  indent++;
+  pushChildContext(true);
+  if (node->list) node->list->accept(*this);
+  else printTreeLine("<empty>");
+  popChildContext();
+  indent--;
+}
+void ASTPrinter::visit(RangeExprNode *node) {
+  printTreeLine("RangeExprNode");
+  indent++;
+  if (node->start) {
+    pushChildContext(node->end == nullptr);
+    printTreeLine("Start");
+    indent++;
+    pushChildContext(true);
+    node->start->accept(*this);
+    popChildContext();
+    indent--;
+    popChildContext();
+  }
+  if (node->end) {
+    pushChildContext(true);
+    printTreeLine("End");
+    indent++;
+    pushChildContext(true);
+    node->end->accept(*this);
+    popChildContext();
+    indent--;
+    popChildContext();
+  }
+  indent--;
+}
 
 void ASTPrinter::visit(IfNode *node) {
   printTreeLine("IfNode");
@@ -270,7 +421,6 @@ void ASTPrinter::visit(TypedDecNode *node) {
 
   if (node->init) {
     pushChildContext(true);
-    printTreeLine("Initializer");
     indent++;
     pushChildContext(true);
     node->init->accept(*this);

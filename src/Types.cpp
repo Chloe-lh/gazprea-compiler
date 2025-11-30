@@ -203,13 +203,82 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
             }
             break;
         case BaseType::ARRAY:
+            if (from.subTypes.size() != 1) {
+                throw std::runtime_error(
+                    "promote(): from array with subtype len " +
+                    std::to_string(from.subTypes.size()));
+            }
+
             switch (to.baseType) {
-                case BaseType::ARRAY:      return BaseType::ARRAY;    // only valid if same len
+                case BaseType::ARRAY: {
+                    // TODO: Add len checks
+                    if (to.subTypes.size() != 1) {
+                        throw std::runtime_error(
+                            "promote(): to array with subtype len " +
+                            std::to_string(to.subTypes.size()));
+                    }
+
+                    CompleteType result(BaseType::ARRAY);
+                    CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
+
+                    result.subTypes.push_back(subtypeResult);
+
+                    return result;
+                }
+
+                case BaseType::VECTOR: {
+
+                    if (to.subTypes.size() != 1) {
+                        throw std::runtime_error(
+                            "promote(): to vector with subtype len " +
+                            std::to_string(to.subTypes.size()));
+                    }
+
+                    CompleteType result(BaseType::VECTOR);
+                    CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
+
+                    result.subTypes.push_back(subtypeResult);
+
+                    return result;
+                }
             }
             break;
         case BaseType::VECTOR:
+            if (from.subTypes.size() != 1) {
+                throw std::runtime_error(
+                    "promote(): from vector with subtype len " +
+                    std::to_string(from.subTypes.size()));
+            }
+
             switch (to.baseType) {
-                case BaseType::VECTOR:     return BaseType::VECTOR;
+                case BaseType::VECTOR: {
+                    if (to.subTypes.size() != 1) {
+                        throw std::runtime_error(
+                            "promote(): to vector with subtype len " +
+                            std::to_string(to.subTypes.size()));
+                    }
+
+                    CompleteType result(BaseType::VECTOR);
+                    CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
+
+                    result.subTypes.push_back(subtypeResult);
+
+                    return result;
+                }
+                case BaseType::ARRAY: {
+                    if (to.subTypes.size() != 1) {
+                        throw std::runtime_error(
+                            "promote(): to array with subtype len " +
+                            std::to_string(to.subTypes.size()));
+                    }
+
+                    CompleteType result(BaseType::ARRAY);
+                    CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
+
+                    result.subTypes.push_back(subtypeResult);
+
+                    return result;
+                }
             }
             break;
         case BaseType::MATRIX:

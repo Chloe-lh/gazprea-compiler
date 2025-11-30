@@ -20,12 +20,11 @@ build/
 tests/maks-testfiles/
 tests/fake-output/
 
+# chloe env
 CIConfig.json
 .vscode
-gaz
-gaz.ll
-gaz.o
-compile_command.json
+compile_commands.json
+temp/
 
 # Ignore maks' config for dragon runner
 tests/GazpreaCompileConfigLocalMaks.json

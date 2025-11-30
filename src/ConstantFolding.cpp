@@ -1,5 +1,6 @@
 #include "ConstantFolding.h"
 #include "AST.h"
+#include "CompileTimeExceptions.h"
 #include "Types.h"
 #include <algorithm>
 #include <cstdio>
@@ -100,7 +101,7 @@ static std::optional<ConstantValue> foldBinaryArithmetic(const ConstantValue &L,
         return std::nullopt;
     }
 
-    // TODO add support for booleans
+    // TODO add support for booleans?
     return std::nullopt;
 }
 /*SCOPING
@@ -124,14 +125,12 @@ std::optional<ConstantValue> ConstantFoldingVisitor::lookup(const std::string &i
             return var->second;
         }
     }
-    std::cout << "No constant found for " << ident << std::endl;
     return std::nullopt;
 }
 
 void ConstantFoldingVisitor::setConstInCurrentScope(const std::string &ident, const ConstantValue &cv) {
     if (scopes_.empty()) pushScope();
     scopes_.back()[ident] = cv;
-    debugPrintScopes();
 }
 
 void ConstantFoldingVisitor::removeConst(const std::string &id) {
@@ -157,7 +156,122 @@ void ConstantFoldingVisitor::visit(FileNode *node){
     }
     popScope();
 }
+void ConstantFoldingVisitor::visit(ArrayStrideExpr *node) {}
+void ConstantFoldingVisitor::visit(ArraySliceExpr *node) {}
+void ConstantFoldingVisitor::visit(ArrayAccessExpr *node) {
+    // fold index first
+    if (node->expr) node->expr->accept(*this);
 
+    // lookup array constant
+    auto arrConstOpt = lookup(node->id);
+    if (!arrConstOpt.has_value()) return;
+    const ConstantValue &arrCv = arrConstOpt.value();
+
+    // must be an array
+    if (arrCv.type.baseType != BaseType::ARRAY) return;
+
+    // index must be constant
+    if (!node->expr || !node->expr->constant.has_value()) return;
+    const ConstantValue &idxCv = node->expr->constant.value();
+
+    if (idxCv.type.baseType != BaseType::INTEGER) return;
+
+    // indexing is 1-based
+    int64_t idx = std::get<int64_t>(idxCv.value);
+    if (idx <= 0) 
+        throw LiteralError(node->line, "Index out of range in compile-time array access");
+
+    size_t pos = static_cast<size_t>(idx - 1);
+
+    auto &vec = std::get<std::vector<ConstantValue>>(arrCv.value);
+
+    if (pos >= vec.size()) 
+        throw LiteralError(node->line, "Index out of range in compile-time array access");
+
+    // assign constant
+    node->constant = vec[pos];
+
+    // assign the *element type*, not ARRAY
+    node->type = vec[pos].type;
+}
+
+void ConstantFoldingVisitor::visit(ArrayTypedDecNode *node) { // resolve size from init if available
+    // Type node stores resolved size (declared size)
+    // if (node->arrayType) node->arrayType->accept(*this);
+
+    // If we have an initializer literal, derive its length and compare to any
+    // already-resolved declared size. If they differ, report a compile-time
+    // SizeError so the user gets a clear diagnostic during folding.
+    // if (node->init && node->init->lit) {
+    //     auto lit = node->init->lit;
+    //     if (lit->list) {
+    //         int64_t len = static_cast<int64_t>(lit->list->list.size());
+    //         if (node->arrayType && node->arrayType->resolvedSize.has_value()) {
+    //             if (node->arrayType->resolvedSize.value() != len) {
+    //                 throw SizeError(node->line, "Semantic Analysis: declared array size does not match initializer length.");
+    //             }
+    //         } else {
+    //             if (node->arrayType) node->arrayType->resolvedSize = len;
+    //         }
+    //     }
+    // }
+}
+void ConstantFoldingVisitor::visit(ArrayTypeNode *node) {
+    // if(!node->isOpen){ // int expr
+    //     node->sizeExpr->accept(*this);
+    //     if(node->sizeExpr->constant.has_value() && node->sizeExpr->constant->type.baseType == BaseType::INTEGER){
+    //         int64_t v = std::get<int64_t>(node->sizeExpr->constant->value);
+    //         node->resolvedSize = v;
+    //     }
+    // }
+}
+void ConstantFoldingVisitor::visit(ExprListNode *node) {
+    if(!node) return;
+    if(!node->list.empty()){
+        for(auto &e : node->list){
+            e->accept(*this);
+        }
+    }
+}
+void ConstantFoldingVisitor::visit(ArrayLiteralNode *node) {
+    if (!node) return;
+    if (!node->list || node->list->list.empty()) {
+        node->type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{CompleteType(BaseType::UNKNOWN)});
+        // optionally set node->constant to an empty-array ConstantValue
+        return;
+    }
+
+    std::vector<ConstantValue> elems;
+    bool allConst = true;
+    for (auto &e : node->list->list) {
+        if (e) e->accept(*this);
+        if (!e || !e->constant.has_value()) { allConst = false; break; }
+        elems.push_back(e->constant.value());
+    }
+
+    // compute common element type using promotion only if all elements constant
+    if (allConst) {
+        CompleteType common = elems[0].type;
+        for (size_t i = 1; i < elems.size(); ++i) {
+            CompleteType et = elems[i].type;
+            CompleteType promoted = promote(et, common);
+            if (promoted.baseType == BaseType::UNKNOWN) promoted = promote(common, et);
+            if (promoted.baseType == BaseType::UNKNOWN) {
+                throw LiteralError(node->line, "Semantic Analysis: incompatible element types in array literal.");
+            }
+            common = promoted;
+        }
+        ConstantValue cv;
+        cv.type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{common});
+        cv.value = elems;
+        node->constant = cv;
+        node->type = cv.type; // keep AST type consistent
+    } else {
+        // still set node->type via semantic later; optionally set array<UNKNOWN>
+        node->type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{CompleteType(BaseType::UNKNOWN)});
+    }
+}
+void ConstantFoldingVisitor::visit(RangeExprNode *node) {}
 // Functions
 void ConstantFoldingVisitor::visit(FuncStatNode *node){ 
     pushScope();
