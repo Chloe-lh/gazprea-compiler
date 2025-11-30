@@ -24,25 +24,24 @@ std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
       // Try casting to ASTNode first
       try {
         node = std::any_cast<std::shared_ptr<ASTNode>>(anyNode);
-        setLocationFromCtx(node, ctx);
       } catch (const std::bad_any_cast &) {
         // Try casting to StatNode and upcast
-        try {
+          try {
           auto statNode = std::any_cast<std::shared_ptr<StatNode>>(anyNode);
           node = std::static_pointer_cast<ASTNode>(statNode);
-          setLocationFromCtx(node, ctx);
+          // setLocationFromCtx(node, ctx);
         } catch (const std::bad_any_cast &) {
           // Try casting to DecNode and upcast
           try {
             auto decNode = std::any_cast<std::shared_ptr<DecNode>>(anyNode);
             node = std::static_pointer_cast<ASTNode>(decNode);
-            setLocationFromCtx(node, ctx);
+            // setLocationFromCtx(node, ctx);
           } catch (const std::bad_any_cast &) {
             // Try casting to ExprNode and upcast (unlikely but possible)
-            try {
+              try {
               auto exprNode = std::any_cast<std::shared_ptr<ExprNode>>(anyNode);
               node = std::static_pointer_cast<ASTNode>(exprNode);
-              setLocationFromCtx(node, ctx);
+              // setLocationFromCtx(node, ctx);
             } catch (const std::bad_any_cast &) {
               // Skip invalid node
             }

@@ -108,6 +108,8 @@ ProcInfo* Scope::resolveProc(const std::string& identifier, const std::vector<Va
     if (parent_ != nullptr) {
         return parent_->resolveProc(identifier, callParams, line);
     }
+    // check for repeated procedure name
+    
     throw SymbolError(line, "Semantic Analysis: Procedure '" + identifier + "' not defined.");
 }
 
