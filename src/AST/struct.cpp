@@ -62,14 +62,12 @@ namespace gazprea {
     std::vector<CompleteType> elemTypes;
     std::vector<std::string> fieldNames;
 
-    if (elemTypes.size() + 1 != ctx->ID().size()) throw std::runtime_error("ASTBuilder::visitStructTypedDec: Mismatched len of IDs and types.");
+    if (ctx->type().size() + 1 != ctx->ID().size()) throw std::runtime_error("ASTBuilder::visitStructTypedDec: Mismatched len of IDs and types.");
 
     for (size_t i = 0; i < ctx->type().size(); i++) {
         auto anyType = visit(ctx->type(i));
         elemTypes.push_back(std::any_cast<CompleteType>(anyType));
-
-        auto anyName = visit(ctx->ID(i + 1)); // first ID reserved for struct name
-        fieldNames.push_back(std::any_cast<std::string>(anyName));
+        fieldNames.push_back(ctx->ID(i + 1)->getText());
     }
 
     // Capture the struct's declared name so semantic analysis can
