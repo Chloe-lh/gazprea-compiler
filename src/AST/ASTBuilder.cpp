@@ -308,9 +308,13 @@ std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
     return CompleteType(BaseType::REAL);
   if (ctx->CHARACTER())
     return CompleteType(BaseType::CHARACTER);
+  if (ctx->tuple_dec()) 
+    return visit(ctx->tuple_dec());
+  if (ctx->struct_dec())
+    return visit(ctx->struct_dec());
 
   throw std::runtime_error(
-      "ASTBuilder::visitType: FATAL: Type" + ctx->type()->getText() + "with no known case.");
+      "ASTBuilder::visitType: FATAL: Type ctx '" + ctx->getText() + "' with no known case.");
 }
 std::any
 ASTBuilder::visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) {
