@@ -133,8 +133,7 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
     */
     switch(from.baseType) {
         case BaseType::UNKNOWN:
-            return BaseType::UNKNOWN;
-            break;
+            return CompleteType(BaseType::UNKNOWN);
         case BaseType::BOOL:
             switch(to.baseType) {
                 case BaseType::BOOL:       return BaseType::BOOL;
@@ -143,11 +142,13 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                 case BaseType::ARRAY:      return BaseType::ARRAY;
                 case BaseType::VECTOR:     return BaseType::VECTOR; 
                 case BaseType::MATRIX:     return BaseType::MATRIX;
+                default: break;
             }
             break;
         case BaseType::CHARACTER:
             switch (to.baseType) {
                 case BaseType::CHARACTER:  return BaseType::CHARACTER; 
+                default: break;
             }
             break;
         case BaseType::INTEGER:
@@ -159,6 +160,7 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                 case BaseType::ARRAY:      return BaseType::ARRAY;
                 case BaseType::VECTOR:     return BaseType::VECTOR; 
                 case BaseType::MATRIX:     return BaseType::MATRIX;
+                default: break;
             }
             break;
         case BaseType::REAL:
@@ -169,6 +171,7 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                 case BaseType::ARRAY:      return BaseType::ARRAY;
                 case BaseType::VECTOR:     return BaseType::VECTOR; 
                 case BaseType::MATRIX:     return BaseType::MATRIX;
+                default: break;
             }
             break;
        case BaseType::TUPLE:
@@ -190,11 +193,13 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                     }
                     return result;
                 }
+                default: break;
             }
             break;
         case BaseType::STRING:
             switch (to.baseType) {
-                case BaseType::STRING:     return BaseType::STRING;   // not the same as vector<char>. 
+                case BaseType::STRING:     return BaseType::STRING;   // not the same as vector<char>.
+                default: break;
             }
             break;
         case BaseType::STRUCT:
@@ -212,6 +217,7 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                     }
                     return result;
                 }
+                default: break;
             }
             break;
         case BaseType::ARRAY:
@@ -253,6 +259,7 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
 
                     return result;
                 }
+                default: break;
             }
             break;
         case BaseType::VECTOR:
@@ -291,15 +298,20 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
 
                     return result;
                 }
+                default: break;
             }
             break;
         case BaseType::MATRIX:
             switch (to.baseType) {
                 case BaseType::MATRIX:     return BaseType::MATRIX;   // only valid if same len - special case with multiplication.
+                default: break;
             }
             break;
+        case BaseType::UNRESOLVED:
+            throw std::runtime_error("Types::Promote: UNRESOLVED Type found");
+            break;
     }
-    return BaseType::UNKNOWN;
+    return CompleteType(BaseType::UNKNOWN);
 }
 
 void validateSubtypes(CompleteType completeType) {
