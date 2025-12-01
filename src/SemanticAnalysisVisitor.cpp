@@ -771,18 +771,15 @@ void SemanticAnalysisVisitor::visit(StructTypedDecNode* node) {
             node->qualifier + "'.");
     }
 
-    // If the struct was given a name in the declaration (via struct_dec),
-    // record it as a named struct type so it can be used later (e.g., `AType a;`).
-    if (!structType.aliasName.empty()) {
-        try {
-            current_->declareStructType(structType.aliasName, structType, node->line);
-        } catch (const CompileTimeException &) {
-            // Re-throw with a clearer message for duplicate struct type names.
-            throw SymbolError(node->line,
-                              "Semantic Analysis: Re-declaring existing struct type '" +
-                                  structType.aliasName + "'.");
-        }
-    } else throw std::runtime_error("SemanticAnalysis->StructTypedDecNode: Struct not provided alias name.");
+    // Declare struct name and save as alias to be used later
+    try {
+        current_->declareStructType(structType.aliasName, structType, node->line);
+    } catch (const CompileTimeException &) {
+        // Re-throw with a clearer message for duplicate struct type names.
+        throw SymbolError(node->line,
+                            "Semantic Analysis: Re-declaring existing struct type '" +
+                                structType.aliasName + "'.");
+    }
 
 
     // visit initializer once struct type declared

@@ -111,6 +111,11 @@ void Scope::declareStructType(const std::string& identifier, const CompleteType&
         throw SymbolError(line, "Semantic Analysis: Struct type '" + identifier + "' cannot be redeclared in the same scope.");
     }
 
+    for (const auto& subType: type.subTypes) {
+        if (subType.baseType == BaseType::STRUCT) throw TypeError(line, "Struct '" + identifier + "' cannot contain other struct types.");
+        if (subType.baseType == BaseType::TUPLE) throw TypeError(line, "Struct '" + identifier + "' cannot contain tuple types.");
+    }
+
     structTypesByName_.emplace(identifier, type);
 }
 
