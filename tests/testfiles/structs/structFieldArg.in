@@ -12,4 +12,4 @@ procedure main() returns integer {
     return 0;
 }
 
-
+//CHECK_FILE:structFieldArg.out

@@ -20,3 +20,5 @@ procedure main() returns integer {
     return 0;
 }
 
+//CHECK_FILE:structAssign.out
+
