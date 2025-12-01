@@ -223,6 +223,10 @@ TupleTypeAliasNode::TupleTypeAliasNode(const std::string &aliasName,
   this->type = tupleType;
 }
 
+StructAccessNode::StructAccessNode(const std::string &structName,
+                                   const std::string &memberName)
+    : structName(structName), memberName(memberName) {}
+
 TupleLiteralNode::TupleLiteralNode(
     std::vector<std::shared_ptr<ExprNode>> elements)
     : elements(std::move(elements)) {}

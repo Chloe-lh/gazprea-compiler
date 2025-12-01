@@ -593,6 +593,15 @@ public:
   void accept(ASTVisitor &visitor) override;
 };
 
+class StructAccessNode : public ExprNode {
+public:
+  std::string structName;
+  std::string memberName;
+  StructAccessNode(const std::string &structName, const std::string &memberName);
+  void accept(ASTVisitor &visitor) override;
+};
+
+
 class TupleLiteralNode : public ExprNode {
 public:
   std::vector<std::shared_ptr<ExprNode>> elements;

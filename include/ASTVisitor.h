@@ -60,6 +60,7 @@ public:
   virtual void visit(IdNode *node) = 0;
   virtual void visit(TupleLiteralNode *node) = 0;
   virtual void visit(TupleAccessNode *node) = 0;
+  virtual void visit(StructAccessNode *node) = 0;
   virtual void visit(TypeCastNode *node) = 0;
   virtual void visit(TupleTypeCastNode *node) = 0;
   virtual void visit(RealNode *node) = 0;

@@ -48,6 +48,16 @@ namespace gazprea {
     return node_any(std::move(node));
     }
 
+    std::any ASTBuilder::visitStructAccessExpr(GazpreaParser::StructAccessExprContext *ctx) {
+        auto sa = ctx->struct_access();
+        std::string structName = sa->ID(0)->getText();
+        std::string fieldName = sa->ID(1)->getText();
+
+        auto node = std::make_shared<StructAccessNode>(structName, fieldName);
+        setLocationFromCtx(node, ctx);
+        return expr_any(std::move(node));
+    }
+
     std::any ASTBuilder::visitStruct_dec(GazpreaParser::Struct_decContext *ctx) {
     std::vector<CompleteType> elemTypes;
     for (auto typeCtx : ctx->type()) {

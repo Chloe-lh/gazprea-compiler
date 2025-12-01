@@ -117,6 +117,7 @@ public:
   visitTupleTypeCastExpr(GazpreaParser::TupleTypeCastExprContext *ctx) override;
 
   // Struc support
+  std::any visitStructAccessExpr(gazprea::GazpreaParser::StructAccessExprContext *ctx) override;
   std::any visitStruct_dec(gazprea::GazpreaParser::Struct_decContext *ctx) override;
 
 
