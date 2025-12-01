@@ -60,19 +60,24 @@ namespace gazprea {
 
     std::any ASTBuilder::visitStruct_dec(GazpreaParser::Struct_decContext *ctx) {
     std::vector<CompleteType> elemTypes;
-    for (auto typeCtx : ctx->type()) {
-        auto anyType = visit(typeCtx);
+    std::vector<std::string> fieldNames;
+
+    if (elemTypes.size() + 1 != ctx->ID().size()) throw std::runtime_error("ASTBuilder::visitStructTypedDec: Mismatched len of IDs and types.");
+
+    for (size_t i = 0; i < ctx->type().size(); i++) {
+        auto anyType = visit(ctx->type(i));
         elemTypes.push_back(std::any_cast<CompleteType>(anyType));
+
+        auto anyName = visit(ctx->ID(i + 1)); // first ID reserved for struct name
+        fieldNames.push_back(std::any_cast<std::string>(anyName));
     }
 
     // Capture the struct's declared name so semantic analysis can
     // register a named struct type (e.g., for use in `var Name x;`).
-    std::string structName;
-    if (!ctx->ID().empty()) {
-        structName = ctx->ID(0)->getText();
-    }
+    std::string structName = ctx->ID(0)->getText();
     CompleteType structType(BaseType::STRUCT, std::move(elemTypes));
     structType.aliasName = structName;
+    structType.fieldNames = std::move(fieldNames); // save struct members
     return structType;
     } 
 }
