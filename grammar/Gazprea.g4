@@ -68,9 +68,9 @@ size
   ;
 
 type_alias
-    : TYPEALIAS type ID END   #BasicTypeAlias
-    | TYPEALIAS tuple_dec ID END  #TupleTypeAlias
+    : TYPEALIAS tuple_dec ID END  #TupleTypeAlias
     | TYPEALIAS struct_dec ID END #StructTypeAlias
+    | TYPEALIAS type ID END   #BasicTypeAlias
     ;
 
 expr
