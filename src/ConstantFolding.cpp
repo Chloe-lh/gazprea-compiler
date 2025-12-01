@@ -730,6 +730,11 @@ void ConstantFoldingVisitor::visit(OrExpr *node){
     auto v = lookup(node->id);
     if(v.has_value()) { node->constant = v.value(); }
   }
+
+void ConstantFoldingVisitor::visit(StructAccessNode *node) {
+    // Do nothing
+}
+
   void ConstantFoldingVisitor::visit(TupleLiteralNode *node){ 
     for(auto &e: node->elements){
     if(e) e->accept(*this);} //this is will set each elements .constant

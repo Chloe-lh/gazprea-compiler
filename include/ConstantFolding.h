@@ -59,6 +59,7 @@ public:
   void visit(CharNode *node) override;
   void visit(IntNode *node) override;
   void visit(IdNode *node) override;
+  void visit(StructAccessNode *node) override;
   void visit(TupleLiteralNode *node) override;
   void visit(TupleAccessNode *node) override;
   void visit(TypeCastNode *node) override;

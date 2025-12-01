@@ -409,6 +409,10 @@ void ASTPrinter::visit(StringNode *node) {
 
 void ASTPrinter::visit(IdNode *node) { printTreeLine("IdNode", node->id); }
 
+void ASTPrinter::visit(StructAccessNode *node) {
+  printTreeLine("StructAccessNode", "name: " + node->structName + ", field: " + node->fieldName);
+}
+
 void ASTPrinter::visit(TypedDecNode *node) {
   printTreeLine("TypedDecNode", "name: " + node->name + ", qualifier: " +
                                     (node->qualifier.empty()
