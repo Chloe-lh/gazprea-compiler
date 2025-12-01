@@ -310,7 +310,7 @@ std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
     return CompleteType(BaseType::CHARACTER);
 
   throw std::runtime_error(
-      "ASTBuilder::visitType: FATAL: Type with no known case.");
+      "ASTBuilder::visitType: FATAL: Type" + ctx->type()->getText() + "with no known case.");
 }
 std::any
 ASTBuilder::visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) {
