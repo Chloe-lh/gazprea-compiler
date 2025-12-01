@@ -149,6 +149,25 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
         return;
     }
 
+    // Struct assignment: copy whole LLVM struct value
+    if (variable->type.baseType == BaseType::STRUCT) {
+        // Ensure destination and source storage exist
+        if (!variable->value) {
+            allocaVar(variable, line);
+        }
+        if (!literal->value) {
+            allocaVar(literal, line);
+        }
+
+        // Types should already be checked by semantic analysis
+        // Perform whole-struct load/store in LLVM dialect.
+        mlir::Type structTy = getLLVMType(variable->type);
+        mlir::Value srcStruct =
+            builder_.create<mlir::LLVM::LoadOp>(loc_, structTy, literal->value);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, srcStruct, variable->value);
+        return;
+    }
+
     // Scalar assignment
     // ensure var has a memref allocated
     if (!variable->value) {
