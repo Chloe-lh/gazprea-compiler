@@ -74,6 +74,19 @@ Scope* SemanticAnalysisVisitor::getRootScope() {
     return this->root_.get();
 }
 
+// Heuristic: Return the last line/declr in the block and add 1
+static int computeMissingReturnLine(const BlockNode* body) {
+    if (!body) return 1;
+    int maxLine = body->line;
+    for (const auto& d : body->decs) {
+        if (d) maxLine = std::max(maxLine, d->line);
+    }
+    for (const auto& s : body->stats) {
+        if (s) maxLine = std::max(maxLine, s->line);
+    }
+    return maxLine + 1;
+}
+
 void SemanticAnalysisVisitor::visit(FileNode* node) {
     // Init and enter global scope
     // TODO: handle type aliases here
@@ -610,7 +623,8 @@ void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
 
     // Ensure all paths return
     if (!guaranteesReturn(node->body.get())) {
-        throw ReturnError(node->line, "Semantic Analysis: not all control paths return in function '" + node->name + "'.");
+        int errLine = computeMissingReturnLine(node->body.get());
+        throw ReturnError(errLine, "Semantic Analysis: not all control paths return in function '" + node->name + "'.");
     }
 
     exitScope();
@@ -684,7 +698,8 @@ void SemanticAnalysisVisitor::visit(ProcedureBlockNode* node) {
     // If non-void return expected, ensure all paths return
     if (node->returnType.baseType != BaseType::UNKNOWN) {
         if (!guaranteesReturn(node->body.get())) {
-            throw ReturnError(node->line, "Semantic Analysis: not all control paths return in procedure '" + node->name + "'.");
+            int errLine = computeMissingReturnLine(node->body.get());
+            throw ReturnError(errLine, "Semantic Analysis: not all control paths return in procedure '" + node->name + "'.");
         }
     }
 
