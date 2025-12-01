@@ -1,0 +1,15 @@
+procedure printInt(integer v) {
+    v -> std_output;
+    "\n" -> std_output;
+}
+
+procedure main() returns integer {
+    struct Wrapper (integer v);
+    var Wrapper w = Wrapper(42);
+    
+    call printInt(w.v);
+    
+    return 0;
+}
+
+
