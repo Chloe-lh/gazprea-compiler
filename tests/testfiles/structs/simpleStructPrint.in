@@ -16,6 +16,7 @@ procedure main() returns integer {
     t2.item -> std_output;
     "\n" -> std_output;
 
+    return 0;
 }
 
 //CHECK_FILE:simpleStructPrint.out
