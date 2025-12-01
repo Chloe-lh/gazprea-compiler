@@ -5,7 +5,6 @@
 #include "ParserRuleContext.h"
 #include "ConstantHelpers.h"
 #include "GazpreaParser.h"
-#include "TerminalNode.h"
 #include "Types.h"
 #include <any>
 #include <memory>
@@ -411,51 +410,11 @@ std::any ASTBuilder::visitInputStat(GazpreaParser::InputStatContext *ctx) {
 
 std::any ASTBuilder::visitOutputStat(GazpreaParser::OutputStatContext *ctx) {
   std::shared_ptr<ExprNode> expr = nullptr;
-
-  // Check for regular expression first
-  if (ctx->expr()) {
-    auto anyExpr = visit(ctx->expr());
-    if (anyExpr.has_value()) {
-      try {
-        expr = std::any_cast<std::shared_ptr<ExprNode>>(anyExpr);
-      } catch (const std::bad_any_cast &) {
-        expr = nullptr;
-      }
-    }
-  }
-  // Check for tuple_access (grammar has: tuple_access '->' STD_OUTPUT)
-  else if (ctx->tuple_access()) {
-    // Manually parse tuple_access since there's no visitor method for it
-    auto ta = ctx->tuple_access();
-    std::string tupleName = "";
-    int index = 0;
-    if (ta) {
-      if (ta->TUPACCESS()) {
-        // token form: name.index
-        std::string text = ta->TUPACCESS()->getText();
-        auto pos = text.find('.');
-        if (pos != std::string::npos) {
-          tupleName = text.substr(0, pos);
-          try {
-            index = std::stoi(text.substr(pos + 1));
-          } catch (...) {
-            index = 0;
-          }
-        }
-      } else {
-        if (ta->ID())
-          tupleName = ta->ID()->getText();
-        if (ta->INT()) {
-          try {
-            index = std::stoi(ta->INT()->getText());
-          } catch (const std::exception &) {
-            index = 0;
-          }
-        }
-      }
-    }
-    auto tupleAccessNode = std::make_shared<TupleAccessNode>(tupleName, index);
-    expr = std::static_pointer_cast<ExprNode>(tupleAccessNode);
+  if (!ctx->expr()) throw std::runtime_error("visitOutputStat: No expr found");
+  
+  auto anyExpr = visit(ctx->expr());
+  if (anyExpr.has_value()) {
+    expr = safe_any_cast_ptr<ExprNode>(anyExpr);
   }
 
   auto node = std::make_shared<OutputStatNode>(expr);
