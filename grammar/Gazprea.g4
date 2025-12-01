@@ -29,6 +29,7 @@ dec
 stat
     : ID (COMMA ID)+ EQ expr END                #DestructAssignStat
     | tuple_access EQ expr END                  #TupleAccessAssignStat     
+    | struct_access EQ expr END                 #StructAccessAssignStat
     | { this->_input->LA(2) == GazpreaParser::EQ }? ID EQ expr END   #AssignStat
     | expr '->' STD_OUTPUT END                 #OutputStat
     | ID '<-' STD_INPUT  END                                  #InputStat

@@ -35,6 +35,7 @@ class ASTVisitor;
 class BlockNode;
 class TypeAliasNode;
 class TupleAccessNode;
+class StructAccessNode;
 class ArrayAccessExpr;
 class RangeExprNode;
 
@@ -457,6 +458,15 @@ public:
                             std::shared_ptr<ExprNode> expr);
   void accept(ASTVisitor &visitor) override;
 };
+
+class StructAccessAssignStatNode: public StatNode {
+  public:
+    std::shared_ptr<StructAccessNode> target;
+    std::shared_ptr<ExprNode> expr;
+    StructAccessAssignStatNode(std::shared_ptr<StructAccessNode> target, std::shared_ptr<ExprNode> expr);
+    void accept(ASTVisitor &visitor) override;
+};
+
 class OutputStatNode : public StatNode {
 public:
   std::shared_ptr<ExprNode> expr;

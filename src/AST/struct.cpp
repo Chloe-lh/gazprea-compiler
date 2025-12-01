@@ -78,4 +78,20 @@ namespace gazprea {
     structType.fieldNames = std::move(fieldNames); // save struct members
     return structType;
     } 
+
+    std::any ASTBuilder::visitStructAccessAssignStat(GazpreaParser::StructAccessAssignStatContext *ctx) {
+        if (!ctx || !ctx->struct_access() || !ctx->expr()) {
+            throw std::runtime_error("visitStructAccessAssignStat: invalid context");
+        }
+
+        auto targetAny = visit(ctx->struct_access());
+        auto target = safe_any_cast_ptr<StructAccessNode>(targetAny);
+
+        auto exprAny = visit(ctx->expr());
+        auto expr = safe_any_cast_ptr<ExprNode>(exprAny);
+
+        auto node = std::make_shared<StructAccessAssignStatNode>(target, expr);
+        setLocationFromCtx(node, ctx);
+        return stat_any(std::move(node));
+    }
 }
