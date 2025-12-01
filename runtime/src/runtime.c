@@ -8,30 +8,6 @@ void dummyPrint(int i) {
 }
 
 // Functions for reading from std_input
-/*
-int readInt(int* i) {
-  int c;
-
-  // skip whitespace
-  while ((c = getchar()) == ' ' || c == '\n' || c == '\t') {}
-
-  // read integer
-  int sign = 1;
-  if (c == '-') {
-      sign = -1;
-      c = getchar();
-  }
-
-  int value = 0;
-  while (c >= '0' && c <= '9') {
-      value = value * 10 + (c - '0');
-      c = getchar();
-  }
-
-  return sign * value;
-}
-  */
-
 void readInt(int* i) {
   scanf("%d", i);
 }
@@ -46,4 +22,16 @@ void readChar(char* c) {
 
 void readBool(bool* b) {
   scanf("%d", b);
+}
+
+// Returns 0 if stream is good, 1 if Error, 2 if EOF.
+// Takes a dummy pointer because the language signature is 'var input_stream' (pass-by-ref)
+int32_t stream_state_runtime(int32_t* dummy_stream_handle) {
+  if (ferror(stdin)) {
+      return 1;
+  }
+  if (feof(stdin)) {
+    return 2;
+  }
+  return 0;
 }
