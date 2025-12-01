@@ -1493,7 +1493,9 @@ void SemanticAnalysisVisitor::visit(StructAccessNode* node) {
     if (std::find(fieldNames.begin(), fieldNames.end(), node->fieldName) == fieldNames.end()) 
     throw SymbolError(node->line, "Field '" + node->fieldName + "' not found in struct" + node->structName + "."); 
 
+    // Get field index as integer
     const size_t fieldIndex = std::distance(fieldNames.begin(), std::find(fieldNames.begin(), fieldNames.end(), node->fieldName));
+    node->fieldIndex = fieldIndex;
     node->type = varInfo->type.subTypes[fieldIndex];
     node->binding = varInfo;
 }

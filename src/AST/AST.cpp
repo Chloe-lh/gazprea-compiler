@@ -59,6 +59,7 @@ void LoopNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 // Extended nodes
 void ProcedureBlockNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TypeAliasNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void StructAccessNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TupleTypeAliasNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TupleLiteralNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TupleAccessNode::accept(ASTVisitor &visitor) { visitor.visit(this); }

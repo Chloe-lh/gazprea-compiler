@@ -597,6 +597,7 @@ class StructAccessNode : public ExprNode {
 public:
   std::string structName;
   std::string fieldName;
+  size_t fieldIndex;
   VarInfo *binding = nullptr; // bound struct variable from semantic analysis
   StructAccessNode(const std::string &structName, const std::string &fieldName);
   void accept(ASTVisitor &visitor) override;

@@ -32,6 +32,7 @@ set(
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/funcStat.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/io.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/literal.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/struct.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/ops.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/tuple.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/helpers/compHelper.cpp"
