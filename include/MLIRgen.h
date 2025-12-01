@@ -34,6 +34,7 @@ public:
     void visit(TypedDecNode* node) override;
     void visit(InferredDecNode* node) override;
     void visit(TupleTypedDecNode* node) override;
+    void visit(StructTypedDecNode* node) override;
     void visit(TypeAliasDecNode* node) override;
     void visit(TypeAliasNode* node) override;
     void visit(TupleTypeAliasNode* node) override;
@@ -55,7 +56,7 @@ public:
 
     // Expressions / Operators
     void visit(ParenExpr* node) override;
-    void visit(FuncCallExpr* node) override;
+    void visit(FuncCallExprOrStructLiteral* node) override;
     void visit(UnaryExpr* node) override;   // unary+, unary-, not
     void visit(ExpExpr* node) override;     // ^
     void visit(MultExpr* node) override;    // *,/,%
@@ -65,6 +66,7 @@ public:
     void visit(EqExpr* node) override;      // ==, !=
     void visit(AndExpr* node) override;     // and
     void visit(OrExpr* node) override;      // or, xor
+    void visit (StructAccessNode* node) override;
     void visit(TupleAccessNode* node) override;
     void visit(TypeCastNode* node) override;
     void visit(TupleTypeCastNode* node) override;

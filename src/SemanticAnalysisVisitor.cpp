@@ -15,7 +15,10 @@
 
 
 // Resolve a CompleteType whose baseType is UNRESOLVED using the current scope's
-// global type alias table. Throws bug if UNRESOLVED and no alias name provided
+// type information:
+//   1. global type aliases (TYPEALIAS)
+//   2. scoped struct types (struct declarations)
+// Throws if UNRESOLVED and no alias name provided or no matching type found.
 CompleteType SemanticAnalysisVisitor::resolveUnresolvedType(Scope *scope, const CompleteType &t, int line) {
     if (!scope) {
         return t;
@@ -29,9 +32,32 @@ CompleteType SemanticAnalysisVisitor::resolveUnresolvedType(Scope *scope, const 
             throw std::runtime_error(
                 "Semantic Analysis: encountered UNRESOLVED type with no alias name.");
         }
-        // Scope::resolveAlias will throw SymbolError if the alias is not defined.
-        CompleteType *aliased = scope->resolveAlias(result.aliasName, line);
-        result = *aliased;
+
+        CompleteType *resolved = nullptr;
+
+        // First try global/basic aliases.
+        try {
+            resolved = scope->resolveAlias(result.aliasName, line);
+        } catch (const CompileTimeException &) {
+            resolved = nullptr;
+        }
+
+        // Then try scoped struct types.
+        if (!resolved) {
+            try {
+                resolved = scope->resolveStructType(result.aliasName, line);
+            } catch (const CompileTimeException &) {
+                resolved = nullptr;
+            }
+        }
+
+        if (!resolved) {
+            throw SymbolError(
+                line, "Semantic Analysis: Type alias or struct type '" +
+                          result.aliasName + "' not defined.");
+        }
+
+        result = *resolved;
     }
 
     // Recursively normalise any composite subtypes as well.
@@ -46,6 +72,19 @@ CompleteType SemanticAnalysisVisitor::resolveUnresolvedType(Scope *scope, const 
 
 Scope* SemanticAnalysisVisitor::getRootScope() {
     return this->root_.get();
+}
+
+// Heuristic: Return the last line/declr in the block and add 1
+static int computeMissingReturnLine(const BlockNode* body) {
+    if (!body) return 1;
+    int maxLine = body->line;
+    for (const auto& d : body->decs) {
+        if (d) maxLine = std::max(maxLine, d->line);
+    }
+    for (const auto& s : body->stats) {
+        if (s) maxLine = std::max(maxLine, s->line);
+    }
+    return maxLine + 1;
 }
 
 void SemanticAnalysisVisitor::visit(FileNode* node) {
@@ -429,7 +468,7 @@ void SemanticAnalysisVisitor::visit(FuncStatNode* node) {
 
 void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
     if (!current_->isDeclarationAllowed()) {
-        throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block."); // FIXME: placeholder error
+        throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block."); 
     }
     
     // Visit the type alias first to resolve any type aliases
@@ -584,7 +623,8 @@ void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
 
     // Ensure all paths return
     if (!guaranteesReturn(node->body.get())) {
-        throw ReturnError(node->line, "Semantic Analysis: not all control paths return in function '" + node->name + "'.");
+        int errLine = computeMissingReturnLine(node->body.get());
+        throw ReturnError(errLine, "Semantic Analysis: not all control paths return in function '" + node->name + "'.");
     }
 
     exitScope();
@@ -658,7 +698,8 @@ void SemanticAnalysisVisitor::visit(ProcedureBlockNode* node) {
     // If non-void return expected, ensure all paths return
     if (node->returnType.baseType != BaseType::UNKNOWN) {
         if (!guaranteesReturn(node->body.get())) {
-            throw ReturnError(node->line, "Semantic Analysis: not all control paths return in procedure '" + node->name + "'.");
+            int errLine = computeMissingReturnLine(node->body.get());
+            throw ReturnError(errLine, "Semantic Analysis: not all control paths return in procedure '" + node->name + "'.");
         }
     }
 
@@ -690,7 +731,7 @@ void SemanticAnalysisVisitor::visit(InferredDecNode* node) {
 
 void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
     if (!current_->isDeclarationAllowed()) {
-        throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block."); // FIXME: placeholder error
+        throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block."); 
     }
     if (node->init) {
         node->init->accept(*this);
@@ -721,6 +762,61 @@ void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
     node->type = varType;
 }
 
+void SemanticAnalysisVisitor::visit(StructTypedDecNode* node) {
+    if (!current_->isDeclarationAllowed()) {
+        throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block."); 
+    }
+
+    // defer the handling of init because we must first resolve the struct type name.
+
+    // Resolve underlying struct member types (may include aliases).
+    CompleteType structType = resolveUnresolvedType(current_, node->type, node->line);
+    if (structType.baseType != BaseType::STRUCT) {
+        throw std::runtime_error("Semantic Analysis: FATAL: StructTypedDecNode with non-struct type.");
+    }
+
+    bool isConst = true;
+    if (node->qualifier == "var") {
+        isConst = false;
+    } else if (node->qualifier == "const" || node->qualifier.empty()) {
+        // do nothing
+    } else {
+        throw std::runtime_error(
+            "Semantic Analysis: Invalid qualifier provided for struct declaration '" +
+            node->qualifier + "'.");
+    }
+
+    // Declare struct name and save as alias to be used later
+    try {
+        current_->declareStructType(structType.aliasName, structType, node->line);
+    } catch (const CompileTimeException &) {
+        // Re-throw with a clearer message for duplicate struct type names.
+        throw SymbolError(node->line,
+                            "Semantic Analysis: Re-declaring existing struct type '" +
+                                structType.aliasName + "'.");
+    }
+
+
+    // visit initializer once struct type declared
+    if (node->init) {
+        node->init->accept(*this);
+    }
+
+    // Optional: declare a variable of this struct type if a name was provided
+    if (!node->name.empty()) {
+        // Ensure not already declared in this scope
+        current_->declareVar(node->name, structType, isConst, node->line);
+
+        if (node->init != nullptr) {
+            CompleteType initType =
+                resolveUnresolvedType(current_, node->init->type, node->line);
+            handleAssignError(node->name, structType, initType, node->line);
+        }
+    }
+
+    node->type = structType;
+}
+
 void SemanticAnalysisVisitor::visit(TypeAliasDecNode* node) {
     if (!current_->isInGlobal()) {
         throw StatementError(node->line, "Alias declaration in non-global scope '" + node->alias + "'.");
@@ -741,13 +837,19 @@ void SemanticAnalysisVisitor::visit(TypeAliasDecNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(TypeAliasNode *node) {
-    if (node->aliasName != "") {
-        CompleteType aliased = *current_->resolveAlias(node->aliasName, node->line);
-        // Resolve any unresolved subtypes in the aliased type
-        node->type = resolveUnresolvedType(current_, aliased, node->line);
+    if (!current_) {
+        throw std::runtime_error("Semantic Analysis: TypeAliasNode visited with no current scope.");
     }
 
-    // if no alias, assume node already initialized with correct type
+    if (!node->aliasName.empty()) {
+        // Treat aliasName as an unresolved type name that may refer to either
+        // a basic type-alias or a struct type in the current scope chain.
+        CompleteType unresolved(node->aliasName); // BaseType::UNRESOLVED
+        node->type = resolveUnresolvedType(current_, unresolved, node->line);
+        return;
+    }
+
+    // If no alias name, assume node->type already holds a concrete type.
 }
 
 void SemanticAnalysisVisitor::visit(TupleTypeAliasNode *node) {
@@ -856,7 +958,7 @@ void SemanticAnalysisVisitor::visit(ReturnStatNode* node) {
 }
 
 void SemanticAnalysisVisitor::visit(CallStatNode* node) {
-    // The CallStatNode wraps an expression-style FuncCallExpr in `call`.
+    // The CallStatNode wraps an expression-style FuncCallExprOrStructLiteral in `call`.
     if (!node->call) {
         throw std::runtime_error("Semantic Analysis: FATAL: empty call statement");
     }
@@ -913,7 +1015,7 @@ void SemanticAnalysisVisitor::visit(TupleAccessAssignStatNode* node) {
     node->type = CompleteType(BaseType::UNKNOWN);
 }
 
-void SemanticAnalysisVisitor::visit(FuncCallExpr* node) {
+void SemanticAnalysisVisitor::visit(FuncCallExprOrStructLiteral* node) {
     // Evaluate argument expressions and build a signature to resolve the callee
     std::vector<VarInfo> args;
     args.reserve(node->args.size());
@@ -938,9 +1040,9 @@ void SemanticAnalysisVisitor::visit(FuncCallExpr* node) {
         // Function call in expression
         node->type = finfo->funcReturn;
         node->resolvedFunc = *finfo; // cache resolved info for later passes
+        node->callType = CallType::FUNCTION;
         return;
     }
-    std::cerr << "Function not resolved";
 
     // Then try resolving as procedure
     // -----------------------
@@ -958,10 +1060,44 @@ void SemanticAnalysisVisitor::visit(FuncCallExpr* node) {
                                   "' used as expression but has no return type.");
         }
         node->type = pinfo->procReturn;
+        node->callType = CallType::PROCEDURE;
         return;
     }
 
-    throw SymbolError(node->line, "Semantic Analysis: Unknown function/procedure '" +
+    // Try resolving as struct literal (struct constructor call)
+    // -----------------------
+    CompleteType* structType = nullptr;
+    try {
+        structType = current_->resolveStructType(node->funcName, node->line);
+    } catch (...) {
+        structType = nullptr;
+    }
+    if (structType) {
+        node->type = *structType;
+
+        // If the struct type tracks element subtypes, validate arity and types
+        if (structType->subTypes.empty()) throw std::runtime_error("SemanticAnalysis::FuncCallExprOrStructLiteral: Empty subtpyes for struct literal.");
+        if (node->args.size() != structType->subTypes.size()) {
+            throw TypeError(
+                node->line,
+                "Semantic Analysis: Struct literal for '" + node->funcName +
+                    "' has argument count mismatch. Expected " +
+                    std::to_string(structType->subTypes.size()) + ", got " +
+                    std::to_string(node->args.size()) + ".");
+        }
+        for (size_t i = 0; i < node->args.size(); ++i) {
+            handleAssignError(
+                node->funcName + "." + std::to_string(i),
+                structType->subTypes[i],
+                node->args[i]->type,
+                node->line);
+        }
+        node->callType = CallType::STRUCT_LITERAL;
+        return;
+    }
+
+
+    throw SymbolError(node->line, "Semantic Analysis: Unknown function/procedure/struct '" +
                             node->funcName + "' in expression.");
 }
 
@@ -1356,6 +1492,27 @@ void SemanticAnalysisVisitor::visit(TupleAccessNode* node) {
     // doesn't need to re-resolve names and can honour declaration order.
     node->binding = varInfo;
     node->type = varInfo->type.subTypes[node->index - 1];
+}
+
+void SemanticAnalysisVisitor::visit(StructAccessNode* node) {
+    VarInfo* varInfo = current_->resolveVar(node->structName, node->line);
+    if (!varInfo) {
+        throw std::runtime_error("Semantic Analysis: FATAL: Variable '" + node->structName + "' not found in StructAccessNode");
+    }
+
+    if (varInfo->type.baseType != BaseType::STRUCT) {
+        throw std::runtime_error("Semantic Analysis: FATAL: Non-struct type '" + toString(varInfo->type) + "' in StructAccessNode");
+    }
+
+    const auto fieldNames = varInfo->type.fieldNames;
+    if (std::find(fieldNames.begin(), fieldNames.end(), node->fieldName) == fieldNames.end()) 
+    throw SymbolError(node->line, "Field '" + node->fieldName + "' not found in struct" + node->structName + "."); 
+
+    // Get field index as integer
+    const size_t fieldIndex = std::distance(fieldNames.begin(), std::find(fieldNames.begin(), fieldNames.end(), node->fieldName));
+    node->fieldIndex = fieldIndex;
+    node->type = varInfo->type.subTypes[fieldIndex];
+    node->binding = varInfo;
 }
 
 void SemanticAnalysisVisitor::visit(TypeCastNode* node) {

@@ -28,6 +28,8 @@ struct FuncInfo {
     std::string identifier;
     std::vector<VarInfo> params;
     CompleteType funcReturn;
+    // true if this entry represents a struct "constructor" rather than a regular function
+    bool isStruct = false;
 };
 
 struct ProcInfo {
@@ -42,14 +44,25 @@ public:
     explicit Scope(Scope* parent, bool inLoop, const CompleteType* returnType);
 
     void declareVar(const std::string& identifier, const CompleteType& type, bool isConst, int line);
-    void declareFunc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType, int line);
+    // `isStruct` allows this shared namespace entry to represent either a
+    // regular function (default) or a struct constructor. Functions,
+    // procedures, and structs share the same namespace.
+    void declareFunc(const std::string& identifier,
+                     const std::vector<VarInfo>& params,
+                     const CompleteType& returnType,
+                     int line,
+                     bool isStruct = false);
     void declareProc(const std::string& identifier, const std::vector<VarInfo>& params, const CompleteType& returnType, int line);
     void declareAlias(const std::string& identifier, const CompleteType& type, int line);
+    // Struct types share the same identifier namespace as functions/procedures
+    // but participate in *type* resolution. They are scoped (can be shadowed).
+    void declareStructType(const std::string& identifier, const CompleteType& type, int line);
 
     VarInfo* resolveVar(const std::string& identifier, int line);
     FuncInfo* resolveFunc(const std::string& identifier, const std::vector<VarInfo>& params, int line);
     ProcInfo* resolveProc(const std::string& identifier, const std::vector<VarInfo>& params, int line);
     CompleteType* resolveAlias(const std::string& identifier, int line);
+    CompleteType* resolveStructType(const std::string& identifier, int line);
 
     void disableDeclarations(); // For ensuring declrs are at the top of each block
     bool isDeclarationAllowed();
@@ -76,9 +89,10 @@ private:
     static std::unordered_map<std::string, CompleteType> globalTypeAliases_; // type aliases can only be declared in global scope
     
     std::unordered_map<std::string, VarInfo> symbols_; // variables in scope
-    // Functions, procedures and (pt2) structs will share same namespace
-    std::unordered_map<std::string, FuncInfo> functionsByName_; // functions in scope keyed by identifier
+    // Functions, procedures and struct *types* share a name-space.
+    std::unordered_map<std::string, FuncInfo> functionsByName_;  // functions in scope keyed by identifier
     std::unordered_map<std::string, ProcInfo> proceduresByName_; // procedures in scope keyed by identifier
+    std::unordered_map<std::string, CompleteType> structTypesByName_; // struct types in scope keyed by identifier
 
 
     Scope* parent_;

@@ -191,9 +191,19 @@ void MLIRGen::visit(MultExpr* node){
     node->right->accept(*this);
     VarInfo rightInfo = popValue();
 
+    // Determine the promoted type (semantic analysis already set node->type)
+    CompleteType promotedType = node->type;
+    if (promotedType.baseType == BaseType::UNKNOWN) {
+        throw std::runtime_error("MLIRGen::MultExpr: Node type is " + toString(promotedType) + ".");
+    }
+
+    // Cast both operands to the promoted type
+    VarInfo leftPromoted = castType(&leftInfo, &promotedType, node->line);
+    VarInfo rightPromoted = castType(&rightInfo, &promotedType, node->line);
+
     // Normalize operands to SSA values (loads memref if needed)
-    mlir::Value left = getSSAValue(leftInfo);
-    mlir::Value right = getSSAValue(rightInfo);
+    mlir::Value left = getSSAValue(leftPromoted);
+    mlir::Value right = getSSAValue(rightPromoted);
 
     mlir::Value result;
 
@@ -258,7 +268,7 @@ void MLIRGen::visit(MultExpr* node){
         }
     }
 
-    VarInfo outVar(leftInfo.type);
+    VarInfo outVar(node->type);
     allocaLiteral(&outVar, node->line);
     builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
     outVar.identifier = "";

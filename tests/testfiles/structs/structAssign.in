@@ -1,0 +1,24 @@
+procedure main() returns integer {
+    struct Point (integer x, integer y);
+    var Point p1 = Point(1, 2);
+    var Point p2;
+    
+    p2 = p1;
+    
+    // p2 should be 1, 2
+    p2.x -> std_output;
+    " " -> std_output;
+    p2.y -> std_output;
+    "\n" -> std_output;
+    
+    // p1 should still be 1, 2
+    p1.x -> std_output;
+    " " -> std_output;
+    p1.y -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+
+//CHECK_FILE:structAssign.out
+

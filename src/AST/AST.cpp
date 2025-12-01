@@ -32,6 +32,7 @@ void RealNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
 // Declarations
 void TupleTypedDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void StructTypedDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
 void TypedDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void InferredDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
@@ -58,6 +59,7 @@ void LoopNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 // Extended nodes
 void ProcedureBlockNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TypeAliasNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void StructAccessNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TupleTypeAliasNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TupleLiteralNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TupleAccessNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
@@ -128,8 +130,14 @@ CallExprNode::CallExprNode(const std::string &name,
 
 void CallExprNode::accept(ASTVisitor &v) { v.visit(this); }
 
+FuncCallExprOrStructLiteral::FuncCallExprOrStructLiteral(
+    const std::string &name, std::vector<std::shared_ptr<ExprNode>> args)
+    : CallExprNode(name, args) {
+      callType = CallType::FUNCTION;
+    }
+
 // FuncCallExpr accept implementation (visitor expects FuncCallExpr*)
-void FuncCallExpr::accept(ASTVisitor &v) { v.visit(this); }
+void FuncCallExprOrStructLiteral::accept(ASTVisitor &v) { v.visit(this); }
 
 // Function nodes
 FuncStatNode::FuncStatNode(const std::string &name,
@@ -185,6 +193,15 @@ void TypeAliasDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 //   this->type = std::move(tupleType);
 // }
 
+StructTypedDecNode::StructTypedDecNode(const std::string &name,
+                                       const std::string &qualifier,
+                                       CompleteType structType)
+    : qualifier(qualifier), init(nullptr) {
+  this->name = name;
+  this->type = std::move(structType);
+}
+
+
 TypedDecNode::TypedDecNode(const std::string &name,
                            std::shared_ptr<TypeAliasNode> type_alias,
                            const std::string &qualifier,
@@ -206,6 +223,10 @@ TupleTypeAliasNode::TupleTypeAliasNode(const std::string &aliasName,
     : aliasName(aliasName) {
   this->type = tupleType;
 }
+
+StructAccessNode::StructAccessNode(const std::string &structName,
+                                   const std::string &fieldName)
+    : structName(structName), fieldName(fieldName) {}
 
 TupleLiteralNode::TupleLiteralNode(
     std::vector<std::shared_ptr<ExprNode>> elements)

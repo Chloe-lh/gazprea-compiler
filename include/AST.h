@@ -38,6 +38,12 @@ struct ConstantValue {
       : type(t), value(std::move(v)) {}
 };
 
+enum class CallType {
+  FUNCTION,
+  PROCEDURE,
+  STRUCT_LITERAL
+};
+
 // abstract class that is extended by the different passes in the pipeline
 class ASTVisitor;
 // forward declarations
@@ -410,6 +416,19 @@ public:
 };
 
 
+// Handles both standalone struct type declarations,
+//    e.g. struct MyStruct (integer memb1, boolean memb2);
+// As well as struct + variable declarations
+//    e.g. struct MyStruct (integer memb1, boolean memb2) varDec;
+class StructTypedDecNode : public DecNode {
+public:
+  std::string qualifier; // optional
+  std::shared_ptr<ExprNode> init; //optional
+  StructTypedDecNode(const std::string &name, const std::string &qualifier,
+                     CompleteType structType);
+  void accept(ASTVisitor &visitor) override;
+};
+
 class TypedDecNode : public DecNode {
 public:
   std::string qualifier;                     // optional
@@ -487,21 +506,27 @@ public:
   std::string funcName;
   std::vector<std::shared_ptr<ExprNode>> args;
   std::optional<FuncInfo> resolvedFunc;
+  CallType callType = CallType::PROCEDURE;
   CallExprNode(const std::string &, std::vector<std::shared_ptr<ExprNode>>);
   void accept(ASTVisitor &v) override;
 };
-// Expression-style function call node (grammar: ID '(' expr* ')')
-// This preserves the older "FuncCallExpr" name used by the visitor API.
-class FuncCallExpr : public CallExprNode {
+// Expression-style function call OR struct literal node (grammar: ID '(' expr* ')')
+class FuncCallExprOrStructLiteral : public CallExprNode {
+
 public:
-  using CallExprNode::CallExprNode; // inherit constructor
+  // Same as CallExprNode constructor except callType is set to `CallType::FUNCTION`
+  // Semantic analysis should resolve and update `callType` to `CallType::STRUCT_LITERAL` where applicable
+  FuncCallExprOrStructLiteral(const std::string &, std::vector<std::shared_ptr<ExprNode>>);
   void accept(ASTVisitor &v) override;
+  
 };
 // can be used in statements
 class CallStatNode : public StatNode {
 public:
-  std::shared_ptr<FuncCallExpr> call; // wrapper around expression-style call
-  CallStatNode(std::shared_ptr<FuncCallExpr> c) : call(std::move(c)) {}
+  // Wrapper around expression-style call/struct literal expression node
+  std::shared_ptr<FuncCallExprOrStructLiteral> call;
+  explicit CallStatNode(std::shared_ptr<FuncCallExprOrStructLiteral> c)
+      : call(std::move(c)) {}
   void accept(ASTVisitor &v) override;
 };
 
@@ -567,6 +592,17 @@ public:
   TupleTypeAliasNode(const std::string &aliasName, CompleteType tupleType);
   void accept(ASTVisitor &visitor) override;
 };
+
+class StructAccessNode : public ExprNode {
+public:
+  std::string structName;
+  std::string fieldName;
+  size_t fieldIndex;
+  VarInfo *binding = nullptr; // bound struct variable from semantic analysis
+  StructAccessNode(const std::string &structName, const std::string &fieldName);
+  void accept(ASTVisitor &visitor) override;
+};
+
 
 class TupleLiteralNode : public ExprNode {
 public:
