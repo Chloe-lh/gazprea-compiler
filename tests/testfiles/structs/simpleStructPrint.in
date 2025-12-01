@@ -7,12 +7,16 @@ procedure main() returns integer {
 
     "t1:\n" -> std_output;
     t1.i -> std_output;
+    " " -> std_output;
     t1.r -> std_output;
+    " " -> std_output;
     t1.iv -> std_output;
 
     "\n\nt2:\n" -> std_output;
     t2.char -> std_output;
+    " " -> std_output;
     t2.flo -> std_output;
+    " " -> std_output;
     t2.item -> std_output;
     "\n" -> std_output;
 
