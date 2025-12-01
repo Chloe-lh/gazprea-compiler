@@ -116,6 +116,8 @@ void Scope::declareStructType(const std::string& identifier, const CompleteType&
         if (subType.baseType == BaseType::TUPLE) throw TypeError(line, "Struct '" + identifier + "' cannot contain tuple types.");
     }
 
+    if (type.subTypes.size() != type.fieldNames.size()) throw std::runtime_error("Scope::declareStructType: Mismatched field count with type count");
+
     structTypesByName_.emplace(identifier, type);
 }
 

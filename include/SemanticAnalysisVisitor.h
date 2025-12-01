@@ -63,6 +63,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         void visit(IdNode* node) override;
         void visit(TupleLiteralNode* node) override;
         void visit(TupleAccessNode* node) override;
+        void visit(StructAccessNode *node) override;
         void visit(TypeCastNode* node) override;
         void visit(TupleTypeCastNode* node) override;
         void visit(FuncCallExprOrStructLiteral* node) override;

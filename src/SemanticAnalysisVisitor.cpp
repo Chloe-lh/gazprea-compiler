@@ -455,7 +455,7 @@ void SemanticAnalysisVisitor::visit(FuncStatNode* node) {
 
 void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
     if (!current_->isDeclarationAllowed()) {
-        throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block."); // FIXME: placeholder error
+        throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block."); 
     }
     
     // Visit the type alias first to resolve any type aliases
@@ -1477,6 +1477,25 @@ void SemanticAnalysisVisitor::visit(TupleAccessNode* node) {
     // doesn't need to re-resolve names and can honour declaration order.
     node->binding = varInfo;
     node->type = varInfo->type.subTypes[node->index - 1];
+}
+
+void SemanticAnalysisVisitor::visit(StructAccessNode* node) {
+    VarInfo* varInfo = current_->resolveVar(node->structName, node->line);
+    if (!varInfo) {
+        throw std::runtime_error("Semantic Analysis: FATAL: Variable '" + node->structName + "' not found in StructAccessNode");
+    }
+
+    if (varInfo->type.baseType != BaseType::STRUCT) {
+        throw std::runtime_error("Semantic Analysis: FATAL: Non-struct type '" + toString(varInfo->type) + "' in StructAccessNode");
+    }
+
+    const auto fieldNames = varInfo->type.fieldNames;
+    if (std::find(fieldNames.begin(), fieldNames.end(), node->fieldName) == fieldNames.end()) 
+    throw SymbolError(node->line, "Field '" + node->fieldName + "' not found in struct" + node->structName + "."); 
+
+    const size_t fieldIndex = std::distance(fieldNames.begin(), std::find(fieldNames.begin(), fieldNames.end(), node->fieldName));
+    node->type = varInfo->type.subTypes[fieldIndex];
+    node->binding = varInfo;
 }
 
 void SemanticAnalysisVisitor::visit(TypeCastNode* node) {
