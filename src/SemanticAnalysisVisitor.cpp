@@ -1025,6 +1025,7 @@ void SemanticAnalysisVisitor::visit(FuncCallExprOrStructLiteral* node) {
         // Function call in expression
         node->type = finfo->funcReturn;
         node->resolvedFunc = *finfo; // cache resolved info for later passes
+        node->callType = CallType::FUNCTION;
         return;
     }
 
@@ -1044,6 +1045,7 @@ void SemanticAnalysisVisitor::visit(FuncCallExprOrStructLiteral* node) {
                                   "' used as expression but has no return type.");
         }
         node->type = pinfo->procReturn;
+        node->callType = CallType::PROCEDURE;
         return;
     }
 
@@ -1075,6 +1077,7 @@ void SemanticAnalysisVisitor::visit(FuncCallExprOrStructLiteral* node) {
                 node->args[i]->type,
                 node->line);
         }
+        node->callType = CallType::STRUCT_LITERAL;
         return;
     }
 
