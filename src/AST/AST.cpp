@@ -129,6 +129,12 @@ CallExprNode::CallExprNode(const std::string &name,
 
 void CallExprNode::accept(ASTVisitor &v) { v.visit(this); }
 
+FuncCallExprOrStructLiteral::FuncCallExprOrStructLiteral(
+    const std::string &name, std::vector<std::shared_ptr<ExprNode>> args)
+    : CallExprNode(name, args) {
+      callType = CallType::FUNCTION;
+    }
+
 // FuncCallExpr accept implementation (visitor expects FuncCallExpr*)
 void FuncCallExprOrStructLiteral::accept(ASTVisitor &v) { v.visit(this); }
 
