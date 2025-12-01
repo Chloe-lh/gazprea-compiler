@@ -332,7 +332,7 @@ ASTBuilder::visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) {
   else if (referenced == "character")
     aliasedType = CompleteType(BaseType::CHARACTER);
   else
-    throw std::runtime_error("aliasing an alias not implemented");
+    throw std::runtime_error("aliasing an alias not implemented for alias '" + aliasName + "' with type '" + referenced + "'.");
 
   auto node = std::make_shared<TypeAliasDecNode>(aliasName, aliasedType);
   setLocationFromCtx(node, ctx);
