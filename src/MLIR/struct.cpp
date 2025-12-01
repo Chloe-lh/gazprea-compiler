@@ -62,6 +62,8 @@ void MLIRGen::visit(StructAccessNode* node) {
     CompleteType elemType = structVarInfo->type.subTypes[node->fieldIndex];
     VarInfo elementVarInfo(elemType);
     allocaLiteral(&elementVarInfo, node->line);
-    builder_.create<mlir::LLVM::StoreOp>(loc_, elemVal, elementVarInfo.value);
+    builder_.create<mlir::memref::StoreOp>(
+        loc_, elemVal, elementVarInfo.value, mlir::ValueRange{}
+    );
     pushValue(elementVarInfo);
 }
