@@ -165,19 +165,22 @@ void MLIRGen::visit(EqExpr* node){
 
     mlir::Value result;
 
-    if (promotedType.baseType == BaseType::TUPLE) {
-        // Load tuple structs from their pointers and compare element-wise.
+    if (promotedType.baseType == BaseType::TUPLE ||
+        promotedType.baseType == BaseType::STRUCT) {
+        // Load aggregate structs from their pointers and compare element-wise.
         mlir::Type structTy = getLLVMType(promotedType);
         mlir::Value leftStruct = builder_.create<mlir::LLVM::LoadOp>(
             loc_, structTy, leftPromoted.value);
         mlir::Value rightStruct = builder_.create<mlir::LLVM::LoadOp>(
             loc_, structTy, rightPromoted.value);
         result = mlirAggregateEquals(leftStruct, rightStruct, loc_, builder_);
-    } else {
+    } else if (isScalarType(promotedType.baseType)) {
         // Load the scalar values from their memrefs
         mlir::Value left = getSSAValue(leftPromoted);
         mlir::Value right = getSSAValue(rightPromoted);
         result = mlirScalarEquals(left, right, loc_, builder_);
+    } else {
+        throw std::runtime_error("MLIRGen::EqExpr: Unknown type '" + toString(promotedType.baseType) + "'.");
     }
 
     if (node->op == "!=") {
