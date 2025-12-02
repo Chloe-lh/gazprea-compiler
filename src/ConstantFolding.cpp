@@ -158,7 +158,7 @@ void ConstantFoldingVisitor::visit(FileNode *node){
 }
 void ConstantFoldingVisitor::visit(ArrayStrideExpr *node) {}
 void ConstantFoldingVisitor::visit(ArraySliceExpr *node) {}
-void ConstantFoldingVisitor::visit(ArrayAccessExpr *node) {} // not needed
+void ConstantFoldingVisitor::visit(ArrayAccessNode *node) {} // not needed
 
 void ConstantFoldingVisitor::visit(ArrayTypedDecNode *node) { // resolve size from init if available
     // Type node stores resolved size (declared size)
@@ -295,10 +295,15 @@ void ConstantFoldingVisitor::visit(InferredDecNode *node){
         }
     } 
 }
-  void ConstantFoldingVisitor::visit(TupleTypedDecNode *node){ if (node->init) node->init->accept(*this); }
-  void ConstantFoldingVisitor::visit(TypeAliasDecNode *node){} 
-  void ConstantFoldingVisitor::visit(TypeAliasNode *node){}
-  void ConstantFoldingVisitor::visit(TupleTypeAliasNode *node){}
+void ConstantFoldingVisitor::visit(TupleTypedDecNode *node){
+    if (node->init) node->init->accept(*this);
+}
+void ConstantFoldingVisitor::visit(StructTypedDecNode *node){
+    if (node->init) node->init->accept(*this);
+}
+void ConstantFoldingVisitor::visit(TypeAliasDecNode *node){}
+void ConstantFoldingVisitor::visit(TypeAliasNode *node){}
+void ConstantFoldingVisitor::visit(TupleTypeAliasNode *node){}
 
   // Statements
   void ConstantFoldingVisitor::visit(AssignStatNode *node){ 
@@ -316,7 +321,7 @@ void ConstantFoldingVisitor::visit(InferredDecNode *node){
     }
   }
   void ConstantFoldingVisitor::visit(TupleAccessAssignStatNode *node){
-    if (!node) return;
+    if (!node) throw std::runtime_error("ConstantFolding::TupleAccessAssignStatNode: null node");
     if (node->target) node->target->accept(*this);
     if (node->expr) node->expr->accept(*this);
     if (node->target) {
@@ -324,6 +329,15 @@ void ConstantFoldingVisitor::visit(InferredDecNode *node){
         removeConst(node->target->tupleName);
     }
   }
+
+  void ConstantFoldingVisitor::visit(StructAccessAssignStatNode *node) {
+    if (!node) throw std::runtime_error("ConstantFolding::StructAccessAssignStatNode: null node");
+
+    if (node->target) node->target->accept(*this);
+    if (node->expr) node->expr->accept(*this);
+    if (node->target) removeConst(node->target->structName);
+  }
+
   void ConstantFoldingVisitor::visit(OutputStatNode *node){ if(node->expr) node->expr->accept(*this);}
   void ConstantFoldingVisitor::visit(InputStatNode *node){}
   void ConstantFoldingVisitor::visit(BreakStatNode *node){}
@@ -397,8 +411,8 @@ void ConstantFoldingVisitor::visit(InferredDecNode *node){
         if (node->expr->constant.has_value()) node->constant = node->expr->constant;
     }
   }
-  //this handles constant folding for all functions
-void ConstantFoldingVisitor::visit(FuncCallExpr *node) {
+  // This handles constant folding for all function/struct-constructor calls
+void ConstantFoldingVisitor::visit(FuncCallExprOrStructLiteral *node) {
   // 1) Visit args so their .constant gets computed
   for (auto &a : node->args) if (a) a->accept(*this);
 
@@ -690,6 +704,11 @@ void ConstantFoldingVisitor::visit(OrExpr *node){
     auto v = lookup(node->id);
     if(v.has_value()) { node->constant = v.value(); }
   }
+
+void ConstantFoldingVisitor::visit(StructAccessNode *node) {
+    // Do nothing
+}
+
   void ConstantFoldingVisitor::visit(TupleLiteralNode *node){ 
     for(auto &e: node->elements){
     if(e) e->accept(*this);} //this is will set each elements .constant

@@ -70,7 +70,7 @@ void ASTPrinter::visit(ArraySliceExpr *node) {
   popChildContext();
   indent--;
 }
-void ASTPrinter::visit(ArrayAccessExpr *node) { 
+void ASTPrinter::visit(ArrayAccessNode *node) { 
   printTreeLine("ArrayAccessExpr", "id: " + node->id);
   indent++;
   pushChildContext(true);
@@ -403,6 +403,10 @@ void ASTPrinter::visit(StringNode *node) {
 
 void ASTPrinter::visit(IdNode *node) { printTreeLine("IdNode", node->id); }
 
+void ASTPrinter::visit(StructAccessNode *node) {
+  printTreeLine("StructAccessNode", "name: " + node->structName + ", field: " + node->fieldName);
+}
+
 void ASTPrinter::visit(TypedDecNode *node) {
   printTreeLine("TypedDecNode", "name: " + node->name + ", qualifier: " +
                                     (node->qualifier.empty()
@@ -454,6 +458,23 @@ void ASTPrinter::visit(TupleTypedDecNode *node) {
   indent--;
 }
 
+void ASTPrinter::visit(StructTypedDecNode *node) {
+  printTreeLine("StructTypedDecNode", "name: " + node->name + ", qualifier: " +
+                                       (node->qualifier.empty()
+                                            ? std::string("const")
+                                            : node->qualifier));
+  indent++;
+  pushChildContext(node->init == nullptr);
+  printTreeLine("StructType", toString(node->type));
+  popChildContext();
+  if (node->init) {
+    pushChildContext(true);
+    node->init->accept(*this);
+    popChildContext();
+  }
+  indent--;
+  }
+
 void ASTPrinter::visit(AssignStatNode *node) {
   printTreeLine("AssignStatNode", "name: " + node->name);
   indent++;
@@ -488,6 +509,23 @@ void ASTPrinter::visit(TupleAccessAssignStatNode *node) {
                                     std::to_string(node->target->index)
                               : "<null>";
   printTreeLine("TupleAccessAssignStatNode", "target: " + targetStr);
+  indent++;
+  pushChildContext(true);
+  if (node->expr) {
+    node->expr->accept(*this);
+  } else {
+    printTreeLine("ERROR: null expression");
+  }
+  popChildContext();
+  indent--;
+}
+
+void ASTPrinter::visit(StructAccessAssignStatNode *node) {
+  std::string targetStr = node->target ?
+      node->target->structName + "." + node->target->fieldName
+      : "<null>";
+
+  printTreeLine("StructAccessAssignStatNode", "target: " + targetStr);
   indent++;
   pushChildContext(true);
   if (node->expr) {
@@ -537,8 +575,8 @@ void ASTPrinter::visit(ReturnStatNode *node) {
   }
 }
 
-void ASTPrinter::visit(FuncCallExpr *node) {
-  printTreeLine("FuncCallExpr", "name: " + node->funcName);
+void ASTPrinter::visit(FuncCallExprOrStructLiteral *node) {
+  printTreeLine("FuncCallExprOrStructLiteral", "name: " + node->funcName);
   indent++;
   for (size_t i = 0; i < node->args.size(); ++i) {
     pushChildContext(i == node->args.size() - 1);

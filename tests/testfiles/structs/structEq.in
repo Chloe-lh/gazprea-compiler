@@ -1,0 +1,23 @@
+procedure main() returns integer {
+    struct Point (integer x, integer y);
+    var Point p1 = Point(1, 2);
+    var Point p2 = Point(1, 2);
+    var Point p3 = Point(3, 4);
+    
+    if (p1 == p2) {
+        "p1 == p2" -> std_output;
+    } else {
+        "p1 != p2" -> std_output;
+    }
+    "\n" -> std_output;
+    
+    if (p1 != p3) {
+        "p1 != p3" -> std_output;
+    } else {
+        "p1 == p3" -> std_output;
+    }
+    "\n" -> std_output;
+
+    return 0;
+}
+//CHECK_FILE:structEq.out

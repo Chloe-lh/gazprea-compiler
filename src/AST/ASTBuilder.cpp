@@ -5,7 +5,6 @@
 #include "ParserRuleContext.h"
 #include "ConstantHelpers.h"
 #include "GazpreaParser.h"
-#include "TerminalNode.h"
 #include "Types.h"
 #include <any>
 #include <memory>
@@ -309,9 +308,13 @@ std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
     return CompleteType(BaseType::REAL);
   if (ctx->CHARACTER())
     return CompleteType(BaseType::CHARACTER);
+  if (ctx->tuple_dec()) 
+    return visit(ctx->tuple_dec());
+  if (ctx->struct_dec())
+    return visit(ctx->struct_dec());
 
   throw std::runtime_error(
-      "ASTBuilder::visitType: FATAL: Type with no known case.");
+      "ASTBuilder::visitType: FATAL: Type ctx '" + ctx->getText() + "' with no known case.");
 }
 std::any
 ASTBuilder::visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) {
@@ -329,7 +332,7 @@ ASTBuilder::visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) {
   else if (referenced == "character")
     aliasedType = CompleteType(BaseType::CHARACTER);
   else
-    throw std::runtime_error("aliasing an alias not implemented");
+    throw std::runtime_error("aliasing an alias not implemented for alias '" + aliasName + "' with type '" + referenced + "'.");
 
   auto node = std::make_shared<TypeAliasDecNode>(aliasName, aliasedType);
   setLocationFromCtx(node, ctx);
@@ -396,7 +399,7 @@ std::any ASTBuilder::visitCallStat(GazpreaParser::CallStatContext *ctx) {
   auto args = collectArgs(*this, exprCtxs);
 
   // Build an expression-level call node and wrap it in a CallStatNode
-  auto callExpr = std::make_shared<FuncCallExpr>(funcName, std::move(args));
+  auto callExpr = std::make_shared<FuncCallExprOrStructLiteral>(funcName, std::move(args));
   auto node = std::make_shared<CallStatNode>(callExpr);
   setLocationFromCtx(node, ctx);
   return stat_any(std::move(node));
@@ -411,51 +414,11 @@ std::any ASTBuilder::visitInputStat(GazpreaParser::InputStatContext *ctx) {
 
 std::any ASTBuilder::visitOutputStat(GazpreaParser::OutputStatContext *ctx) {
   std::shared_ptr<ExprNode> expr = nullptr;
-
-  // Check for regular expression first
-  if (ctx->expr()) {
-    auto anyExpr = visit(ctx->expr());
-    if (anyExpr.has_value()) {
-      try {
-        expr = std::any_cast<std::shared_ptr<ExprNode>>(anyExpr);
-      } catch (const std::bad_any_cast &) {
-        expr = nullptr;
-      }
-    }
-  }
-  // Check for tuple_access (grammar has: tuple_access '->' STD_OUTPUT)
-  else if (ctx->tuple_access()) {
-    // Manually parse tuple_access since there's no visitor method for it
-    auto ta = ctx->tuple_access();
-    std::string tupleName = "";
-    int index = 0;
-    if (ta) {
-      if (ta->TUPACCESS()) {
-        // token form: name.index
-        std::string text = ta->TUPACCESS()->getText();
-        auto pos = text.find('.');
-        if (pos != std::string::npos) {
-          tupleName = text.substr(0, pos);
-          try {
-            index = std::stoi(text.substr(pos + 1));
-          } catch (...) {
-            index = 0;
-          }
-        }
-      } else {
-        if (ta->ID())
-          tupleName = ta->ID()->getText();
-        if (ta->INT()) {
-          try {
-            index = std::stoi(ta->INT()->getText());
-          } catch (const std::exception &) {
-            index = 0;
-          }
-        }
-      }
-    }
-    auto tupleAccessNode = std::make_shared<TupleAccessNode>(tupleName, index);
-    expr = std::static_pointer_cast<ExprNode>(tupleAccessNode);
+  if (!ctx->expr()) throw std::runtime_error("visitOutputStat: No expr found");
+  
+  auto anyExpr = visit(ctx->expr());
+  if (anyExpr.has_value()) {
+    expr = safe_any_cast_ptr<ExprNode>(anyExpr);
   }
 
   auto node = std::make_shared<OutputStatNode>(expr);

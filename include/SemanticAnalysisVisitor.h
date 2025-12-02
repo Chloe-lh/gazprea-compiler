@@ -25,6 +25,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         virtual void visit(TypedDecNode* node) override;
         virtual void visit(InferredDecNode* node) override;
         virtual void visit(TupleTypedDecNode* node) override;
+        virtual void visit(StructTypedDecNode *node) override;
         virtual void visit(TypeAliasDecNode* node) override;
         virtual void visit(TypeAliasNode* node) override;
         virtual void visit(TupleTypeAliasNode* node) override;
@@ -33,6 +34,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         virtual void visit(AssignStatNode* node)    override;
         virtual void visit(DestructAssignStatNode* node) override;
         virtual void visit(TupleAccessAssignStatNode* node) override;
+        virtual void visit(StructAccessAssignStatNode* node) override;
         virtual void visit(OutputStatNode* node)    override;
         virtual void visit(InputStatNode* node)     override;
         virtual void visit(BreakStatNode* node)     override;
@@ -62,16 +64,17 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         void visit(IdNode* node) override;
         void visit(TupleLiteralNode* node) override;
         void visit(TupleAccessNode* node) override;
+        void visit(StructAccessNode *node) override;
         void visit(TypeCastNode* node) override;
         void visit(TupleTypeCastNode* node) override;
-        void visit(FuncCallExpr* node) override;
+        void visit(FuncCallExprOrStructLiteral* node) override;
         void visit(RealNode* node) override;
         void visit(StringNode* node) override;
 
         //arrays
         void visit(ArrayStrideExpr *node) override;
         void visit(ArraySliceExpr *node) override;
-        void visit(ArrayAccessExpr *node) override;
+        void visit(ArrayAccessNode *node) override;
         void visit(ArrayTypedDecNode *node) override;
         void visit(ArrayTypeNode *node) override;
         void visit(ExprListNode *node) override;

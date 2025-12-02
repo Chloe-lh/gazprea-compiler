@@ -26,8 +26,10 @@ void MLIRGen::visit(IdNode* node) {
     bool needsAllocation = !varInfo->value;
     
     if (needsAllocation) {
-        if (varInfo->type.baseType == BaseType::TUPLE) {
-            // Tuple: try to resolve as a global struct first; otherwise,allocate local storage.
+        if (varInfo->type.baseType == BaseType::TUPLE ||
+            varInfo->type.baseType == BaseType::STRUCT) {
+            // Tuple/struct aggregates: try to resolve as a global first;
+            // otherwise, allocate local storage.
             auto globalOp =
                 module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->id);
             if (globalOp) {
@@ -37,11 +39,11 @@ void MLIRGen::visit(IdNode* node) {
                 allocaVar(varInfo, node->line);
                 if (!varInfo->value) {
                     throw std::runtime_error(
-                        "visit(IdNode*): Failed to allocate tuple variable '" +
+                        "visit(IdNode*): Failed to allocate aggregate variable '" +
                         node->id + "'");
                 }
             }
-        } else {
+        } else if (isScalarType(varInfo->type.baseType)) {
             // Scalar: try to resolve as a global first
             auto globalOp = module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->id);
             if (!globalOp) {
@@ -69,6 +71,8 @@ void MLIRGen::visit(IdNode* node) {
                 pushValue(tempVarInfo);
                 return;
             }
+        } else {
+            throw std::runtime_error("MLIRGen::IdNode: Unsupported type in alloc");
         }
     }
 
@@ -150,4 +154,3 @@ void MLIRGen::visit(RealNode* node) {
 void MLIRGen::visit(StringNode* node) {
     throw std::runtime_error("String expressions not supported outside of output statements yet.");
 }
-

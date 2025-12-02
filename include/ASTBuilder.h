@@ -11,9 +11,7 @@ Class converts Parse tree produced by ANTLR into AST Tree
 namespace gazprea {
 class ASTBuilder : public GazpreaBaseVisitor {
 public:
-
-    static void setLocationFromCtx(std::shared_ptr<ASTNode> node, antlr4::ParserRuleContext *ctx);
-
+  static void setLocationFromCtx(std::shared_ptr<ASTNode> node, antlr4::ParserRuleContext *ctx);
   // Top-level statements and blocks (implemented in src/ASTBuilder.cpp)
   std::any visitFile(gazprea::GazpreaParser::FileContext *ctx) override;
   std::any visitBlock(gazprea::GazpreaParser::BlockContext *ctx) override;
@@ -25,6 +23,8 @@ public:
       gazprea::GazpreaParser::InferredTypeDecContext *ctx) override;
   std::any visitTupleTypedDec(
       gazprea::GazpreaParser::TupleTypedDecContext *ctx) override;
+  std::any visitStructTypedDec(
+      gazprea::GazpreaParser::StructTypedDecContext *ctx) override;
 
   // Types / aliases / qualifiers
   std::any visitTupleTypeAlias(
@@ -42,6 +42,7 @@ public:
       gazprea::GazpreaParser::DestructAssignStatContext *ctx) override;
   std::any visitTupleAccessAssignStat(
       gazprea::GazpreaParser::TupleAccessAssignStatContext *ctx) override;
+  std::any visitStructAccessAssignStat(gazprea::GazpreaParser::StructAccessAssignStatContext *ctx) override;
   std::any
   visitBreakStat(gazprea::GazpreaParser::BreakStatContext *ctx) override;
   std::any
@@ -110,6 +111,12 @@ public:
       gazprea::GazpreaParser::TupleAccessExprContext *ctx) override;
   std::any
   visitTupleTypeCastExpr(GazpreaParser::TupleTypeCastExprContext *ctx) override;
+
+  // Struc support
+  std::any visitStructAccessExpr(gazprea::GazpreaParser::StructAccessExprContext *ctx) override;
+  std::any visitStruct_dec(gazprea::GazpreaParser::Struct_decContext *ctx) override;
+
+
   // Control flow
   std::any visitIfStat(gazprea::GazpreaParser::IfStatContext *ctx) override;
   std::any visitLoopStat(gazprea::GazpreaParser::LoopStatContext *ctx) override;

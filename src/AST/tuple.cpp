@@ -37,11 +37,7 @@ ASTBuilder::visitTupleAccessExpr(GazpreaParser::TupleAccessExprContext *ctx) {
       auto pos = text.find('.');
       if (pos != std::string::npos) {
         tupleName = text.substr(0, pos);
-        try {
-          index = std::stoi(text.substr(pos + 1));
-        } catch (...) {
-          index = 0;
-        }
+        index = std::stoi(text.substr(pos + 1));
       }
     } else {
       if (ta->ID())

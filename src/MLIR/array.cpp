@@ -1,3 +1,4 @@
+#include "AST.h"
 #include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -7,7 +8,17 @@
 
 void MLIRGen::visit(ArrayStrideExpr *node)        { std::cout << "ArrayStrideExpr not implemented\n"; }
 void MLIRGen::visit(ArraySliceExpr *node)         { std::cout << "ArraySliceExpr not implemented\n"; }
-void MLIRGen::visit(ArrayAccessExpr *node){ 
+void MLIRGen::visit(ArrayAccessAssignStatNode *node) { //! WIP
+    if(!node->target||!node->expr){
+        throw std::runtime_error("ArrrayAccesssAssignStat node: missing target or expression");
+    }
+    node->expr->accept(*this);
+    VarInfo from = popValue();
+    if(from.type.baseType==BaseType::UNKNOWN){
+        throw std::runtime_error("ArrayAccessAssignStat node: RHS side has UNKNOWN type");
+    }
+}
+void MLIRGen::visit(ArrayAccessNode *node){ 
     if(!currScope_){
         throw std::runtime_error("ArrayAccessNode: no current scope");
     }

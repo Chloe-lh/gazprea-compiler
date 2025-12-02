@@ -1,0 +1,23 @@
+// Miscellaneous struct features: const fields and nested usage
+procedure main() returns integer {
+    struct Sample (integer v, real r, boolean flag);
+
+    const Sample s1 = Sample(5, 2.5, true);
+    var Sample s2;
+    var real scaled;
+
+    s2 = s1;
+
+    // Use fields in expressions
+    scaled = s2.v * s2.r;
+    scaled -> std_output;
+    "\n" -> std_output;
+
+    // Access boolean field
+    s2.flag -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+//CHECK_FILE:structMisc.out
+

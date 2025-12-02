@@ -26,7 +26,7 @@ namespace gazprea{
       }
     }
     
-    auto lhs = std::make_shared<ArrayAccessExpr>(id, index);
+    auto lhs = std::make_shared<ArrayAccessNode>(id, index);
     auto rhsAny = visit(ctx->expr());
     auto rhs = safe_any_cast_ptr<ExprNode>(rhsAny);
     auto node = std::make_shared<ArrayAccessAssignStatNode>(std::move(lhs), std::move(rhs));
@@ -39,17 +39,18 @@ namespace gazprea{
   std::any ASTBuilder::visitArrayAccessExpr(GazpreaParser::ArrayAccessExprContext *ctx){
     std::string id="";
     int index;
-    if(ctx->ID()){
-      id =ctx->ID()->getText();
+    auto aa = ctx->array_access();
+    if(aa->ID()){
+      id =aa->ID()->getText();
     }
-    if (ctx->INT()) {
+    if (aa->INT()) {
       try{
-        index = std::stoi(ctx->INT()->getText());
+        index = std::stoi(aa->INT()->getText());
       }catch(const std::exception &){
         index = 0;
       }
     }
-    auto node = std::make_shared<ArrayAccessExpr>(id, index);
+    auto node = std::make_shared<ArrayAccessNode>(id, index);
     node->type = CompleteType(BaseType::ARRAY);
     setLocationFromCtx(node, ctx);
     return expr_any(std::move(node));

@@ -1,5 +1,6 @@
 #include "MLIRgen.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
+#include "Types.h" 
 
 
 mlir::func::FuncOp MLIRGen::beginFunctionDefinitionWithConstants(
@@ -114,7 +115,7 @@ void MLIRGen::bindFunctionParametersWithConstants(mlir::func::FuncOp func, const
 
         // Tuple parameters use the LLVM struct representation and are not
         // lowered through memref.
-        if (p.type.baseType == BaseType::TUPLE) {
+        if (p.type.baseType == BaseType::TUPLE || p.type.baseType == BaseType::STRUCT) {
             if (!p.isConst) {
                 // var tuple: argument is already a pointer to the struct
                 vi->value = argValue;
@@ -124,7 +125,7 @@ void MLIRGen::bindFunctionParametersWithConstants(mlir::func::FuncOp func, const
                 if (!vi->value) allocaVar(vi, line);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, argValue, vi->value);
             }
-        } else {
+        } else if (isScalarType(p.type.baseType)) {
             // Scalar parameters: var uses memref (passed by reference),
             // const is passed by value and stored into an alloca.
             if (!p.isConst && argValue.getType().isa<mlir::MemRefType>()) {
@@ -134,6 +135,8 @@ void MLIRGen::bindFunctionParametersWithConstants(mlir::func::FuncOp func, const
                 builder_.create<mlir::memref::StoreOp>(
                     loc_, argValue, vi->value, mlir::ValueRange{});
             }
+        } else {
+            throw std::runtime_error("MLIRGen::bindFunctionParametersWithConstants: Unrecognized type:" + toString(p.type));
         }
     }
 }
