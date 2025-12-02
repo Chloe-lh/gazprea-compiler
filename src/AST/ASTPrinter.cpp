@@ -526,6 +526,23 @@ void ASTPrinter::visit(TupleAccessAssignStatNode *node) {
   indent--;
 }
 
+void ASTPrinter::visit(StructAccessAssignStatNode *node) {
+  std::string targetStr = node->target ?
+      node->target->structName + "." + node->target->fieldName
+      : "<null>";
+
+  printTreeLine("StructAccessAssignStatNode", "target: " + targetStr);
+  indent++;
+  pushChildContext(true);
+  if (node->expr) {
+    node->expr->accept(*this);
+  } else {
+    printTreeLine("ERROR: null expression");
+  }
+  popChildContext();
+  indent--;
+}
+
 void ASTPrinter::visit(OutputStatNode *node) {
   if (!node) {
     printTreeLine("OutputStatNode", "ERROR: null node");

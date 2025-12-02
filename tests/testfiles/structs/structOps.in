@@ -1,0 +1,28 @@
+// Struct operations: equality, assignment, and field update
+procedure main() returns integer {
+    struct Pair (integer a, integer b);
+
+    var Pair p1 = Pair(1, 2);
+    var Pair p2 = Pair(1, 2);
+    var Pair p3 = Pair(3, 4);
+
+    // Equality via tuple-style unpack and comparison of fields
+    (p1.a == p2.a) -> std_output;
+    (p1.b == p2.b) -> std_output;
+    "\n" -> std_output;
+
+    (p1.a == p3.a) -> std_output;
+    (p1.b == p3.b) -> std_output;
+    "\n" -> std_output;
+
+    // Whole-struct assignment + mutation
+    p3 = p1;
+    p3.a = 10;
+
+    p1.a -> std_output; " " -> std_output; p1.b -> std_output; "\n" -> std_output;
+    p3.a -> std_output; " " -> std_output; p3.b -> std_output; "\n" -> std_output;
+
+    return 0;
+}
+//CHECK_FILE:structOps.out
+

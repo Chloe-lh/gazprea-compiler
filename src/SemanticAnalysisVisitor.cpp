@@ -787,14 +787,7 @@ void SemanticAnalysisVisitor::visit(StructTypedDecNode* node) {
     }
 
     // Declare struct name and save as alias to be used later
-    try {
-        current_->declareStructType(structType.aliasName, structType, node->line);
-    } catch (const CompileTimeException &) {
-        // Re-throw with a clearer message for duplicate struct type names.
-        throw SymbolError(node->line,
-                            "Semantic Analysis: Re-declaring existing struct type '" +
-                                structType.aliasName + "'.");
-    }
+    current_->declareStructType(structType.aliasName, structType, node->line);
 
 
     // visit initializer once struct type declared
@@ -1000,7 +993,7 @@ void SemanticAnalysisVisitor::visit(TupleAccessAssignStatNode* node) {
 
     VarInfo* tupleVar = node->target->binding;
     if (tupleVar->isConst) {
-        throw AssignError(1, "Semantic Analysis: cannot assign to element of const tuple '" +
+        throw AssignError(node->line, "Semantic Analysis: cannot assign to element of const tuple '" +
                                  node->target->tupleName + "'.");
     }
 
@@ -1011,6 +1004,31 @@ void SemanticAnalysisVisitor::visit(TupleAccessAssignStatNode* node) {
     CompleteType exprType = resolveUnresolvedType(current_, node->expr->type, node->line);
 
     handleAssignError(node->target->tupleName, elemType, exprType, node->line);
+
+    node->type = CompleteType(BaseType::UNKNOWN);
+}
+
+void SemanticAnalysisVisitor::visit(StructAccessAssignStatNode *node) {
+    if (!node->target || !node->expr) {
+        throw AssignError(node->line, "Semantic Analysis: malformed struct access assignment.");
+    }
+
+
+    // Visit lhs and get type
+    node->target->accept(*this);
+    if (!node->target->binding) {
+        throw std::runtime_error("Semantic Analysis: FATAL: StructAccessNode missing binding in assignment.");
+    }
+    VarInfo *structVar = node->target->binding;
+    if (structVar->isConst) throw AssignError(node->line, "Semantic Analysis: cannot assign to field of const struct '" + node->target->structName + "." + node->target->fieldName + "'");
+
+    // Visit rhs
+    node->expr->accept(*this);
+
+    CompleteType elemType = resolveUnresolvedType(current_, node->target->type, node->line);
+    CompleteType exprType = resolveUnresolvedType(current_, node->expr->type, node->line);
+
+    handleAssignError(node->target->structName, elemType, exprType, node->line);
 
     node->type = CompleteType(BaseType::UNKNOWN);
 }
@@ -1123,14 +1141,32 @@ void SemanticAnalysisVisitor::visit(IfNode* node) {
 void SemanticAnalysisVisitor::visit(BlockNode* node) {
     // New lexical scope; inherit loop/return context
     enterScopeFor(node, current_->isInLoop(), current_->getReturnType());
-    for (const auto& d : node->decs) {
-        d->accept(*this);
+
+    // Enforce declrs before stats by checking: any declaration with a line greater than the first statement line is illegal.
+    int firstStatLine = std::numeric_limits<int>::max();
+    for (const auto& s : node->stats) {
+        if (s) {
+            firstStatLine = std::min(firstStatLine, s->line);
+        }
     }
-    // After processing declarations, prevent further declarations in this block
+    if (firstStatLine != std::numeric_limits<int>::max()) {
+        for (const auto& d : node->decs) {
+            if (d && d->line > firstStatLine) {
+                throw SymbolError(d->line,
+                    "Semantic Analysis: Declarations must appear at the top of a block.");
+            }
+        }
+    }
+
+    // Visit declarations, then statements
+    for (const auto& d : node->decs) {
+        if (d) d->accept(*this);
+    }
     current_->disableDeclarations();
     for (const auto& s : node->stats) {
-        s->accept(*this);
+        if (s) s->accept(*this);
     }
+
     exitScope();
 }
 
@@ -1589,6 +1625,24 @@ void SemanticAnalysisVisitor::visit(EqExpr* node) {
         throwOperandError(node->op, {rightOperandType}, "Illegal right operand", node->line);
     }
 
+    // Struct comparisons
+    if (leftOperandType.baseType == BaseType::STRUCT ||
+        rightOperandType.baseType == BaseType::STRUCT) {
+
+        // cannot compare struct with non-struct.
+        if (leftOperandType.baseType != BaseType::STRUCT || rightOperandType.baseType != BaseType::STRUCT) {
+            throwOperandError(node->op, {leftOperandType, rightOperandType},"Cannot compare struct with non-struct", node->line);
+        }
+
+        // structs of different subtypes cannot be compared
+        if (promote(leftOperandType, rightOperandType) != rightOperandType) {
+            throwOperandError(node->op, {leftOperandType, rightOperandType},"Cannot compare struct of different subtypes", node->line);
+        }
+
+        node->type = CompleteType(BaseType::BOOL);
+        return;
+    }
+
     CompleteType finalType = promote(leftOperandType, rightOperandType);
     if (finalType.baseType == BaseType::UNKNOWN) {
         finalType = promote(rightOperandType, leftOperandType);
@@ -1598,7 +1652,7 @@ void SemanticAnalysisVisitor::visit(EqExpr* node) {
         throwOperandError(node->op, {leftOperandType, rightOperandType}, "No promotion possible between operands", node->line);
     }
 
-    node->type = BaseType::BOOL;
+    node->type = CompleteType(BaseType::BOOL);
 }
 
 void SemanticAnalysisVisitor::visit(AndExpr* node) {

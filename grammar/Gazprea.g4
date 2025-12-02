@@ -29,6 +29,7 @@ dec
 stat
     : ID (COMMA ID)+ EQ expr END                #DestructAssignStat
     | tuple_access EQ expr END                  #TupleAccessAssignStat     
+    | struct_access EQ expr END                 #StructAccessAssignStat
     | { this->_input->LA(2) == GazpreaParser::EQ }? ID EQ expr END   #AssignStat
     | expr '->' STD_OUTPUT END                 #OutputStat
     | ID '<-' STD_INPUT  END                                  #InputStat
@@ -124,8 +125,8 @@ rangeExpr : RANGE expr
           | expr RANGE expr
           ;
 
-// declarations must be placed at the start of the block
-block: CURLLEFT dec* stat* CURLRIGHT;
+// Block: declarations allowed anywhere but semantic analysis enforces that they appear before statements within each block.
+block: CURLLEFT (dec | stat)* CURLRIGHT;
 
 if_stat: IF PARENLEFT expr PARENRIGHT (block|stat|dec) (ELSE (block|stat|dec))?;
 

@@ -67,3 +67,32 @@ void MLIRGen::visit(StructAccessNode* node) {
     );
     pushValue(elementVarInfo);
 }
+
+void MLIRGen::visit(StructAccessAssignStatNode* node) {
+    if (!node || !node->target || !node->expr) throw std::runtime_error("MLIRGen::StructAccessAssignStatNode: Missing target/expr");
+
+    node->expr->accept(*this);
+    VarInfo rhsVarInfo = popValue();
+
+    StructAccessNode* target = node->target.get();
+    VarInfo* lhsVarInfo = target->binding;
+
+    if (!lhsVarInfo) throw std::runtime_error("MLIRGen::StructAccessAssignStatNode: null VarInfo for lhs");
+    if (lhsVarInfo->type.baseType != BaseType::STRUCT) throw std::runtime_error("MLIRGen::StructAccessAssignStatNode: Non-struct lhs");
+
+    // Alloc struct storage if not exists
+    if (!rhsVarInfo.value) allocaVar(&rhsVarInfo, node->line);
+
+    // Get field type of lhs and promoted rhs
+    CompleteType* fieldType = &lhsVarInfo->type.subTypes[node->target->fieldIndex];
+    VarInfo promoted = promoteType(&rhsVarInfo, fieldType, node->line);
+    mlir::Value elemVal = getSSAValue(promoted);
+
+    // load in lhs
+    mlir::Type structType = getLLVMType(lhsVarInfo->type);
+    mlir::Value llvmStruct = builder_.create<mlir::LLVM::LoadOp>(loc_, structType, lhsVarInfo->value);
+
+    llvm::SmallVector<int64_t, 1> pos{static_cast<int64_t>(node->target->fieldIndex)};
+    mlir::Value updatedStruct = builder_.create<mlir::LLVM::InsertValueOp>(loc_, llvmStruct, elemVal, pos);
+    builder_.create<mlir::LLVM::StoreOp>(loc_, updatedStruct, lhsVarInfo->value);
+}

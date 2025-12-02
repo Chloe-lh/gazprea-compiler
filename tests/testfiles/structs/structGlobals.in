@@ -1,0 +1,17 @@
+// Global struct type and variable usage
+struct Point (integer x, integer y);
+
+const Point ORIGIN = Point(0, 0);
+
+procedure main() returns integer {
+    Point p = ORIGIN;
+
+    p.x -> std_output;
+    " " -> std_output;
+    p.y -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+//CHECK_FILE:structGlobals.out
+

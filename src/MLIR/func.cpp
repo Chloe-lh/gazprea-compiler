@@ -181,7 +181,7 @@ void MLIRGen::visit(FuncCallExprOrStructLiteral* node) {
         const auto &param = paramInfos[i];
         const auto &argInfo = argInfos[i];
 
-        if (param.type.baseType == BaseType::TUPLE) {
+        if (param.type.baseType == BaseType::TUPLE || param.type.baseType == BaseType::STRUCT) {
             if (!argInfo.value) throw std::runtime_error("FuncCallExprOrStructLiteral: tuple argument has no value");
             
             if (!param.isConst) {
@@ -193,7 +193,7 @@ void MLIRGen::visit(FuncCallExprOrStructLiteral* node) {
                 mlir::Value structVal = builder_.create<mlir::LLVM::LoadOp>(loc_, structTy, argInfo.value);
                 callArgs.push_back(structVal);
             }
-        } else {
+        } else if (isScalarType(param.type.baseType)) {
             if (!param.isConst) {
                 // Scalar var parameter: pass memref directly.
                 if (!argInfo.value) throw std::runtime_error("FuncCallExprOrStructLiteral: var param requires value");
@@ -211,6 +211,8 @@ void MLIRGen::visit(FuncCallExprOrStructLiteral* node) {
                 
                 callArgs.push_back(getSSAValue(promoted));
             }
+        } else {
+            throw std::runtime_error("MLIRGen::FuncCallExprOrStructLiteral: Unrecognized param type");
         }
     }
 
@@ -230,10 +232,12 @@ void MLIRGen::visit(FuncCallExprOrStructLiteral* node) {
     // Wrap returned value in a VarInfo 
     VarInfo resultVar(node->type);
     allocaLiteral(&resultVar, node->line);
-    if (node->type.baseType == BaseType::TUPLE) {
+    if ((node->type.baseType == BaseType::TUPLE) || node->type.baseType == BaseType::STRUCT) {
         builder_.create<mlir::LLVM::StoreOp>(loc_, retVal, resultVar.value);
-    } else {
+    } else if (isScalarType(node->type.baseType)) {
         builder_.create<mlir::memref::StoreOp>(loc_, retVal, resultVar.value, mlir::ValueRange{});
+    } else {
+        throw std::runtime_error("MLIRGen::FuncCallExprOrStructLiteral: Unknown type in call return");
     }
 
     pushValue(resultVar);

@@ -1,0 +1,26 @@
+procedure main() returns integer {
+    struct Data (integer i, real r, boolean b, character c);
+    var Data d = Data(42, 3.14, true, 'x');
+    
+    d.i -> std_output; "\n" -> std_output;
+    d.r -> std_output; "\n" -> std_output;
+    d.b -> std_output;
+    "\n" -> std_output;
+    
+    d.c -> std_output; "\n" -> std_output;
+    
+    // Update mixed types
+    d.i = 100;
+    d.r = 1.23;
+    d.b = false;
+    d.c = 'z';
+    
+    d.i -> std_output; "\n" -> std_output;
+    d.r -> std_output; "\n" -> std_output;
+    d.b -> std_output;
+    "\n" -> std_output;
+    d.c -> std_output; "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:structMixed.out

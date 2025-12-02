@@ -185,13 +185,61 @@ void MLIRGen::visit(FileNode* node) {
             }
 
             moduleBuilder->create<mlir::LLVM::ReturnOp>(loc_, structVal);
-        } else {
+        } else if (gType.baseType == BaseType::STRUCT) {
+            // Struct globals require a struct literal initializer with all scalar/constant fields
+            auto structLit =
+                std::dynamic_pointer_cast<FuncCallExprOrStructLiteral>(initExpr);
+            if (!structLit || structLit->callType != CallType::STRUCT_LITERAL) {
+                throw std::runtime_error(
+                    "Global struct '" + name + "' must be initialized with a constant struct literal."
+                );
+            }
+            if (gType.subTypes.size() != structLit->args.size()) {
+                throw std::runtime_error("Global struct '" + name + "' len mismatch with literal.");
+            }
+
+            // Ensure each field is a constant we can lower
+            std::vector<mlir::Attribute> elemAttrs;
+            elemAttrs.reserve(gType.subTypes.size());
+            for (size_t i = 0; i < gType.subTypes.size(); ++i) {
+                mlir::Attribute elemAttr =
+                    extractConstantValue(structLit->args[i], gType.subTypes[i]);
+                if (!elemAttr) {
+                    throw std::runtime_error(
+                        "Global struct '" + name + "' has non-constant field at index " + std::to_string(i) + ".");
+                }
+                elemAttrs.push_back(elemAttr);
+            }
+
+            // Create the LLVM struct global with initializer region
+            mlir::Type structTy = getLLVMType(gType);
+            auto global = moduleBuilder->create<mlir::LLVM::GlobalOp>(loc_, structTy, true, mlir::LLVM::Linkage::Internal, name, mlir::Attribute(), 0);
+
+            mlir::Region &initRegion = global.getInitializerRegion();
+            auto *block = new mlir::Block();
+            initRegion.push_back(block);
+            moduleBuilder->setInsertionPointToStart(block);
+
+            mlir::Value structVal =
+                moduleBuilder->create<mlir::LLVM::UndefOp>(loc_, structTy);
+            for (size_t i = 0; i < gType.subTypes.size(); ++i) {
+                mlir::Type elemTy = getLLVMType(gType.subTypes[i]);
+                mlir::Attribute elemAttr = elemAttrs[i];
+                mlir::Value elemConst = moduleBuilder->create<mlir::LLVM::ConstantOp>(loc_, elemTy, elemAttr);
+                llvm::SmallVector<int64_t, 1> pos{static_cast<int64_t>(i)};
+                structVal = moduleBuilder->create<mlir::LLVM::InsertValueOp>(loc_, structVal, elemConst, pos);
+            }
+
+            moduleBuilder->create<mlir::LLVM::ReturnOp>(loc_, structVal);
+        } else if (isScalarType(gType.baseType)) {
             // Scalar global
             mlir::Attribute initAttr = extractConstantValue(initExpr, gType);
             if (!initAttr) {
                 throw std::runtime_error("Missing constant initializer for global '" + name + "'.");
             }
-            (void) createGlobalVariable(name, gType, /*isConst=*/true, initAttr);
+            (void) createGlobalVariable(name, gType, true, initAttr);
+        } else {
+            throw std::runtime_error("MLIRGen::FileNode: Unsupported type in global scope");
         }
     }
 

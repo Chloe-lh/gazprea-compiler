@@ -210,10 +210,11 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                     CompleteType result(BaseType::STRUCT);
                     result.subTypes.reserve(from.subTypes.size());
                     for (size_t i = 0; i < from.subTypes.size(); ++i) {
-                        CompleteType promotedElem = promote(from.subTypes[i], to.subTypes[i]);
-                        if (promotedElem.baseType == BaseType::UNKNOWN) return CompleteType(BaseType::UNKNOWN);
 
-                        result.subTypes.push_back(promotedElem);
+                        // Structs do NOT support implicit field promotions
+                        if (from.subTypes[i].baseType != to.subTypes[i].baseType) return CompleteType(BaseType::UNKNOWN);
+
+                        result.subTypes.push_back(from.subTypes[i]);
                     }
                     return result;
                 }
