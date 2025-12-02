@@ -158,42 +158,7 @@ void ConstantFoldingVisitor::visit(FileNode *node){
 }
 void ConstantFoldingVisitor::visit(ArrayStrideExpr *node) {}
 void ConstantFoldingVisitor::visit(ArraySliceExpr *node) {}
-void ConstantFoldingVisitor::visit(ArrayAccessExpr *node) {
-    // fold index first
-    if (node->expr) node->expr->accept(*this);
-
-    // lookup array constant
-    auto arrConstOpt = lookup(node->id);
-    if (!arrConstOpt.has_value()) return;
-    const ConstantValue &arrCv = arrConstOpt.value();
-
-    // must be an array
-    if (arrCv.type.baseType != BaseType::ARRAY) return;
-
-    // index must be constant
-    if (!node->expr || !node->expr->constant.has_value()) return;
-    const ConstantValue &idxCv = node->expr->constant.value();
-
-    if (idxCv.type.baseType != BaseType::INTEGER) return;
-
-    // indexing is 1-based
-    int64_t idx = std::get<int64_t>(idxCv.value);
-    if (idx <= 0) 
-        throw LiteralError(node->line, "Index out of range in compile-time array access");
-
-    size_t pos = static_cast<size_t>(idx - 1);
-
-    auto &vec = std::get<std::vector<ConstantValue>>(arrCv.value);
-
-    if (pos >= vec.size()) 
-        throw LiteralError(node->line, "Index out of range in compile-time array access");
-
-    // assign constant
-    node->constant = vec[pos];
-
-    // assign the *element type*, not ARRAY
-    node->type = vec[pos].type;
-}
+void ConstantFoldingVisitor::visit(ArrayAccessExpr *node) {} // not needed
 
 void ConstantFoldingVisitor::visit(ArrayTypedDecNode *node) { // resolve size from init if available
     // Type node stores resolved size (declared size)

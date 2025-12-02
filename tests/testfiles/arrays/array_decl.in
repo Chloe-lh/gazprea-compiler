@@ -1,0 +1,5 @@
+procedure main()
+    integer[3] arr = [1, 2, 3];
+    arr = std_output;
+end
+//CHECK_FILE:array_decl.out

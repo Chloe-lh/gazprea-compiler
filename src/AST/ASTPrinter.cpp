@@ -74,13 +74,7 @@ void ASTPrinter::visit(ArrayAccessExpr *node) {
   printTreeLine("ArrayAccessExpr", "id: " + node->id);
   indent++;
   pushChildContext(true);
-  printTreeLine("IndexExpr");
-  indent++;
-  pushChildContext(true);
-  if (node->expr) node->expr->accept(*this);
-  else printTreeLine("<null>");
-  popChildContext();
-  indent--;
+  printTreeLine("IndexExpr", &"index: " [ node->index]);
   popChildContext();
   indent--;
 }

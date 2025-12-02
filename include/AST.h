@@ -44,7 +44,7 @@ class ASTVisitor;
 class BlockNode;
 class TypeAliasNode;
 class TupleAccessNode;
-class ArrayAccessExpr;
+class ArrayAccessNode;
 class RangeExprNode;
 
 class ASTNode { // virtual class
@@ -186,8 +186,9 @@ class ArrayStrideExpr: public ExprNode{
 class ArrayAccessExpr: public ExprNode{
   public:
   std::string id;
-  std::shared_ptr<ExprNode> expr;
-  ArrayAccessExpr(const std::string &id, std::shared_ptr<ExprNode> expr): id(id), expr(std::move(expr)){}
+  int index;
+  VarInfo *binding = nullptr;
+  ArrayAccessExpr(const std::string &id, int index): id(id), index(index){}
   void accept(ASTVisitor &visitor) override; 
 };
 class ArrayLiteralNode;
@@ -215,49 +216,26 @@ class ArrayTypeNode : public ASTNode {
 public:
     // True if this is a vector<T>, false if this is a T[...] array
     bool isVec = false;
-
-    // The element type (e.g., integer, real, char, bool, or alias)
     CompleteType elementType;
-
     // Raw dimension-size expressions (null pointer = open "*")
     // For vectors: this is always empty.
     std::vector<std::shared_ptr<ExprNode>> sizeExprs;
-
     // Results after semantic resolution:
     // - integer value if compile-time known
     // - nullopt if "*"
     std::vector<std::optional<int64_t>> resolvedDims;
-
-    // --- Constructors ---
-
     // Simple constructor for 1D array or vector
-    ArrayTypeNode(CompleteType elem,
-                  std::shared_ptr<ExprNode> sizeExpr,
-                  bool isOpen = false,
-                  bool isVector = false)
-        : isVec(isVector),
-          elementType(std::move(elem))
-    {
-        if (isVec) {
-            // A vector<T> has no explicit size
-            return;
-        }
-
+    ArrayTypeNode(CompleteType elem, std::shared_ptr<ExprNode> sizeExpr, bool isOpen = false, bool isVector = false)
+        : isVec(isVector), elementType(std::move(elem)){
+        // A vector<T> has no explicit size
+        if (isVec) {return;}
         // Normal array
         sizeExprs.push_back(sizeExpr); // may be null for open dimension
         resolvedDims.push_back(isOpen ? std::nullopt : std::nullopt);
     }
-
     // Constructor for multi-dimensional arrays OR vector<T>
-    ArrayTypeNode(CompleteType elem,
-                  std::vector<std::shared_ptr<ExprNode>> sizes,
-                  std::vector<std::optional<int64_t>> resolved = {},
-                  bool isVector = false)
-        : isVec(isVector),
-          elementType(std::move(elem)),
-          sizeExprs(std::move(sizes)),
-          resolvedDims(std::move(resolved))
-    {
+    ArrayTypeNode(CompleteType elem, std::vector<std::shared_ptr<ExprNode>> sizes, std::vector<std::optional<int64_t>> resolved = {}, bool isVector = false)
+        : isVec(isVector), elementType(std::move(elem)), sizeExprs(std::move(sizes)), resolvedDims(std::move(resolved)){
         // For vector<T>, sizes/resolvedDims must be empty.
         // This keeps the model clean and consistent.
         if (isVec) {
@@ -266,7 +244,6 @@ public:
         }
         // Otherwise let array dims pass through (0D–2D)
     }
-
     void accept(ASTVisitor &visitor) override;
 };
 
@@ -443,6 +420,14 @@ public:
   std::vector<std::string> names;
   std::shared_ptr<ExprNode> expr;
   DestructAssignStatNode(std::vector<std::string> names, std::shared_ptr<ExprNode> expr);
+  void accept(ASTVisitor &visitor) override;
+};
+class ArrayAccessAssignStatNode : public StatNode {
+public:
+  std::shared_ptr<ArrayAccessExpr> target;
+  std::shared_ptr<ExprNode> expr;
+  ArrayAccessAssignStatNode(std::shared_ptr<ArrayAccessExpr> target,
+                            std::shared_ptr<ExprNode> expr);
   void accept(ASTVisitor &visitor) override;
 };
 class TupleAccessAssignStatNode : public StatNode {
