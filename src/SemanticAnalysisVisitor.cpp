@@ -787,14 +787,7 @@ void SemanticAnalysisVisitor::visit(StructTypedDecNode* node) {
     }
 
     // Declare struct name and save as alias to be used later
-    try {
-        current_->declareStructType(structType.aliasName, structType, node->line);
-    } catch (const CompileTimeException &) {
-        // Re-throw with a clearer message for duplicate struct type names.
-        throw SymbolError(node->line,
-                            "Semantic Analysis: Re-declaring existing struct type '" +
-                                structType.aliasName + "'.");
-    }
+    current_->declareStructType(structType.aliasName, structType, node->line);
 
 
     // visit initializer once struct type declared
