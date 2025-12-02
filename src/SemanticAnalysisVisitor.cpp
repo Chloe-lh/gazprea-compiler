@@ -62,7 +62,7 @@ void SemanticAnalysisVisitor::visit(FileNode* node) {
     // define 'stream_state' procedure
     try {
         std::vector<VarInfo> params;
-        params.emplace_back("s", CompleteType(BaseType::INTEGER), false);
+        params.emplace_back("s", CompleteType(BaseType::INTEGER), true);
         
         CompleteType returnType(BaseType::INTEGER);
         

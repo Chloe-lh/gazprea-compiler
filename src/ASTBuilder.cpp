@@ -1310,6 +1310,14 @@ std::any ASTBuilder::visitRealExpr(GazpreaParser::RealExprContext *ctx) {
   return expr_any(std::move(node));
 }
 
+std::any ASTBuilder::visitStdInputExpr(GazpreaParser::StdInputExprContext *ctx) {
+  // Treat std_input as a dummy integer 0
+  auto node = std::make_shared<IntNode>(0);
+  setLocationFromCtx(node, ctx);
+  node->type = CompleteType(BaseType::INTEGER); // Matches input_stream alias
+  return expr_any(std::move(node));
+}
+
 std::any ASTBuilder::visitTrueExpr(GazpreaParser::TrueExprContext *ctx) {
   auto node = std::make_shared<TrueNode>();
   setLocationFromCtx(node, ctx);
