@@ -1607,6 +1607,24 @@ void SemanticAnalysisVisitor::visit(EqExpr* node) {
         throwOperandError(node->op, {rightOperandType}, "Illegal right operand", node->line);
     }
 
+    // Struct comparisons
+    if (leftOperandType.baseType == BaseType::STRUCT ||
+        rightOperandType.baseType == BaseType::STRUCT) {
+
+        // cannot compare struct with non-struct.
+        if (leftOperandType.baseType != BaseType::STRUCT || rightOperandType.baseType != BaseType::STRUCT) {
+            throwOperandError(node->op, {leftOperandType, rightOperandType},"Cannot compare struct with non-struct", node->line);
+        }
+
+        // structs of different subtypes cannot be compared
+        if (promote(leftOperandType, rightOperandType) != rightOperandType) {
+            throwOperandError(node->op, {leftOperandType, rightOperandType},"Cannot compare struct of different subtypes", node->line);
+        }
+
+        node->type = CompleteType(BaseType::BOOL);
+        return;
+    }
+
     CompleteType finalType = promote(leftOperandType, rightOperandType);
     if (finalType.baseType == BaseType::UNKNOWN) {
         finalType = promote(rightOperandType, leftOperandType);
@@ -1616,7 +1634,7 @@ void SemanticAnalysisVisitor::visit(EqExpr* node) {
         throwOperandError(node->op, {leftOperandType, rightOperandType}, "No promotion possible between operands", node->line);
     }
 
-    node->type = BaseType::BOOL;
+    node->type = CompleteType(BaseType::BOOL);
 }
 
 void SemanticAnalysisVisitor::visit(AndExpr* node) {
