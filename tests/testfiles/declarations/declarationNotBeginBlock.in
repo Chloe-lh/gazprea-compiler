@@ -1,6 +1,9 @@
-var integer i = 10;
-if (1) {
-  i = i + 1;
-  real i = 0;  // Illegal placement of a declaration.
+procedure main() returns integer {
+  var integer i = 10;
+  if (true) {
+    i = i + 1;
+    real i = 0;  // Illegal placement of a declaration.
+  }
+  return 0;
 }
 //CHECK_FILE:declarationNotBeginBlock.out
