@@ -74,6 +74,15 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<co
         auto readBoolType = mlir::LLVM::LLVMFunctionType::get(voidTy, ptrTy, false);
         builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "readBool", readBoolType);
     }
+    // Declaration of runtime built-in functions.
+
+    // Stream state runtime function
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("stream_state_runtime")) {
+        auto i32Ty = builder_.getI32Type();
+        auto fnTy = mlir::LLVM::LLVMFunctionType::get(i32Ty, {i32Ty}, false);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "stream_state_runtime", fnTy);
+    }
+
     createGlobalStringIfMissing("%d\0", "intFormat");
     createGlobalStringIfMissing("%c\0", "charFormat");
     createGlobalStringIfMissing("%g\0", "floatFormat");
@@ -86,6 +95,28 @@ void MLIRGen::visit(FileNode* node) {
     currScope_ = root_;
     if (currScope_ && !currScope_->children().empty()) {
         currScope_ = currScope_->children().front().get();
+    }
+
+
+    mlir::OpBuilder::InsertionGuard guard(builder_);
+    builder_.setInsertionPointToStart(module_.getBody());
+
+    // This defines gazprea wrappers for the runtime implementations of built-in functions
+    if (!module_.lookupSymbol<mlir::func::FuncOp>("stream_state")) {
+        auto i32Ty = builder_.getI32Type();
+        auto funcTy = builder_.getFunctionType({i32Ty}, {i32Ty});
+        auto funcOp = builder_.create<mlir::func::FuncOp>(loc_, "stream_state", funcTy);
+        
+        mlir::Block* entry = funcOp.addEntryBlock();
+        builder_.setInsertionPointToStart(entry);
+        
+        mlir::Value arg = entry->getArgument(0);
+        
+        // Call Runtime
+        auto runtimeFn = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("stream_state_runtime");
+        auto callOp = builder_.create<mlir::LLVM::CallOp>(loc_, runtimeFn, mlir::ValueRange{arg});
+        
+        builder_.create<mlir::func::ReturnOp>(loc_, callOp.getResult());
     }
 
     // First pass: emit real const globals with constant initializers

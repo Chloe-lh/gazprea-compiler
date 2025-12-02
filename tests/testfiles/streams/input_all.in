@@ -21,4 +21,4 @@ procedure main() returns int {
 }
 
 //CHECK_FILE:input_all.out
-//INPUT_FILE:input_all_file
+//INPUT_FILE:input_all_file.ins
