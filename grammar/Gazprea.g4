@@ -206,7 +206,6 @@ REVERSE: 'reverse';
 ROWS: 'rows';
 STD_INPUT: 'std_input';
 STD_OUTPUT: 'std_output';
-STREAM_STATE: 'stream_state';
 STRING: 'string';
 TRUE: 'true';
 TUPLE: 'tuple';
