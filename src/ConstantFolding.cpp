@@ -356,7 +356,7 @@ void ConstantFoldingVisitor::visit(TupleTypeAliasNode *node){}
     }
   }
   void ConstantFoldingVisitor::visit(TupleAccessAssignStatNode *node){
-    if (node) throw std::runtime_error("ConstantFolding::TupleAccessAssignStatNode: null node");
+    if (!node) throw std::runtime_error("ConstantFolding::TupleAccessAssignStatNode: null node");
     if (node->target) node->target->accept(*this);
     if (node->expr) node->expr->accept(*this);
     if (node->target) {
