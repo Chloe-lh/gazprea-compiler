@@ -84,6 +84,7 @@ expr
     | tuple_literal                                     #TupleLitExpr
     | AS '<' type '>' PARENLEFT expr PARENRIGHT         #TypeCastExpr
     | AS '<' tuple_dec  '>' PARENLEFT expr PARENRIGHT   #TupleTypeCastExpr
+    | STD_INPUT                                         #StdInputExpr
     | ID                                                #IdExpr
     ;
 
