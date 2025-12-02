@@ -356,7 +356,7 @@ void ConstantFoldingVisitor::visit(TupleTypeAliasNode *node){}
     }
   }
   void ConstantFoldingVisitor::visit(TupleAccessAssignStatNode *node){
-    if (!node) return;
+    if (node) throw std::runtime_error("ConstantFolding::TupleAccessAssignStatNode: null node");
     if (node->target) node->target->accept(*this);
     if (node->expr) node->expr->accept(*this);
     if (node->target) {
@@ -364,6 +364,15 @@ void ConstantFoldingVisitor::visit(TupleTypeAliasNode *node){}
         removeConst(node->target->tupleName);
     }
   }
+
+  void ConstantFoldingVisitor::visit(StructAccessAssignStatNode *node) {
+    if (!node) throw std::runtime_error("ConstantFolding::StructAccessAssignStatNode: null node");
+
+    if (node->target) node->target->accept(*this);
+    if (node->expr) node->expr->accept(*this);
+    if (node->target) removeConst(node->target->structName);
+  }
+
   void ConstantFoldingVisitor::visit(OutputStatNode *node){ if(node->expr) node->expr->accept(*this);}
   void ConstantFoldingVisitor::visit(InputStatNode *node){}
   void ConstantFoldingVisitor::visit(BreakStatNode *node){}

@@ -84,8 +84,12 @@ namespace gazprea {
             throw std::runtime_error("visitStructAccessAssignStat: invalid context");
         }
 
-        auto targetAny = visit(ctx->struct_access());
-        auto target = safe_any_cast_ptr<StructAccessNode>(targetAny);
+        // Manually parse struct_access since visitStruct_access isn't implemented
+        auto sa = ctx->struct_access();
+        std::string structName = sa->ID(0)->getText();
+        std::string fieldName = sa->ID(1)->getText();
+        auto target = std::make_shared<StructAccessNode>(structName, fieldName);
+        setLocationFromCtx(target, sa);
 
         auto exprAny = visit(ctx->expr());
         auto expr = safe_any_cast_ptr<ExprNode>(exprAny);

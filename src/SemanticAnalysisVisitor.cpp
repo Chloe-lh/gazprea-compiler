@@ -1000,7 +1000,7 @@ void SemanticAnalysisVisitor::visit(TupleAccessAssignStatNode* node) {
 
     VarInfo* tupleVar = node->target->binding;
     if (tupleVar->isConst) {
-        throw AssignError(1, "Semantic Analysis: cannot assign to element of const tuple '" +
+        throw AssignError(node->line, "Semantic Analysis: cannot assign to element of const tuple '" +
                                  node->target->tupleName + "'.");
     }
 
@@ -1011,6 +1011,31 @@ void SemanticAnalysisVisitor::visit(TupleAccessAssignStatNode* node) {
     CompleteType exprType = resolveUnresolvedType(current_, node->expr->type, node->line);
 
     handleAssignError(node->target->tupleName, elemType, exprType, node->line);
+
+    node->type = CompleteType(BaseType::UNKNOWN);
+}
+
+void SemanticAnalysisVisitor::visit(StructAccessAssignStatNode *node) {
+    if (!node->target || !node->expr) {
+        throw AssignError(node->line, "Semantic Analysis: malformed struct access assignment.");
+    }
+
+
+    // Visit lhs and get type
+    node->target->accept(*this);
+    if (!node->target->binding) {
+        throw std::runtime_error("Semantic Analysis: FATAL: StructAccessNode missing binding in assignment.");
+    }
+    VarInfo *structVar = node->target->binding;
+    if (structVar->isConst) throw AssignError(node->line, "Semantic Analysis: cannot assign to field of const struct '" + node->target->structName + "." + node->target->fieldName + "'");
+
+    // Visit rhs
+    node->expr->accept(*this);
+
+    CompleteType elemType = resolveUnresolvedType(current_, node->target->type, node->line);
+    CompleteType exprType = resolveUnresolvedType(current_, node->expr->type, node->line);
+
+    handleAssignError(node->target->structName, elemType, exprType, node->line);
 
     node->type = CompleteType(BaseType::UNKNOWN);
 }
