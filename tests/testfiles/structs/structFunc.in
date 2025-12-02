@@ -1,0 +1,21 @@
+struct Point (integer x, integer y);
+
+function addPoints(Point a, Point b) returns Point {
+    return Point(a.x + b.x, a.y + b.y);
+}
+
+procedure main() returns integer {
+    var Point p1 = Point(1, 2);
+    var Point p2 = Point(10, 20);
+    var Point sum;
+    
+    sum = addPoints(p1, p2);
+    
+    sum.x -> std_output;
+    " " -> std_output;
+    sum.y -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:structFunc.out
