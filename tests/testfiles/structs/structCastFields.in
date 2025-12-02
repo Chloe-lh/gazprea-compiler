@@ -1,0 +1,21 @@
+// Casting struct fields is allowed, but casting the struct itself is not.
+procedure main() returns integer {
+    struct S (integer i, real r, character c, boolean b);
+
+    var S s = S(5, 2.5, 'A', true);
+
+    // Allowed: cast integer field to real
+    var real ri = as<real>(s.i);
+    // Allowed: cast character field to integer
+    var integer ic = as<integer>(s.c);
+
+    // Use cast results in expressions/printing
+    ri -> std_output;
+    "\n" -> std_output;
+    ic -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+//CHECK_FILE:structCastFields.out
+

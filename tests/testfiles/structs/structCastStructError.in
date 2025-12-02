@@ -1,0 +1,12 @@
+// Casting an entire struct value is illegal.
+procedure main() returns integer {
+    struct S (integer i, real r);
+    var S s = S(1, 2.5);
+
+    // Illegal: attempt to cast whole struct
+    var integer x = as<integer>(s);
+
+    return 0;
+}
+//CHECK_FILE:structCastStructError.out
+
