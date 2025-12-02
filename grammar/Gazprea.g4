@@ -125,8 +125,8 @@ rangeExpr : RANGE expr
           | expr RANGE expr
           ;
 
-// declarations must be placed at the start of the block
-block: CURLLEFT dec* stat* CURLRIGHT;
+// Block: declarations allowed anywhere but semantic analysis enforces that they appear before statements within each block.
+block: CURLLEFT (dec | stat)* CURLRIGHT;
 
 if_stat: IF PARENLEFT expr PARENRIGHT (block|stat|dec) (ELSE (block|stat|dec))?;
 
