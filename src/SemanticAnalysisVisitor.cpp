@@ -844,7 +844,7 @@ void SemanticAnalysisVisitor::visit(AssignStatNode* node) {
     node->expr->accept(*this);
     // std::cerr << "Visiting AssignNode";
     // handles if undeclared
-    const VarInfo* varInfo = current_->resolveVar(node->name, node->line);
+    VarInfo* varInfo = current_->resolveVar(node->name, node->line);
     
     if (varInfo->isConst) {
         throw AssignError(node->line, "Semantic Analysis: cannot assign to const variable '" + node->name + "'."); // TODO add line num
@@ -852,7 +852,7 @@ void SemanticAnalysisVisitor::visit(AssignStatNode* node) {
 
     CompleteType varType = resolveUnresolvedType(current_, varInfo->type, node->line);
     CompleteType exprType = resolveUnresolvedType(current_, node->expr->type, node->line);
- 
+
     handleAssignError(node->name, varType, exprType, node->line);
 
     node->type = varType;

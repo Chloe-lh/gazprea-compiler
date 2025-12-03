@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <variant>
+#include <optional>
 #include <assert.h>
 
 // Base Types
@@ -44,6 +45,8 @@ struct CompleteType {
     std::string aliasName = "";
     BaseType elemType; //stores element type for arrays/vectors
     std::vector<std::string> fieldNames; //stores field names for structs only
+    // Dimension metadata for arrays / vectors / matrices.
+    std::vector<std::optional<int64_t>> dims;
 
     CompleteType(): baseType(BaseType::UNKNOWN) {}
     CompleteType(BaseType baseType) : baseType(baseType) {}
@@ -55,7 +58,9 @@ struct CompleteType {
 
 
     bool operator==(const CompleteType& other) const noexcept {
-        return baseType == other.baseType && subTypes == other.subTypes;
+        return baseType == other.baseType &&
+               subTypes == other.subTypes &&
+               dims == other.dims;
     }
     bool operator!=(const CompleteType& other) const noexcept {
         return !(*this == other);
