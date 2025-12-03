@@ -2,25 +2,32 @@
 #pragma once
 #include "Scope.h"
 #include "Types.h"
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 #include <variant>
-#include <cstdint>
 #include <vector>
 
 struct ConstantValue {
   CompleteType type;
-  // use int64_t for integers to avoid overflow while folding;
-  // real uses double.
-  std::variant<int64_t, double, bool, char, std::string> value;
+
+  // now includes array constants
+  std::variant<int64_t, double, bool, char, std::string,
+               std::vector<ConstantValue>>
+      value;
 
   ConstantValue() : type(CompleteType(BaseType::UNKNOWN)) {}
+
   ConstantValue(const CompleteType &t,
-                std::variant<int64_t, double, bool, char, std::string> v)
+                std::variant<int64_t, double, bool, char, std::string,
+                             std::vector<ConstantValue>>
+                    v)
       : type(t), value(std::move(v)) {}
 };
+
+enum class CallType { FUNCTION, PROCEDURE, STRUCT_LITERAL };
 
 // abstract class that is extended by the different passes in the pipeline
 class ASTVisitor;
@@ -28,6 +35,9 @@ class ASTVisitor;
 class BlockNode;
 class TypeAliasNode;
 class TupleAccessNode;
+class StructAccessNode;
+class ArrayAccessNode;
+class RangeExprNode;
 
 class ASTNode { // virtual class
 public:
@@ -35,8 +45,7 @@ public:
   virtual ~ASTNode() = default;
   virtual void accept(ASTVisitor &visitor) = 0;
   CompleteType type = CompleteType(BaseType::UNKNOWN);
-  int line = 1; // default to line 1 when unknown
-
+  int line;
 };
 // super classes
 class DecNode : public ASTNode {
@@ -51,7 +60,7 @@ class ExprNode : public ASTNode {
 public:
   virtual ~ExprNode() = default;
   virtual void accept(ASTVisitor &visitor) = 0;
-  // Optional compile-time constant annotation. When present, this records the
+  // Optionalx compile-time constant annotation. When present, this records the
   // evaluated constant and its type so later passes or tests can inspect it.
   std::optional<ConstantValue> constant;
 };
@@ -115,7 +124,7 @@ public:
 class FuncPrototypeNode : public FuncNode {
 public:
   FuncPrototypeNode(const std::string &name,
-                    const std::vector<VarInfo> &parameters, //args technically
+                    const std::vector<VarInfo> &parameters, // args technically
                     CompleteType returnType);
   void accept(ASTVisitor &visitor) override;
 };
@@ -135,8 +144,9 @@ public:
   std::vector<VarInfo> params;
   CompleteType returnType; // optional
   std::shared_ptr<BlockNode> body;
-  ProcedureBlockNode(const std::string &name, const std::vector<VarInfo> &params,
-                CompleteType returnType, std::shared_ptr<BlockNode> body);
+  ProcedureBlockNode(const std::string &name,
+                     const std::vector<VarInfo> &params,
+                     CompleteType returnType, std::shared_ptr<BlockNode> body);
   void accept(ASTVisitor &visitor) override;
 };
 
@@ -146,11 +156,120 @@ public:
   std::vector<VarInfo> params;
   CompleteType returnType; // optional
   ProcedurePrototypeNode(const std::string &name,
-                    const std::vector<VarInfo> &parameters, 
-                    CompleteType returnType); // optional return type
+                         const std::vector<VarInfo> &parameters,
+                         CompleteType returnType); // optional return type
   void accept(ASTVisitor &visitor) override;
 };
 
+// Arrays
+class ArraySliceExpr : public ExprNode {
+public:
+  std::string id;
+  std::shared_ptr<RangeExprNode> range;
+  ArraySliceExpr(const std::string &id, std::shared_ptr<RangeExprNode> range)
+      : id(id), range(std::move(range)) {}
+  void accept(ASTVisitor &visitor) override;
+};
+class ArrayStrideExpr : public ExprNode {
+public:
+  std::string id;
+  std::shared_ptr<ExprNode> expr;
+  ArrayStrideExpr(const std::string &id, std::shared_ptr<ExprNode> expr)
+      : id(id), expr(std::move(expr)) {}
+  void accept(ASTVisitor &visitor) override;
+};
+class ArrayAccessNode : public ExprNode {
+public:
+  std::string id;
+  int index;
+  VarInfo *binding = nullptr;
+  ArrayAccessNode(const std::string &id, int index): id(id), index(index){}
+  void accept(ASTVisitor &visitor) override; 
+};
+class ArrayLiteralNode;
+
+class ArrayTypeNode;
+class ArrayTypedDecNode : public DecNode {
+public:
+  std::string qualifier = "const"; // optional default const
+  std::string id;
+  std::shared_ptr<ArrayTypeNode> typeInfo; // MAY hold size if not vector
+  std::shared_ptr<ExprNode> init;          // nullable
+  ArrayTypedDecNode(const std::string &q, const std::string &id,
+                    std::shared_ptr<class ArrayTypeNode> type)
+      : qualifier(q), id(id), typeInfo(std::move(type)) {}
+  ArrayTypedDecNode(const std::string &q, const std::string &id,
+                    std::shared_ptr<class ArrayTypeNode> type,
+                    std::shared_ptr<ExprNode> i)
+      : qualifier(q), id(id), typeInfo(std::move(type)), init(std::move(i)) {}
+
+  void accept(ASTVisitor &visitor) override;
+};
+// ARRAY TYPE NODE MAY HAVE A VECTOR TYPE OR ARRAY TYPE
+// Represents either an array type (with optional dimensions)
+// or a vector type (vector<T>), depending on `isVec`.
+class ArrayTypeNode : public ASTNode {
+public:
+    // True if this is a vector<T>, false if this is a T[...] array
+    bool isVec = false;
+    CompleteType elementType;
+    // Raw dimension-size expressions (null pointer = open "*")
+    // For vectors: this is always empty.
+    std::vector<std::shared_ptr<ExprNode>> sizeExprs;
+    // Results after semantic resolution:
+    // - integer value if compile-time known
+    // - nullopt if "*"
+    std::vector<std::optional<int64_t>> resolvedDims;
+    // Simple constructor for 1D array or vector
+    ArrayTypeNode(CompleteType elem, std::shared_ptr<ExprNode> sizeExpr, bool isOpen = false, bool isVector = false)
+        : isVec(isVector), elementType(std::move(elem)){
+        // A vector<T> has no explicit size
+        if (isVec) {return;}
+        // Normal array
+        sizeExprs.push_back(sizeExpr); // may be null for open dimension
+        resolvedDims.push_back(isOpen ? std::nullopt : std::nullopt);
+    }
+    // Constructor for multi-dimensional arrays OR vector<T>
+    ArrayTypeNode(CompleteType elem, std::vector<std::shared_ptr<ExprNode>> sizes, std::vector<std::optional<int64_t>> resolved = {}, bool isVector = false)
+        : isVec(isVector), elementType(std::move(elem)), sizeExprs(std::move(sizes)), resolvedDims(std::move(resolved)){
+        // For vector<T>, sizes/resolvedDims must be empty.
+        // This keeps the model clean and consistent.
+        if (isVec) {
+            sizeExprs.clear();
+            resolvedDims.clear();
+        }
+        // Otherwise let array dims pass through (0D–2D)
+    }
+    void accept(ASTVisitor &visitor) override;
+};
+
+class ExprListNode : public ASTNode {
+public:
+  std::vector<std::shared_ptr<ExprNode>> list;
+  ExprListNode(std::vector<std::shared_ptr<ExprNode>> list)
+      : list(std::move(list)) {}
+  void accept(ASTVisitor &visitor) override;
+};
+class ArrayLiteralNode : public LiteralExprNode {
+public:
+  std::shared_ptr<ExprListNode> list; // optional
+  ArrayLiteralNode(std::shared_ptr<ExprListNode> list)
+      : list(std::move(list)) {}
+  void accept(ASTVisitor &visitor) override;
+};
+// Vectors
+
+//   expr RANGE expr    (start..end)
+//   RANGE expr         (..end)    -> start == nullptr
+//   expr RANGE         (start..)  -> end == nullptr
+class RangeExprNode : public ExprNode {
+public:
+  std::shared_ptr<ExprNode> start; // nullable
+  std::shared_ptr<ExprNode> end;   // nullable
+  RangeExprNode(std::shared_ptr<ExprNode> s, std::shared_ptr<ExprNode> e)
+      : start(std::move(s)), end(std::move(e)) {}
+  void accept(ASTVisitor &visitor) override;
+};
 // expression classes
 class ParenExpr : public ExprNode {
 public:
@@ -253,8 +372,29 @@ class TupleTypedDecNode : public DecNode {
 public:
   std::string qualifier; // optional
   std::shared_ptr<ExprNode> init;
-  TupleTypedDecNode(const std::string &name, const std::string &qualifier,
-                    CompleteType tupleType);
+
+  // Constructor matching the usage
+  TupleTypedDecNode(const std::string &q, const std::string &name,
+                    CompleteType tupleType)
+      : qualifier(q), init(nullptr) // initializer list
+  {
+    this->name = name;
+    this->type = std::move(tupleType);
+  }
+
+  void accept(ASTVisitor &visitor) override;
+};
+
+// Handles both standalone struct type declarations,
+//    e.g. struct MyStruct (integer memb1, boolean memb2);
+// As well as struct + variable declarations
+//    e.g. struct MyStruct (integer memb1, boolean memb2) varDec;
+class StructTypedDecNode : public DecNode {
+public:
+  std::string qualifier;          // optional
+  std::shared_ptr<ExprNode> init; // optional
+  StructTypedDecNode(const std::string &name, const std::string &qualifier,
+                     CompleteType structType);
   void accept(ASTVisitor &visitor) override;
 };
 
@@ -293,6 +433,14 @@ public:
   DestructAssignStatNode(std::vector<std::string> names, std::shared_ptr<ExprNode> expr);
   void accept(ASTVisitor &visitor) override;
 };
+class ArrayAccessAssignStatNode : public StatNode {
+public:
+  std::shared_ptr<ArrayAccessNode> target;
+  std::shared_ptr<ExprNode> expr;
+  ArrayAccessAssignStatNode(std::shared_ptr<ArrayAccessNode> target,
+                            std::shared_ptr<ExprNode> expr);
+  void accept(ASTVisitor &visitor) override;
+};
 class TupleAccessAssignStatNode : public StatNode {
 public:
   std::shared_ptr<TupleAccessNode> target;
@@ -301,6 +449,15 @@ public:
                             std::shared_ptr<ExprNode> expr);
   void accept(ASTVisitor &visitor) override;
 };
+
+class StructAccessAssignStatNode: public StatNode {
+  public:
+    std::shared_ptr<StructAccessNode> target;
+    std::shared_ptr<ExprNode> expr;
+    StructAccessAssignStatNode(std::shared_ptr<StructAccessNode> target, std::shared_ptr<ExprNode> expr);
+    void accept(ASTVisitor &visitor) override;
+};
+
 class OutputStatNode : public StatNode {
 public:
   std::shared_ptr<ExprNode> expr;
@@ -335,21 +492,29 @@ public:
   std::string funcName;
   std::vector<std::shared_ptr<ExprNode>> args;
   std::optional<FuncInfo> resolvedFunc;
+  CallType callType = CallType::PROCEDURE;
   CallExprNode(const std::string &, std::vector<std::shared_ptr<ExprNode>>);
   void accept(ASTVisitor &v) override;
 };
-// Expression-style function call node (grammar: ID '(' expr* ')')
-// This preserves the older "FuncCallExpr" name used by the visitor API.
-class FuncCallExpr : public CallExprNode {
+// Expression-style function call OR struct literal node (grammar: ID '(' expr*
+// ')')
+class FuncCallExprOrStructLiteral : public CallExprNode {
+
 public:
-  using CallExprNode::CallExprNode; // inherit constructor
+  // Same as CallExprNode constructor except callType is set to
+  // `CallType::FUNCTION` Semantic analysis should resolve and update `callType`
+  // to `CallType::STRUCT_LITERAL` where applicable
+  FuncCallExprOrStructLiteral(const std::string &,
+                              std::vector<std::shared_ptr<ExprNode>>);
   void accept(ASTVisitor &v) override;
 };
 // can be used in statements
 class CallStatNode : public StatNode {
 public:
-  std::shared_ptr<FuncCallExpr> call; // wrapper around expression-style call
-  CallStatNode(std::shared_ptr<FuncCallExpr> c) : call(std::move(c)) {}
+  // Wrapper around expression-style call/struct literal expression node
+  std::shared_ptr<FuncCallExprOrStructLiteral> call;
+  explicit CallStatNode(std::shared_ptr<FuncCallExprOrStructLiteral> c)
+      : call(std::move(c)) {}
   void accept(ASTVisitor &v) override;
 };
 
@@ -368,7 +533,7 @@ public:
 
   void accept(ASTVisitor &visitor) override;
 };
-  
+
 enum class LoopKind { Plain, While, WhilePost };
 // plain : no Condition
 // while : condition body
@@ -413,6 +578,16 @@ class TupleTypeAliasNode : public ASTNode {
 public:
   std::string aliasName;
   TupleTypeAliasNode(const std::string &aliasName, CompleteType tupleType);
+  void accept(ASTVisitor &visitor) override;
+};
+
+class StructAccessNode : public ExprNode {
+public:
+  std::string structName;
+  std::string fieldName;
+  size_t fieldIndex;
+  VarInfo *binding = nullptr; // bound struct variable from semantic analysis
+  StructAccessNode(const std::string &structName, const std::string &fieldName);
   void accept(ASTVisitor &visitor) override;
 };
 

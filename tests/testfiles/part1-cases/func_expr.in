@@ -1,4 +1,3 @@
-//CHECK_FILE:./func_expr.out
 function foo() returns integer {
     return 2;
 }
@@ -10,3 +9,4 @@ procedure main() returns integer {
     '\n' -> std_output;
     return 0;
 }
+//CHECK_FILE:./func_expr.out

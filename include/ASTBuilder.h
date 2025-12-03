@@ -11,7 +11,7 @@ Class converts Parse tree produced by ANTLR into AST Tree
 namespace gazprea {
 class ASTBuilder : public GazpreaBaseVisitor {
 public:
-static void setLocationFromCtx(std::shared_ptr<ASTNode> node, antlr4::ParserRuleContext *ctx);
+  static void setLocationFromCtx(std::shared_ptr<ASTNode> node, antlr4::ParserRuleContext *ctx);
   // Top-level statements and blocks (implemented in src/ASTBuilder.cpp)
   std::any visitFile(gazprea::GazpreaParser::FileContext *ctx) override;
   std::any visitBlock(gazprea::GazpreaParser::BlockContext *ctx) override;
@@ -23,6 +23,8 @@ static void setLocationFromCtx(std::shared_ptr<ASTNode> node, antlr4::ParserRule
       gazprea::GazpreaParser::InferredTypeDecContext *ctx) override;
   std::any visitTupleTypedDec(
       gazprea::GazpreaParser::TupleTypedDecContext *ctx) override;
+  std::any visitStructTypedDec(
+      gazprea::GazpreaParser::StructTypedDecContext *ctx) override;
 
   // Types / aliases / qualifiers
   std::any visitTupleTypeAlias(
@@ -30,8 +32,8 @@ static void setLocationFromCtx(std::shared_ptr<ASTNode> node, antlr4::ParserRule
   std::any visitBasicTypeAlias(
       gazprea::GazpreaParser::BasicTypeAliasContext *ctx) override;
   std::any visitType(gazprea::GazpreaParser::TypeContext *ctx) override;
-  std::any
-  visitQualifier(gazprea::GazpreaParser::QualifierContext *ctx) override;
+  std::any visitBuiltin_type(GazpreaParser::Builtin_typeContext *ctx) override;
+  std::any visitQualifier(gazprea::GazpreaParser::QualifierContext *ctx) override;
 
   // Statements
   std::any
@@ -40,6 +42,7 @@ static void setLocationFromCtx(std::shared_ptr<ASTNode> node, antlr4::ParserRule
       gazprea::GazpreaParser::DestructAssignStatContext *ctx) override;
   std::any visitTupleAccessAssignStat(
       gazprea::GazpreaParser::TupleAccessAssignStatContext *ctx) override;
+  std::any visitStructAccessAssignStat(gazprea::GazpreaParser::StructAccessAssignStatContext *ctx) override;
   std::any
   visitBreakStat(gazprea::GazpreaParser::BreakStatContext *ctx) override;
   std::any
@@ -109,6 +112,12 @@ static void setLocationFromCtx(std::shared_ptr<ASTNode> node, antlr4::ParserRule
       gazprea::GazpreaParser::TupleAccessExprContext *ctx) override;
   std::any
   visitTupleTypeCastExpr(GazpreaParser::TupleTypeCastExprContext *ctx) override;
+
+  // Struc support
+  std::any visitStructAccessExpr(gazprea::GazpreaParser::StructAccessExprContext *ctx) override;
+  std::any visitStruct_dec(gazprea::GazpreaParser::Struct_decContext *ctx) override;
+
+
   // Control flow
   std::any visitIfStat(gazprea::GazpreaParser::IfStatContext *ctx) override;
   std::any visitLoopStat(gazprea::GazpreaParser::LoopStatContext *ctx) override;
@@ -116,5 +125,14 @@ static void setLocationFromCtx(std::shared_ptr<ASTNode> node, antlr4::ParserRule
       gazprea::GazpreaParser::WhileLoopBlockContext *ctx) override;
   std::any
   visitLoopDefault(gazprea::GazpreaParser::LoopDefaultContext *ctx) override;
+  //Arrays
+  std::any visitArrayAccessAssignStat(GazpreaParser::ArrayAccessAssignStatContext *ctx) override;
+  std::any visitArrayStrideExpr(GazpreaParser::ArrayStrideExprContext *ctx) override;
+  std::any visitArraySliceExpr(GazpreaParser::ArraySliceExprContext *ctx) override;
+  std::any visitArrayAccessExpr(gazprea::GazpreaParser::ArrayAccessExprContext *ctx) override;
+  std::any visitArrayLitExpr(gazprea::GazpreaParser::ArrayLitExprContext *ctx) override;
+  std::any visitExprList(gazprea::GazpreaParser::ExprListContext *ctx) override;
+  std::any visitArray_literal(gazprea::GazpreaParser::Array_literalContext *ctx) override;
+  std::any visitRangeExpr(gazprea::GazpreaParser::RangeExprContext *ctx) override;
 };
 } // namespace gazprea

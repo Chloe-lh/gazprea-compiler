@@ -3,15 +3,23 @@ set(
   gazprea_src_files
     "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/BackEnd.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/AST.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ASTPrinter.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ASTBuilder.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/ConstantHelpers.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/SemanticAnalysisVisitor.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/ConstantFolding.cpp"
-    "${CMAKE_SOURCE_DIR}/src/ASTBuilderUtils.cpp"
     "${CMAKE_SOURCE_DIR}/src/Scope.cpp"
     "${CMAKE_SOURCE_DIR}/src/Types.cpp"
+
+    # AST sources
+    "${CMAKE_CURRENT_SOURCE_DIR}/AST/AST.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/AST/ASTPrinter.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/AST/ASTBuilder.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/AST/ASTBuilderUtils.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/AST/array.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/AST/func.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/AST/ops.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/AST/tuple.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/AST/controlFlow.cpp"
+
     # MLIR lowering sources
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/base.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/alias.cpp"

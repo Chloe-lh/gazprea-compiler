@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 #include <variant>
@@ -41,6 +42,9 @@ struct CompleteType {
     BaseType baseType;
     std::vector<CompleteType> subTypes;
     std::string aliasName = "";
+    std::shared_ptr<CompleteType> elemType; //stores element type for arrays
+    std::vector<std::string> fieldNames; //stores field names for structs only
+
 
     CompleteType(BaseType baseType) : baseType(baseType) {}
     CompleteType(BaseType baseType, std::vector<CompleteType> subTypes)

@@ -49,13 +49,15 @@ void MLIRGen::visit(ReturnStatNode* node) {
     }
     VarInfo promoted = promoteType(&v, const_cast<CompleteType*>(retTy), node->line);
     mlir::Value retVal;
-    if (retTy->baseType == BaseType::TUPLE) {
+    if ((retTy->baseType == BaseType::TUPLE) || (retTy->baseType == BaseType::STRUCT)) {
         mlir::Type structTy = getLLVMType(*retTy);
         retVal = builder_.create<mlir::LLVM::LoadOp>(
             loc_, structTy, promoted.value);
-    } else {
+    } else if (isScalarType(retTy->baseType)) {
         // Normalize scalar return value to SSA (load memref if needed)
         retVal = getSSAValue(promoted);
+    } else {
+        throw std::runtime_error("MLIRGen::ReturnStatNode: Unknown type in return statement");
     }
     builder_.create<mlir::func::ReturnOp>(loc_, retVal);
 }

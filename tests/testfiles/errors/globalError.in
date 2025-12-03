@@ -1,6 +1,6 @@
-//CHECK_FILE:globalError.out
 var integer x;   // Global without initializer
 
 procedure main() returns integer {
     return 0;
 }
+//CHECK_FILE:globalError.out

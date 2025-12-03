@@ -1,4 +1,3 @@
-//CHECK_FILE:./multiple_forward_decls.out
 procedure beans() returns integer;
 procedure rebeans() returns integer;
 
@@ -25,3 +24,4 @@ procedure rebeans() returns integer {
     '\n' -> std_output;
     return 0;
 }
+//CHECK_FILE:./multiple_forward_decls.out

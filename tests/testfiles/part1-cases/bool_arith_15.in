@@ -1,7 +1,7 @@
-//CHECK_FILE:./bool_arith_15.out
 procedure main() returns integer {
     var boolean a = true;
     var boolean b = false;
     (not b) or (a and b) -> std_output;
     return 0;
 }
+//CHECK_FILE:./bool_arith_15.out

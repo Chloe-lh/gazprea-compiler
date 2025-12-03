@@ -1,0 +1,32 @@
+procedure main() returns integer {
+    struct Coord (real x, real y);
+    struct Rectangle (Coord tl, Coord br);
+    
+    var Coord c1 = Coord(1.5, 2.5);
+    var Coord c2 = Coord(3.5, 4.5);
+    var Rectangle r = Rectangle(c1, c2);
+    var Coord topLeft;
+    var Coord bottomRight;
+    var Coord tl2;
+    
+    topLeft = r.tl;
+    topLeft.x -> std_output;
+    " " -> std_output;
+    
+    bottomRight = r.br;
+    bottomRight.y -> std_output;
+    "\n" -> std_output;
+    
+    topLeft.x = 9.5;
+    r.tl = topLeft;
+    
+    tl2 = r.tl;
+    tl2.x -> std_output;
+    "\n" -> std_output;
+
+    c1.x -> std_output; 
+    "\n" -> std_output;
+
+    return 0;
+}
+//CHECK_FILE:nestedStructs.out

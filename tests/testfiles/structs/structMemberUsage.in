@@ -1,0 +1,20 @@
+procedure main() returns integer {
+    struct Data (integer val, real multiplier);
+    var Data d = Data(10, 2.55);
+    
+    var integer i = d.val;
+    var real r = d.multiplier;
+    
+    var real res = i * r; 
+    
+    res -> std_output;
+    "\n" -> std_output;
+    
+    // Direct usage in expression
+    (d.val + 5) -> std_output; 
+    "\n" -> std_output;
+
+    return 0;
+}
+
+//CHECK_FILE:structMemberUsage.out

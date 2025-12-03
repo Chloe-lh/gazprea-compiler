@@ -5,7 +5,19 @@
 #include <any>
 #include <cstddef>
 
-namespace gazprea::builder_utils {
+namespace gazprea {
+  // Set source location (line/column) on an AST node from a parser context.
+  // Declared as a static member in `ASTBuilder` so it can be referenced
+  // from other translation units that include the header.
+  void ASTBuilder::setLocationFromCtx(std::shared_ptr<ASTNode> node, antlr4::ParserRuleContext *ctx) {
+    if (!node || !ctx)
+      return;
+    int line = ctx->getStart()->getLine();
+    node->line = line;
+  }
+
+// NOTE: keep the builder utilities namespace open so the following helper
+// functions are defined inside `gazprea::builder_utils`.
 
 std::vector<VarInfo>
 ParamsToVarInfo(const std::vector<std::pair<CompleteType, std::string>> &params,
@@ -333,5 +345,8 @@ CompleteType ExtractReturnType(
     gazprea::GazpreaParser::FunctionPrototypeTupleReturnContext *ctx) {
   return ExtractTupleReturnType(builder, ctx);
 }
-
 } // namespace gazprea::builder_utils
+
+
+
+

@@ -24,9 +24,10 @@ mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
         case BaseType::CHARACTER: return builder_.getI8Type();
         case BaseType::INTEGER: return builder_.getI32Type();
         case BaseType::REAL: return builder_.getF32Type();
-        case BaseType::TUPLE: {
+        case BaseType::TUPLE:
+        case BaseType::STRUCT: {
             if (type.subTypes.empty()) {
-                throw std::runtime_error("getLLVMType: empty tuple type is invalid");
+                throw std::runtime_error("getLLVMType: empty aggregate type is invalid");
             }
             llvm::SmallVector<mlir::Type, 4> elemTys;
             elemTys.reserve(type.subTypes.size());
@@ -34,6 +35,9 @@ mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
                 elemTys.push_back(getLLVMType(st));
             }
             return mlir::LLVM::LLVMStructType::getLiteral(&context_, elemTys);
+        }
+        case BaseType::VECTOR: {
+            throw std::runtime_error("getLLVMType: Vectors should not be called with this helper.");
         }
         default:
             throw std::runtime_error("getLLVMType: Unsupported type: " + toString(type));
@@ -145,6 +149,25 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
         return;
     }
 
+    // Struct assignment: copy whole LLVM struct value
+    if (variable->type.baseType == BaseType::STRUCT) {
+        // Ensure destination and source storage exist
+        if (!variable->value) {
+            allocaVar(variable, line);
+        }
+        if (!literal->value) {
+            allocaVar(literal, line);
+        }
+
+        // Types should already be checked by semantic analysis
+        // Perform whole-struct load/store in LLVM dialect.
+        mlir::Type structTy = getLLVMType(variable->type);
+        mlir::Value srcStruct =
+            builder_.create<mlir::LLVM::LoadOp>(loc_, structTy, literal->value);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, srcStruct, variable->value);
+        return;
+    }
+
     // Scalar assignment
     // ensure var has a memref allocated
     if (!variable->value) {
@@ -169,9 +192,58 @@ bool MLIRGen::tryEmitConstantForNode(ExprNode* node) {
     if (!node) return false;
     if (!node->constant.has_value()) return false;
     try {
-        VarInfo lit = createLiteralFromConstant(node->constant.value(), node->type, node->line);
-        pushValue(lit);
-        return true;
+        const ConstantValue &cv = node->constant.value();
+        // For scalar constants, emit SSA arith::ConstantOp instead of
+        // allocating a memref and storing into it. Tuples and complex
+        // constants still use the memref literal path.
+        switch (cv.type.baseType) {
+            case BaseType::INTEGER: {
+                auto i32 = builder_.getI32Type();
+                int64_t v = std::get<int64_t>(cv.value);
+                auto c = builder_.create<mlir::arith::ConstantOp>(loc_, i32, builder_.getIntegerAttr(i32, v));
+                VarInfo out{CompleteType(BaseType::INTEGER)};
+                out.value = c.getResult();
+                out.isLValue = false;
+                pushValue(out);
+                return true;
+            }
+            case BaseType::REAL: {
+                auto f32 = builder_.getF32Type();
+                double dv = std::get<double>(cv.value);
+                auto c = builder_.create<mlir::arith::ConstantOp>(loc_, f32, builder_.getFloatAttr(f32, static_cast<float>(dv)));
+                VarInfo out{CompleteType(BaseType::REAL)};
+                out.value = c.getResult();
+                out.isLValue = false;
+                pushValue(out);
+                return true;
+            }
+            case BaseType::BOOL: {
+                auto i1 = builder_.getI1Type();
+                bool bv = std::get<bool>(cv.value);
+                auto c = builder_.create<mlir::arith::ConstantOp>(loc_, i1, builder_.getIntegerAttr(i1, bv ? 1 : 0));
+                VarInfo out{CompleteType(BaseType::BOOL)};
+                out.value = c.getResult();
+                out.isLValue = false;
+                pushValue(out);
+                return true;
+            }
+            case BaseType::CHARACTER: {
+                auto i8 = builder_.getI8Type();
+                char ch = std::get<char>(cv.value);
+                auto c = builder_.create<mlir::arith::ConstantOp>(loc_, i8, builder_.getIntegerAttr(i8, static_cast<int>(ch)));
+                VarInfo out{CompleteType(BaseType::CHARACTER)};
+                out.value = c.getResult();
+                out.isLValue = false;
+                pushValue(out);
+                return true;
+            }
+            default: {
+                // Fallback: use existing memref literal path for tuples and unsupported types
+                VarInfo lit = createLiteralFromConstant(node->constant.value(), node->type, node->line);
+                pushValue(lit);
+                return true;
+            }
+        }
     } catch (...) {
         // unsupported constant type or codegen error; fall back to normal lowering
         return false;
@@ -223,9 +295,10 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
                 loc_, mlir::MemRefType::get({}, builder_.getF32Type()));
             break;
 
-        case BaseType::TUPLE: {
-            if (varInfo->type.subTypes.size() < 2) {
-                throw SizeError(line, "Error: Tuple must have at least 2 elements.");
+        case BaseType::TUPLE:
+        case BaseType::STRUCT: {
+            if (varInfo->type.subTypes.size() < 1) {
+                throw SizeError(line, "Error: aggregate must have at least 1 element.");
             }
             mlir::Type structTy = getLLVMType(varInfo->type);
             auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
@@ -233,6 +306,29 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
             auto oneAttr = builder_.getIntegerAttr(i64Ty, 1);
             mlir::Value one = entryBuilder.create<mlir::arith::ConstantOp>(loc_, i64Ty, oneAttr);
             varInfo->value = entryBuilder.create<mlir::LLVM::AllocaOp>(loc_, ptrTy, structTy, one, 0u);
+            break;
+        }
+
+        case BaseType::VECTOR: {
+            if (varInfo->type.subTypes.size() != 1) {
+                throw std::runtime_error("allocaVar: Vector with size != 1 found");
+            }
+
+            mlir::Type elemTy = getLLVMType(varInfo->type.subTypes[0]);
+            auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, elemTy);
+
+
+            auto idxTy = builder_.getIndexType();
+            mlir::Value zeroLen = entryBuilder.create<mlir::arith::ConstantOp>(
+                loc_, idxTy, builder_.getIntegerAttr(idxTy, 0));
+
+            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
+                loc_,
+                memTy,
+                mlir::ValueRange{zeroLen}, // one dynamic size operand
+                mlir::ValueRange{},        // symbol operands
+                mlir::IntegerAttr()        // no alignment
+            );
             break;
         }
 

@@ -58,181 +58,186 @@ void MLIRGen::visit(ProcedureBlockNode* node) {
 }
 
 /*
-Handles both functions AND procedures when called as an expression.
+Handles functions, procedures AND struct literals when called as an expression.
+Dispatches based on callType determined by Semantic Analysis.
 */
-void MLIRGen::visit(FuncCallExpr* node) {
+void MLIRGen::visit(FuncCallExprOrStructLiteral* node) {
     if (!currScope_) {
-        throw std::runtime_error("FuncCallExpr: no current scope");
+        throw std::runtime_error("FuncCallExprOrStructLiteral: no current scope");
     }
     if (!node) {
-        throw std::runtime_error("FuncCallExpr: null node");
+        throw std::runtime_error("FuncCallExprOrStructLiteral: null node");
     }
 
-    // Evaluate argument expressions and collect their VarInfo
+    if (node->callType == CallType::STRUCT_LITERAL) {
+        // --- Struct Literal Construction ---
+        
+        VarInfo structVar(node->type);
+        allocaLiteral(&structVar, node->line);
+
+        if (!structVar.value) {
+            throw std::runtime_error("FuncCallExprOrStructLiteral: failed to allocate struct storage.");
+        }
+
+        // Lower to struct type
+        mlir::Type structTy = getLLVMType(node->type);
+        mlir::Value structVal = builder_.create<mlir::LLVM::UndefOp>(loc_, structTy);
+
+        // Evaluate each argument and insert into the struct
+        if (node->args.size() != node->type.subTypes.size()) {
+             throw std::runtime_error("FuncCallExprOrStructLiteral: struct argument count mismatch.");
+        }
+
+        for (size_t i = 0; i < node->args.size(); ++i) {
+            if (!node->args[i]) throw std::runtime_error("FuncCallExprOrStructLiteral: null argument");
+            
+            node->args[i]->accept(*this);
+            VarInfo argInfo = popValue();
+
+            // Ensure the argument matches the field type (promotions, etc.)
+            CompleteType fieldType = node->type.subTypes[i];
+            VarInfo promoted = promoteType(&argInfo, &fieldType, node->line);
+            mlir::Value loadedVal = getSSAValue(promoted);
+
+            llvm::SmallVector<int64_t, 1> pos{static_cast<int64_t>(i)};
+            structVal = builder_.create<mlir::LLVM::InsertValueOp>(
+                loc_, structVal, loadedVal, pos);
+        }
+
+        // Store and return struct
+        builder_.create<mlir::LLVM::StoreOp>(loc_, structVal, structVar.value);
+        pushValue(structVar);
+        return;
+    }
+
+    // ---------- Now handle Function or procedure call
+    
+    // Identify Callee Info
+    std::vector<VarInfo> paramInfos;
+    bool isFunction = (node->callType == CallType::FUNCTION);
+
+    if (isFunction) {
+        if (node->resolvedFunc) {
+            // Use cached info from semantic analysis if available
+            paramInfos = node->resolvedFunc->params;
+        } 
+        // If not cached, we will resolve below using arg types
+    }
+
+    // 2. Evaluate Arguments
     std::vector<VarInfo> argInfos;
     argInfos.reserve(node->args.size());
     for (const auto &argExpr : node->args) {
-        if (!argExpr) {
-            throw std::runtime_error("FuncCallExpr: null argument expression");
-        }
+        if (!argExpr) throw std::runtime_error("FuncCallExprOrStructLiteral: null argument expression");
         argExpr->accept(*this);
-        if (v_stack_.empty()) {
-            throw std::runtime_error("FuncCallExpr: argument evaluation did not produce a value");
-        }
-        VarInfo argInfo = popValue();
-        argInfos.push_back(argInfo);
+        if (v_stack_.empty()) throw std::runtime_error("FuncCallExprOrStructLiteral: argument evaluation did not produce a value");
+        argInfos.push_back(popValue());
     }
 
-    // Build type-only VarInfo list for callee resolution
-    std::vector<VarInfo> typeOnlyArgs;
-    typeOnlyArgs.reserve(argInfos.size());
-    for (const auto &argInfo : argInfos) {
-        typeOnlyArgs.emplace_back(VarInfo{"", argInfo.type, true});
-    }
-
-    // Try resolve as function first
-    FuncInfo *funcInfo = nullptr;
-    ProcInfo *procInfo = nullptr;
-
-    try {
-        funcInfo = currScope_->resolveFunc(node->funcName, typeOnlyArgs, node->line);
-    } catch (const CompileTimeException &) {
-        funcInfo = nullptr;
-    }
-
-    bool isFunction = funcInfo != nullptr;
-
-    if (!isFunction) {
-        // Not a function; try resolving as a procedure used as expression.
-        try {
-            procInfo = currScope_->resolveProc(node->funcName, typeOnlyArgs, node->line);
-        } catch (const CompileTimeException &) {
-            procInfo = nullptr;
+    // Resolve Callee, get paramInfo
+    if (paramInfos.empty()) {
+        // Build type-only VarInfo list for resolution
+        std::vector<VarInfo> typeOnlyArgs;
+        typeOnlyArgs.reserve(argInfos.size());
+        for (const auto &argInfo : argInfos) {
+            typeOnlyArgs.emplace_back(VarInfo{"", argInfo.type, true});
         }
 
-        if (!procInfo) {
-            throw std::runtime_error("FuncCallExpr: callee '" + node->funcName + "' not found as function or procedure during codegen");
-        }
-        // safety check - should not happen
-        if (procInfo->procReturn.baseType == BaseType::UNKNOWN) {
-            throw std::runtime_error("FuncCallExpr: procedure '" + node->funcName + "' used as expression but has no return type (codegen)");
-        }
-    } else {
-        // For functions, semantic analysis ensures a concrete return type.
-        if (funcInfo->funcReturn.baseType == BaseType::UNKNOWN) {
-            throw std::runtime_error("FuncCallExpr: function '" + node->funcName + "' has UNKNOWN return type in codegen");
+        if (isFunction) {
+            try {
+                FuncInfo* fi = currScope_->resolveFunc(node->funcName, typeOnlyArgs, node->line);
+                paramInfos = fi->params;
+            } catch (...) {
+                throw std::runtime_error("FuncCallExprOrStructLiteral: could not resolve function '" + node->funcName + "' during codegen");
+            }
+        } else {
+            // Handle procedure
+            try {
+                ProcInfo* pi = currScope_->resolveProc(node->funcName, typeOnlyArgs, node->line);
+                paramInfos = pi->params;
+                if (pi->procReturn.baseType == BaseType::UNKNOWN) {
+                     throw std::runtime_error("FuncCallExprOrStructLiteral: procedure '" + node->funcName + "' used as expression has no return type");
+                }
+            } catch (...) {
+                throw std::runtime_error("FuncCallExprOrStructLiteral: could not resolve procedure '" + node->funcName + "' during codegen");
+            }
         }
     }
 
-    // Look up the callee function op in the module
-    mlir::func::FuncOp calleeFunc =
-        module_.lookupSymbol<mlir::func::FuncOp>(node->funcName);
+    // Build MLIR Call args
+    mlir::func::FuncOp calleeFunc = module_.lookupSymbol<mlir::func::FuncOp>(node->funcName);
     if (!calleeFunc) {
-        throw std::runtime_error("FuncCallExpr: callee function '" + node->funcName + "' not found in module");
+        throw std::runtime_error("FuncCallExprOrStructLiteral: callee function '" + node->funcName + "' not found in module");
     }
 
-    // Build argument values for MLIR call
     std::vector<mlir::Value> callArgs;
     callArgs.reserve(argInfos.size());
 
-    const auto &paramInfos =
-        isFunction ? funcInfo->params : procInfo->params;
+    if (argInfos.size() != paramInfos.size()) {
+         throw std::runtime_error("FuncCallExprOrStructLiteral: argument count mismatch.");
+    }
 
-    for (size_t i = 0; i < argInfos.size() && i < paramInfos.size(); ++i) {
+    for (size_t i = 0; i < argInfos.size(); ++i) {
         const auto &param = paramInfos[i];
         const auto &argInfo = argInfos[i];
 
-        if (param.type.baseType == BaseType::TUPLE) {
-            // tuple uses ptr to llvm struct repr
-            if (!argInfo.value) {
-                throw std::runtime_error(
-                    "FuncCallExpr: tuple argument has no value");
-            }
-            if (!param.isConst) {           // var tuple, pass ptr in
+        if (param.type.baseType == BaseType::TUPLE || param.type.baseType == BaseType::STRUCT) {
+            if (!argInfo.value) throw std::runtime_error("FuncCallExprOrStructLiteral: tuple argument has no value");
+            
+            if (!param.isConst) {
+                // var tuple: pass ptr directly
                 callArgs.push_back(argInfo.value);
             } else {
-                // const tuple, pass by value
+                // const tuple: pass by value (load from ptr)
                 mlir::Type structTy = getLLVMType(param.type);
-                mlir::Value structVal = builder_.create<mlir::LLVM::LoadOp>(
-                    loc_, structTy, argInfo.value);
+                mlir::Value structVal = builder_.create<mlir::LLVM::LoadOp>(loc_, structTy, argInfo.value);
                 callArgs.push_back(structVal);
             }
-        } else {
+        } else if (isScalarType(param.type.baseType)) {
             if (!param.isConst) {
                 // Scalar var parameter: pass memref directly.
-                if (!argInfo.value) {
-                    throw std::runtime_error(
-                        "FuncCallExpr: var parameter requires mutable argument (variable), but argument has no value");
-                }
-                mlir::Type argType = argInfo.value.getType();
-                if (!argType.isa<mlir::MemRefType>()) {
-                    throw std::runtime_error(
-                        "FuncCallExpr: var parameter requires mutable argument (variable) with memref type");
+                if (!argInfo.value) throw std::runtime_error("FuncCallExprOrStructLiteral: var param requires value");
+                if (!argInfo.value.getType().isa<mlir::MemRefType>()) {
+                     throw std::runtime_error("FuncCallExprOrStructLiteral: var param requires memref");
                 }
                 callArgs.push_back(argInfo.value);
             } else {
-                // Const parameter: implicit promotion if needed (int->real)
-                if (!argInfo.value) {
-                    throw std::runtime_error("FuncCallExpr: argument has no value");
-                }
-                CompleteType targetType = param.type;
-                VarInfo argCopy = argInfo;
+                // Const parameter: implicit promotion + pass SSA value
+                if (!argInfo.value) throw std::runtime_error("FuncCallExprOrStructLiteral: argument has no value");
                 
-                // promoteType will perform casts (e.g. i32 -> f32) or throw if incompatible.
-                // This ensures the SSA value we get matches the function signature.
+                VarInfo argCopy = argInfo; 
+                CompleteType targetType = param.type;
                 VarInfo promoted = promoteType(&argCopy, &targetType, node->line);
                 
-                mlir::Value argVal = getSSAValue(promoted);
-                callArgs.push_back(argVal);
+                callArgs.push_back(getSSAValue(promoted));
             }
+        } else {
+            throw std::runtime_error("MLIRGen::FuncCallExprOrStructLiteral: Unrecognized param type");
         }
     }
 
+    // Generate call op
+    if (!builder_.getBlock()) throw std::runtime_error("FuncCallExprOrStructLiteral: builder has no current block");
+
+    auto callOp = builder_.create<mlir::func::CallOp>(loc_, calleeFunc, callArgs);
+
+    // Handle return val
     auto funcType = calleeFunc.getFunctionType();
-    if (funcType.getNumInputs() != callArgs.size()) {
-        throw std::runtime_error("FuncCallExpr: argument count mismatch for callee '" + node->funcName + "'");
-    }
-
-    // Verify each argument type matches the function signature
-    for (size_t i = 0; i < callArgs.size(); ++i) {
-        mlir::Type expectedType = funcType.getInput(i);
-        mlir::Type actualType = callArgs[i].getType();
-        if (expectedType != actualType) {
-            // If we land here, promoteType didn't produce the type expected by getFunctionType.
-            // This shouldn't happen if promoteType works correctly for scalar types.
-            throw std::runtime_error("FuncCallExpr: type mismatch for argument " + std::to_string(i+1) + " in call to '" + node->funcName + "'");
-        }
-    }
-
-    if (!builder_.getBlock()) {
-        throw std::runtime_error("FuncCallExpr: builder has no current block");
-    }
-
-    auto callOp =
-        builder_.create<mlir::func::CallOp>(loc_, calleeFunc, callArgs);
-
-    // Handle return value (must exist for expression use)
-    if (funcType.getNumResults() == 0) {
-        throw std::runtime_error("FuncCallExpr: callee '" + node->funcName +
-                                 "' used as expression but has no return value");
-    }
     if (funcType.getNumResults() != 1) {
-        throw std::runtime_error("FuncCallExpr: multiple return values not supported for callee '" +
-                                 node->funcName + "'");
+        throw std::runtime_error("FuncCallExprOrStructLiteral: callee '" + node->funcName + "' must return exactly one value");
     }
 
     mlir::Value retVal = callOp.getResult(0);
 
-    // Wrap returned value in a VarInfo with appropriate storage.
+    // Wrap returned value in a VarInfo 
     VarInfo resultVar(node->type);
     allocaLiteral(&resultVar, node->line);
-    if (node->type.baseType == BaseType::TUPLE) {
-        // For tuple returns, resultVar.value is an !llvm.ptr; store the
-        // returned struct into it.
+    if ((node->type.baseType == BaseType::TUPLE) || node->type.baseType == BaseType::STRUCT) {
         builder_.create<mlir::LLVM::StoreOp>(loc_, retVal, resultVar.value);
+    } else if (isScalarType(node->type.baseType)) {
+        builder_.create<mlir::memref::StoreOp>(loc_, retVal, resultVar.value, mlir::ValueRange{});
     } else {
-        builder_.create<mlir::memref::StoreOp>(loc_, retVal, resultVar.value,
-                                               mlir::ValueRange{});
+        throw std::runtime_error("MLIRGen::FuncCallExprOrStructLiteral: Unknown type in call return");
     }
 
     pushValue(resultVar);

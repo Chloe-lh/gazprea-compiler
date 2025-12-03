@@ -1,4 +1,3 @@
-//CHECK_FILE:complex7.out
 
 // Uses a helper procedure with var parameters to step a Fibonacci sequence,
 // plus a loop bounded by a global constant.
@@ -28,3 +27,4 @@ procedure main() returns integer {
     return 0;
 }
 
+//CHECK_FILE:complex7.out

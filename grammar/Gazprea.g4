@@ -17,56 +17,73 @@ procedure
 
 param: qualifier? type ID;
 
+// added support for arrays in ExplicitTypedDec -> checks legality in semantic analysis
+// ei const Integer[][] id;
 dec
     : qualifier? (builtin_type ID | ID ID) (EQ expr)? END   #ExplicitTypedDec
     | qualifier ID EQ expr END                              #InferredTypeDec
     | qualifier? tuple_dec ID (EQ expr)? END                #TupleTypedDec
+    | qualifier? struct_dec (ID (EQ expr)?)? END              #StructTypedDec
     ;
 
 stat
     : ID (COMMA ID)+ EQ expr END                #DestructAssignStat
-    | tuple_access EQ expr END                  #TupleAccessAssignStat     
-    | tuple_access '->' STD_OUTPUT END          #OutputStat
+    | tuple_access EQ expr END                  #TupleAccessAssignStat 
+    | array_access EQ expr END                  #ArrayAccessAssignStat    
+    | (struct_access|array_access) EQ expr END   #StructAccessAssignStat
     | { this->_input->LA(2) == GazpreaParser::EQ }? ID EQ expr END   #AssignStat
-    | expr '->' STD_OUTPUT END      #OutputStat
-    | ID '<-' STD_INPUT  END        #InputStat
-    | BREAK END                     #BreakStat
-    | CONTINUE END                  #ContinueStat
-    | RETURN expr? END              #ReturnStat
+    | expr '->' STD_OUTPUT END                 #OutputStat
+    | ID '<-' STD_INPUT  END                                  #InputStat
+    | BREAK END                                               #BreakStat
+    | CONTINUE END                                            #ContinueStat
+    | RETURN expr? END                                        #ReturnStat
     | CALL ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT END  #CallStat
     | if_stat                             #IfStat
     | loop_stat                           #LoopStat
     ;
 
 type //this should include basic types
-    : BOOLEAN
-    | CHARACTER
-    | INTEGER
-    | REAL
+    : BOOLEAN 
+    | CHARACTER 
+    | INTEGER 
+    | REAL 
     | STRING
+    | tuple_dec
+    | struct_dec
+    | VECTOR '<' type '>'  
     | ID
     ;
 
 // Built-in scalar types (used to disambiguate declarations)
 builtin_type
-    : BOOLEAN
-    | CHARACTER
-    | INTEGER
-    | REAL
+    : BOOLEAN size?
+    | CHARACTER size?
+    | INTEGER size?
+    | REAL size?
+    | VECTOR '<' type '>'  
     | STRING
     ;
 
+// size specification for an array
+size
+  : SQLEFT (INT | MULT) SQRIGHT (SQLEFT (INT|MULT) SQRIGHT)? // only up to 2D
+  ;
+
 type_alias
-    : TYPEALIAS type ID END   #BasicTypeAlias
-    | TYPEALIAS tuple_dec ID END  #TupleTypeAlias
+    : TYPEALIAS tuple_dec ID END  #TupleTypeAlias
+    | TYPEALIAS struct_dec ID END #StructTypeAlias
+    | TYPEALIAS type ID END   #BasicTypeAlias
     ;
 
-
 expr
-    : tuple_access                                      #TupleAccessExpr
-    | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr
+    : tuple_access                                      #TupleAccessExpr 
+    | struct_access                                     #StructAccessExpr  
+    | array_access                                      #ArrayAccessExpr
+    | ID SQLEFT rangeExpr SQRIGHT                       #ArraySliceExpr
+    | ID BY expr                                        #ArrayStrideExpr
+    | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr // Also used as struct_literal
     | PARENLEFT expr PARENRIGHT                         #ParenExpr
-    | STRING_LIT                                       #StringExpr
+    | STRING_LIT                                        #StringExpr
     | <assoc=right>NOT expr                             #NotExpr
     | <assoc=right> (ADD|MINUS) expr                    #UnaryExpr
     | <assoc=right> expr EXP expr                       #ExpExpr
@@ -82,33 +99,46 @@ expr
     | INT                                               #IntExpr
     | real                                              #RealExpr
     | tuple_literal                                     #TupleLitExpr
+    | array_literal                                     #ArrayLitExpr
     | AS '<' type '>' PARENLEFT expr PARENRIGHT         #TypeCastExpr
     | AS '<' tuple_dec  '>' PARENLEFT expr PARENRIGHT   #TupleTypeCastExpr
     | STD_INPUT                                         #StdInputExpr
     | ID                                                #IdExpr
     ;
 
+
+// Tuples
 tuple_dec: TUPLE PARENLEFT type (COMMA type)+ PARENRIGHT;
 tuple_literal: PARENLEFT expr (COMMA expr)+ PARENRIGHT;
 tuple_access: ID DECIM INT
             | TUPACCESS
             ;
 
-// declarations must be placed at the start of the block
-block: CURLLEFT dec* stat* CURLRIGHT;
+// Structs
+struct_dec: STRUCT ID PARENLEFT (type ID (COMMA type ID)*)? PARENRIGHT;
+struct_literal: ID PARENLEFT expr (COMMA expr)* PARENRIGHT;
+struct_access: ID '.' ID;
+
+// Arrays
+array_literal : SQLEFT exprList? SQRIGHT;
+array_access :  ID SQLEFT INT SQRIGHT;
+
+exprList : expr (COMMA expr)* ;
+rangeExpr : RANGE expr
+          | expr RANGE
+          | expr RANGE expr
+          ;
+
+// Block: declarations allowed anywhere but semantic analysis enforces that they appear before statements within each block.
+block: CURLLEFT (dec | stat)* CURLRIGHT;
 
 if_stat: IF PARENLEFT expr PARENRIGHT (block|stat|dec) (ELSE (block|stat|dec))?;
 
 loop_stat
     : LOOP (block|stat) (WHILE PARENLEFT expr PARENRIGHT END)? #LoopDefault
     | LOOP (WHILE PARENLEFT expr PARENRIGHT) (block|stat) #WhileLoopBlock
-    | LOOP ID IN (rangeExpr | arrayLiteral) (block|stat) #ForLoopBlock
+    | LOOP ID IN (rangeExpr | array_literal) (block|stat) #ForLoopBlock
     ;
-
-rangeExpr: expr RANGE expr;
-
-arrayLiteral: SQLEFT expr (COMMA expr)* SQRIGHT;
-
 
 qualifier: VAR //mutable
         | CONST //immutable -  DEFAULT

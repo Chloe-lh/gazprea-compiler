@@ -1,0 +1,26 @@
+procedure main() returns integer {
+    struct Point (integer x, integer y);
+    var Point p = Point(1, 2);
+    
+    // Initial check
+    p.x -> std_output;
+    " " -> std_output;
+    p.y -> std_output;
+    "\n" -> std_output;
+    
+    // Simple assignment
+    p.x = 10;
+    p.y = 20;
+    p.x -> std_output;
+    " " -> std_output;
+    p.y -> std_output;
+    "\n" -> std_output;
+
+    // Assignment using own field
+    p.x = p.y + 5;
+    p.x -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+//CHECK_FILE:structFieldAssign.out

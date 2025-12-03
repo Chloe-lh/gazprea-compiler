@@ -7,7 +7,7 @@
 
 
 void MLIRGen::visit(CompExpr* node) {
-    if (tryEmitConstantForNode(node)) return;
+    // if (tryEmitConstantForNode(node)) return;
     
     // Visit left and right operands
     node->left->accept(*this);
@@ -30,15 +30,25 @@ void MLIRGen::visit(CompExpr* node) {
     VarInfo leftPromoted = castType(&leftVarInfo, &promotedType, node->line);
     VarInfo rightPromoted = castType(&rightVarInfo, &promotedType, node->line);
     
-    // Load the values (getSSAValue handles memref vs SSA values)
-    mlir::Value leftVal = getSSAValue(leftPromoted);
-    mlir::Value rightVal = getSSAValue(rightPromoted);
+    // Load the values. Prefer an explicit memref.load for variables so we
+    // always read the current stored value; fall back to SSA value when
+    // the VarInfo already holds an SSA value.
+    mlir::Value leftVal;
+    if (leftPromoted.value && leftPromoted.value.getType().isa<mlir::MemRefType>()) {
+        leftVal = builder_.create<mlir::memref::LoadOp>(loc_, leftPromoted.value, mlir::ValueRange{}).getResult();
+    } else {
+        leftVal = leftPromoted.value;
+    }
+
+    mlir::Value rightVal;
+    if (rightPromoted.value && rightPromoted.value.getType().isa<mlir::MemRefType>()) {
+        rightVal = builder_.create<mlir::memref::LoadOp>(loc_, rightPromoted.value, mlir::ValueRange{}).getResult();
+    } else {
+        rightVal = rightPromoted.value;
+    }
     
     // Create comparison operation based on operator and type
     mlir::Value cmpResult;
-    CompleteType boolType = CompleteType(BaseType::BOOL);
-    VarInfo resultVarInfo = VarInfo(boolType);
-    allocaLiteral(&resultVarInfo, node->line);
     
     if (promotedType.baseType == BaseType::INTEGER) {
         // Integer comparison
@@ -60,7 +70,7 @@ void MLIRGen::visit(CompExpr* node) {
         }
         cmpResult = builder_.create<mlir::arith::CmpIOp>(
             loc_, predicate, leftVal, rightVal
-        );
+        ).getResult();
     } else if (promotedType.baseType == BaseType::REAL) {
         // Floating point comparison
         mlir::arith::CmpFPredicate predicate;
@@ -81,16 +91,14 @@ void MLIRGen::visit(CompExpr* node) {
         }
         cmpResult = builder_.create<mlir::arith::CmpFOp>(
             loc_, predicate, leftVal, rightVal
-        );
+        ).getResult();
     } else {
         throw std::runtime_error("CompExpr: comparison not supported for type");
     }
-    
-    // Store the comparison result
-    builder_.create<mlir::memref::StoreOp>(loc_, cmpResult, resultVarInfo.value, mlir::ValueRange{});
-    
-    // Push result onto stack
-    pushValue(resultVarInfo);
+    VarInfo outVar{CompleteType(BaseType::BOOL)};
+    outVar.value = cmpResult;
+    outVar.isLValue = false;
+    pushValue(outVar);
 }
 
 void MLIRGen::visit(OrExpr* node){
@@ -157,19 +165,22 @@ void MLIRGen::visit(EqExpr* node){
 
     mlir::Value result;
 
-    if (promotedType.baseType == BaseType::TUPLE) {
-        // Load tuple structs from their pointers and compare element-wise.
+    if (promotedType.baseType == BaseType::TUPLE ||
+        promotedType.baseType == BaseType::STRUCT) {
+        // Load aggregate structs from their pointers and compare element-wise.
         mlir::Type structTy = getLLVMType(promotedType);
         mlir::Value leftStruct = builder_.create<mlir::LLVM::LoadOp>(
             loc_, structTy, leftPromoted.value);
         mlir::Value rightStruct = builder_.create<mlir::LLVM::LoadOp>(
             loc_, structTy, rightPromoted.value);
         result = mlirAggregateEquals(leftStruct, rightStruct, loc_, builder_);
-    } else {
+    } else if (isScalarType(promotedType.baseType)) {
         // Load the scalar values from their memrefs
         mlir::Value left = getSSAValue(leftPromoted);
         mlir::Value right = getSSAValue(rightPromoted);
         result = mlirScalarEquals(left, right, loc_, builder_);
+    } else {
+        throw std::runtime_error("MLIRGen::EqExpr: Unknown type '" + toString(promotedType.baseType) + "'.");
     }
 
     if (node->op == "!=") {
