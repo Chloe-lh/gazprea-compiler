@@ -81,14 +81,6 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<co
     createGlobalStringIfMissing("%s\0", "strFormat");
     createGlobalStringIfMissing("\n\0", "newline");
 }
-void MLIRGen::visit(ArrayStrideExpr *node)        { std::cout << "ArrayStrideExpr not implemented\n"; }
-void MLIRGen::visit(ArraySliceExpr *node)         { std::cout << "ArraySliceExpr not implemented\n"; }
-void MLIRGen::visit(ArrayAccessExpr *node)        { std::cout << "ArrayAccessExpr not implemented\n"; }
-void MLIRGen::visit(ArrayTypedDecNode *node)      { std::cout << "ArrayTypedDecNode not implemented\n"; }
-void MLIRGen::visit(ArrayTypeNode *node)          { std::cout << "ArrayTypeNode not implemented\n"; }
-void MLIRGen::visit(ExprListNode *node)           { std::cout << "ExprListNode not implemented\n"; }
-void MLIRGen::visit(ArrayLiteralNode *node)       { std::cout << "ArrayLiteralNode not implemented\n"; }
-void MLIRGen::visit(RangeExprNode *node)          { std::cout << "RangeExprNode not implemented\n"; }
 
 void MLIRGen::visit(FileNode* node) {
     // Initialize to semantic global scope (first child of root)

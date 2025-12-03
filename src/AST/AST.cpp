@@ -49,6 +49,7 @@ void AssignStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void DestructAssignStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void TupleAccessAssignStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void StructAccessAssignStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void ArrayAccessAssignStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void OutputStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void InputStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void BreakStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
@@ -70,7 +71,7 @@ void TupleTypeCastNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 // Array-related nodes
 void ArrayStrideExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArraySliceExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
-void ArrayAccessExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void ArrayAccessNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArrayTypedDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArrayTypeNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ExprListNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
@@ -201,8 +202,10 @@ StructTypedDecNode::StructTypedDecNode(const std::string &name,
   this->name = name;
   this->type = std::move(structType);
 }
-
-
+StructAccessAssignStatNode::StructAccessAssignStatNode(
+    std::shared_ptr<StructAccessNode> target,
+    std::shared_ptr<ExprNode> expr)
+  : target(std::move(target)), expr(std::move(expr)) {}
 TypedDecNode::TypedDecNode(const std::string &name,
                            std::shared_ptr<TypeAliasNode> type_alias,
                            const std::string &qualifier,
@@ -257,8 +260,9 @@ TupleAccessAssignStatNode::TupleAccessAssignStatNode(
     std::shared_ptr<TupleAccessNode> target,
     std::shared_ptr<ExprNode> expr)
     : target(std::move(target)), expr(std::move(expr)) {}
-
-StructAccessAssignStatNode::StructAccessAssignStatNode(std::shared_ptr<StructAccessNode> target, std::shared_ptr<ExprNode> expr) : target(std::move(target)), expr(std::move(expr)) {}
-
+ArrayAccessAssignStatNode::ArrayAccessAssignStatNode(
+  std::shared_ptr<ArrayAccessNode> target,
+  std::shared_ptr<ExprNode> expr)
+  : target(std::move(target)), expr(std::move(expr)) {}
 OutputStatNode::OutputStatNode(std::shared_ptr<ExprNode> expr)
     : expr(std::move(expr)) {}

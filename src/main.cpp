@@ -66,17 +66,14 @@ int main(int argc, char **argv) {
       auto astNode = std::any_cast<std::shared_ptr<ASTNode>>(astAny);
       ast = std::dynamic_pointer_cast<FileNode>(astNode);
   } catch (const CompileTimeException &e) {
-      std::cerr << "Compile Time Exception building AST:\n";
       std::cerr << e.what();
       return 1;
   } catch (const std::exception &e) {
-      std::cerr << "Error building AST:\n";
       std::cerr << e.what();
       // std::cerr << "Internal error building AST ("
       //           << typeid(e).name() << "): " << e.what() << '\n';
       return 1;
   } catch (...) {
-      std::cerr << "Unknown error building AST" << std::endl;
       return 1;
   }
   
@@ -134,9 +131,6 @@ int main(int argc, char **argv) {
     // std::cerr << e.what() << std::endl;
     return 1;
 
-  } catch (...) {
-    std::cerr << "Unknown error" << std::endl;
-    return 1;
   }
 
   return 0;

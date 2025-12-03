@@ -27,6 +27,9 @@ public:
   virtual void visit(DestructAssignStatNode *node) = 0;
   virtual void visit(TupleAccessAssignStatNode *node) = 0;
   virtual void visit(StructAccessAssignStatNode *node) = 0;
+  // TODO just added ArrayAccessAssignStatNode
+  // TODO needs to be added to semantic pass
+  virtual void visit(ArrayAccessAssignStatNode *node) { (void)node; }
   virtual void visit(OutputStatNode *node) = 0;
   virtual void visit(InputStatNode *node) = 0;
   virtual void visit(BreakStatNode *node) = 0;
@@ -68,7 +71,7 @@ public:
   virtual void visit(StringNode *node) = 0;
   virtual void visit(ArrayStrideExpr *node) = 0;
   virtual void visit(ArraySliceExpr *node)= 0;
-  virtual void visit(ArrayAccessExpr *node) = 0;
+  virtual void visit(ArrayAccessNode *node) = 0;
   virtual void visit(ArrayTypedDecNode *node) = 0;
   virtual void visit(ArrayTypeNode *node) =0;
   virtual void visit(ExprListNode *node) = 0;

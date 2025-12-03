@@ -28,8 +28,9 @@ dec
 
 stat
     : ID (COMMA ID)+ EQ expr END                #DestructAssignStat
-    | tuple_access EQ expr END                  #TupleAccessAssignStat     
-    | struct_access EQ expr END                 #StructAccessAssignStat
+    | tuple_access EQ expr END                  #TupleAccessAssignStat 
+    | array_access EQ expr END                  #ArrayAccessAssignStat    
+    | (struct_access|array_access) EQ expr END   #StructAccessAssignStat
     | { this->_input->LA(2) == GazpreaParser::EQ }? ID EQ expr END   #AssignStat
     | expr '->' STD_OUTPUT END                 #OutputStat
     | ID '<-' STD_INPUT  END                                  #InputStat
@@ -77,7 +78,7 @@ type_alias
 expr
     : tuple_access                                      #TupleAccessExpr 
     | struct_access                                     #StructAccessExpr  
-    | ID SQLEFT expr SQRIGHT                            #ArrayAccessExpr
+    | array_access                                      #ArrayAccessExpr
     | ID SQLEFT rangeExpr SQRIGHT                       #ArraySliceExpr
     | ID BY expr                                        #ArrayStrideExpr
     | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr // Also used as struct_literal
@@ -119,6 +120,8 @@ struct_access: ID '.' ID;
 
 // Arrays
 array_literal : SQLEFT exprList? SQRIGHT;
+array_access :  ID SQLEFT INT SQRIGHT;
+
 exprList : expr (COMMA expr)* ;
 rangeExpr : RANGE expr
           | expr RANGE

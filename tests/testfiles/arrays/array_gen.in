@@ -1,0 +1,7 @@
+procedure main()
+    integer[5] seq = [0:4];
+    real[4] step = [1.0:0.5:2.5];
+    print(seq);
+    print(step);
+end
+//CHECK_FILE:array_gen.out

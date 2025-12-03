@@ -44,6 +44,7 @@ public:
     void visit(DestructAssignStatNode* node) override;
     void visit(TupleAccessAssignStatNode* node) override;
     void visit(StructAccessAssignStatNode* node) override;
+    void visit(ArrayAccessAssignStatNode* node) override;
     void visit(OutputStatNode* node)    override;
     void visit(InputStatNode* node)     override;
     void visit(BreakStatNode* node)     override;
@@ -85,14 +86,14 @@ public:
     void visit(TupleLiteralNode* node) override;
 
     // arrays
-    void visit(ArrayStrideExpr *node) override;
-    void visit(ArraySliceExpr *node) override;
-    void visit(ArrayAccessExpr *node) override;
+    void visit(ArrayStrideExpr *node) override;     //TODO
+    void visit(ArraySliceExpr *node) override;      //TODO
+    void visit(ArrayAccessNode *node) override;
     void visit(ArrayTypedDecNode *node) override;
     void visit(ArrayTypeNode *node) override;
-    void visit(ExprListNode *node) override;
+    void visit(ExprListNode *node) override;        //TODO
     void visit(ArrayLiteralNode *node) override;
-    void visit(RangeExprNode *node) override;
+    void visit(RangeExprNode *node) override;       //TODO
 
     // helpers
     void assignTo(VarInfo* literal, VarInfo* variable, int line);

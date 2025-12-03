@@ -168,7 +168,7 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
     node->type = baseType;
 }
 
-void SemanticAnalysisVisitor::visit(ArrayAccessExpr *node) {
+void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
     // resolve array variable
     VarInfo* var = current_->resolveVar(node->id, node->line);
     if (!var) {
@@ -179,12 +179,8 @@ void SemanticAnalysisVisitor::visit(ArrayAccessExpr *node) {
         throw TypeError(node->line, "Semantic Analysis: index operator applied to non-array type.");
     }
     // index must be integer
-    if (!node->expr) {
+    if (!node->index) {
         throw std::runtime_error("Semantic Analysis: missing index expression in array access.");
-    }
-    node->expr->accept(*this);
-    if (node->expr->type.baseType != BaseType::INTEGER) {
-        throw TypeError(node->line, "Semantic Analysis: array index must be integer.");
     }
     // element type is the single subtype of the array
     if (baseType.subTypes.empty()) {
@@ -195,15 +191,14 @@ void SemanticAnalysisVisitor::visit(ArrayAccessExpr *node) {
 
     // If index is a compile-time integer literal and the array has a known size, check bounds
     if (var && var->arraySize.has_value()) {
-        if (auto in = std::dynamic_pointer_cast<IntNode>(node->expr)) {
-            int64_t idx = in->value;
-            int64_t sz = var->arraySize.value();
-            if (idx <= 0 || idx > sz) {
-                IndexError((std::string("Index ") + std::to_string(idx) + " out of range for array of len " + std::to_string(sz)).c_str());
-                return;
-            }
+        int64_t sz = var->arraySize.value();
+        if (node->index <= 0 || node->index > sz) {
+            IndexError((std::string("Index ") + std::to_string(node->index) + " out of range for array of len " + std::to_string(sz)).c_str());
+            return;
         }
     }
+    node->binding = var;
+    node->type = var->type.subTypes[node->index - 1];
 }
 
 void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
