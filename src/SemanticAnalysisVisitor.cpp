@@ -215,15 +215,6 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
             "Array declaration missing type information for '" + node->id + "'");
     }
 
-    for (size_t i = 0; i < node->typeInfo->resolvedDims.size(); ++i) {
-        if (node->typeInfo->resolvedDims[i].has_value()) {
-            std::cerr << node->typeInfo->resolvedDims[i].value() << " ";
-        } else {
-            std::cerr << "?" << " ";
-        }
-    }
-    std::cerr << "\n";
-
     // Resolve element type
     CompleteType elemType = resolveUnresolvedType(current_, node->typeInfo->elementType, node->line);
 
@@ -1729,9 +1720,6 @@ void SemanticAnalysisVisitor::handleAssignError(const std::string varName, const
             );
             throw err;
         }
-    }
-    if (resolvedVarType.baseType == BaseType::ARRAY && resolvedExprType.baseType == BaseType::ARRAY) {
-        throw AliasingError(line, "Semantic Analysis: Arrays are not mutable");
     }
 }
 
