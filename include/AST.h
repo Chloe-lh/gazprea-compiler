@@ -27,7 +27,7 @@ struct ConstantValue {
       : type(t), value(std::move(v)) {}
 };
 
-enum class CallType { FUNCTION, PROCEDURE, STRUCT_LITERAL };
+enum class CallType { FUNCTION, PROCEDURE, STRUCT_LITERAL, ARRAY_LITERAL };
 
 // abstract class that is extended by the different passes in the pipeline
 class ASTVisitor;

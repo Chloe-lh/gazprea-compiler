@@ -58,12 +58,13 @@ std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
 std::any ASTBuilder::visitBuiltin_type(GazpreaParser::Builtin_typeContext *ctx) {
     // 1. Base scalar type
     CompleteType base(BaseType::UNKNOWN);
+    BaseType elemType;
 
-    if (ctx->BOOLEAN())   base = CompleteType(BaseType::BOOL);
-    if (ctx->STRING())    base = CompleteType(BaseType::STRING);
-    if (ctx->INTEGER())   base = CompleteType(BaseType::INTEGER);
-    if (ctx->REAL())      base = CompleteType(BaseType::REAL);
-    if (ctx->CHARACTER()) base = CompleteType(BaseType::CHARACTER);
+    if (ctx->BOOLEAN())   base = CompleteType(BaseType::BOOL); elemType = BaseType::BOOL;
+    if (ctx->STRING())    base = CompleteType(BaseType::STRING); 
+    if (ctx->INTEGER())   base = CompleteType(BaseType::INTEGER); elemType = BaseType::INTEGER;
+    if (ctx->REAL())      base = CompleteType(BaseType::REAL); elemType = BaseType::REAL;
+    if (ctx->CHARACTER()) base = CompleteType(BaseType::CHARACTER); elemType = BaseType::CHARACTER;
 
     // 2. Vector<T> case
     if (ctx->VECTOR()) {
@@ -86,12 +87,12 @@ std::any ASTBuilder::visitBuiltin_type(GazpreaParser::Builtin_typeContext *ctx) 
         // Return a simple CompleteType wrapped in std::any.
         return base;
     }
-    // 4. Array dimensions
+    // 4. Array dimensions - ARRAY TYPE
     // Extract INT or "*" tokens
     auto *sizectx = ctx->size();
     std::vector<std::shared_ptr<ExprNode>> sizeExprs;
     std::vector<std::optional<int64_t>> resolvedDims;
-
+    // std::cerr << "[DEBUG:ASTBUILDER] visitbuiltintype: Element type: ";
     for (auto child : sizectx->children) {
         auto *t = dynamic_cast<antlr4::tree::TerminalNode*>(child);
         if (!t) continue;
@@ -101,7 +102,7 @@ std::any ASTBuilder::visitBuiltin_type(GazpreaParser::Builtin_typeContext *ctx) 
         if (token == GazpreaParser::INT) {
             int64_t val = std::stoll(t->getText());
             sizeExprs.push_back(std::make_shared<IntNode>((int)val));
-            resolvedDims.push_back(std::nullopt);
+            resolvedDims.push_back(val);
         }
         else if (token == GazpreaParser::MULT) { // '*'
             sizeExprs.push_back(nullptr); // open dimension
@@ -110,12 +111,15 @@ std::any ASTBuilder::visitBuiltin_type(GazpreaParser::Builtin_typeContext *ctx) 
     }
     // 5. Create ArrayTypeNode
     auto arrNode = std::make_shared<ArrayTypeNode>(
-        base,
+        base, //element type = base
         std::move(sizeExprs),
         std::move(resolvedDims),
         false               // isVec = false
     );
     setLocationFromCtx(arrNode, ctx);
+    arrNode->type.baseType = BaseType::ARRAY;
+    arrNode->type.elemType = elemType;
+    // std::cerr << "[DEBUG:ASTBUILDER] visitbuiltintype: Element type: " << toString(arrNode->elementType) << std::endl;
     return node_any(arrNode);
 }
 
@@ -238,6 +242,7 @@ ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
         // Build an ArrayTypedDecNode using the initializer wrapper computed
         // above so we preserve array literal/identifier initializers.
         std::shared_ptr<ArrayTypedDecNode> arrDec = std::make_shared<ArrayTypedDecNode>(qualifier, id, arrType, init);
+      
         setLocationFromCtx(arrDec, ctx);
         return node_any(std::move(arrDec));
       }

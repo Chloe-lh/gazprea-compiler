@@ -139,7 +139,7 @@ public:
         const CompleteType &returnType,
         Scope* &savedScope);
     mlir::Value getSSAValue(const VarInfo &v);
-
+    mlir::Value lowerSizeExpr(std::shared_ptr<ExprNode> size);
 
 private:
     VarInfo popValue();

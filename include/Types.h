@@ -40,15 +40,16 @@ inline constexpr BaseType compositeTypes[] = {
 
 struct CompleteType {
     BaseType baseType;
-    std::vector<CompleteType> subTypes;
+    std::vector<CompleteType> subTypes; // used for structs
     std::string aliasName = "";
-    std::shared_ptr<CompleteType> elemType; //stores element type for arrays
+    BaseType elemType; //stores element type for arrays/vectors
     std::vector<std::string> fieldNames; //stores field names for structs only
 
-
+    CompleteType(): baseType(BaseType::UNKNOWN) {}
     CompleteType(BaseType baseType) : baseType(baseType) {}
     CompleteType(BaseType baseType, std::vector<CompleteType> subTypes)
         : baseType(baseType), subTypes(std::move(subTypes)) {}
+    CompleteType(BaseType baseType, BaseType elemType) : baseType(baseType), elemType(elemType){}
     CompleteType(std::string aliasName)
         : baseType(BaseType::UNRESOLVED), aliasName(aliasName) {} // constructor for type aliases - actual type resolved during semantic analysis
 

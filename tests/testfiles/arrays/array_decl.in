@@ -1,5 +1,5 @@
-procedure main()
+procedure main() returns integer{
     integer[3] arr = [1, 2, 3];
-    arr = std_output;
-end
+    return 0;
+}
 //CHECK_FILE:array_decl.out

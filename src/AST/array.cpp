@@ -94,7 +94,14 @@ namespace gazprea{
       }
     }
     auto node = std::make_shared<ArrayLiteralNode>(list);
-    node->type = CompleteType(BaseType::ARRAY);
+    if (list && !list->list.empty()) {
+        //TODO this is very brute
+        auto firstExprType = list->list[0]->type;  // make sure each ExprNode has type set!
+        node->type = CompleteType(BaseType::ARRAY);
+        node->type.subTypes.push_back(firstExprType);
+    } else {
+        node->type = CompleteType(BaseType::ARRAY); // empty array literal
+    }
     setLocationFromCtx(node, ctx);
     return expr_any(std::move(node));
   };

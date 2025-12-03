@@ -1,5 +1,6 @@
 #include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
+#include "Types.h"
 
 VarInfo MLIRGen::popValue() {
     if (v_stack_.empty()) {
@@ -40,7 +41,7 @@ mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
             throw std::runtime_error("getLLVMType: Vectors should not be called with this helper.");
         }
         default:
-            throw std::runtime_error("getLLVMType: Unsupported type: " + toString(type));
+            throw std::runtime_error("getLLVMType: Unsupported type");
     }
 }
 // Create a VarInfo that contains an allocated memref with the compile-time
@@ -148,7 +149,64 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
             loc_, srcStruct, variable->value);
         return;
     }
+    if (variable->type.baseType == BaseType::ARRAY){
+        // RHS must be an array for whole-array assignment/copy
+        if (literal->type.baseType != BaseType::ARRAY) {
+            throw AssignError(line, "Cannot assign non-array to array variable '");
+        }
+            // Ensure both storages exist
+        if (!variable->value) allocaVar(variable, line);
+        if (!literal->value) allocaVar(literal, line);
+        size_t n = 0;
+        bool varHas = variable->arraySize.has_value();
+        bool litHas = literal->arraySize.has_value();
+        if (varHas && litHas) {
+            if (variable->arraySize.value() != literal->arraySize.value()) {
+                throw AssignError(line, "Array initializer length does not match destination array length");
+            }
+            n = static_cast<size_t>(variable->arraySize.value());
+        } else if (varHas) {
+            n = static_cast<size_t>(variable->arraySize.value());
+        } else if (litHas) {
+            // Destination has dynamic/unknown length but literal has a known length.
+            // Use the literal length for the copy and record it on the destination
+            // variable so further codegen can allocate a static memref if desired.
+            n = static_cast<size_t>(literal->arraySize.value());
+            variable->arraySize = literal->arraySize;
+        } else {
+            throw AssignError(line, "cannot determine array length for assignment");
+        }
+        auto idxTy = builder_.getIndexType();
+        for(size_t t=0; t<n;++t){
+                // index constant
+            mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
+                loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(t)));
 
+            // load source element
+            mlir::Value srcElemVal = builder_.create<mlir::memref::LoadOp>(loc_, literal->value, mlir::ValueRange{idx});
+
+            // build a temp VarInfo for the source element
+            CompleteType srcElemCT = !literal->type.subTypes.empty()
+                                   ? literal->type.subTypes[t]
+                                   : CompleteType(literal->type.elemType);
+            VarInfo srcElemVar(srcElemCT);
+            srcElemVar.value = srcElemVal;
+            srcElemVar.isLValue = false;
+
+            // destination element type
+            CompleteType dstElemCT = !variable->type.subTypes.empty()
+                                   ? variable->type.subTypes[t]
+                                   : CompleteType(variable->type.elemType);
+
+            // promote/cast
+            VarInfo promoted = promoteType(&srcElemVar, &dstElemCT, line);
+            mlir::Value storeVal = getSSAValue(promoted);
+
+            // store into destination
+            builder_.create<mlir::memref::StoreOp>(loc_, storeVal, variable->value, mlir::ValueRange{idx});
+        }
+        return;
+    }
     // Struct assignment: copy whole LLVM struct value
     if (variable->type.baseType == BaseType::STRUCT) {
         // Ensure destination and source storage exist
@@ -306,6 +364,23 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
             auto oneAttr = builder_.getIntegerAttr(i64Ty, 1);
             mlir::Value one = entryBuilder.create<mlir::arith::ConstantOp>(loc_, i64Ty, oneAttr);
             varInfo->value = entryBuilder.create<mlir::LLVM::AllocaOp>(loc_, ptrTy, structTy, one, 0u);
+            break;
+        }
+        case BaseType::ARRAY:{ 
+            mlir::Type elemTy = getLLVMType(varInfo->type);
+
+            if (varInfo->arraySize.has_value()) {
+                int64_t n = varInfo->arraySize.value();
+                auto memTy = mlir::MemRefType::get({n}, elemTy);
+                varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
+            } else {
+                //TODO dynamic dimension
+                // auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, elemTy);
+                // // compute runtime size (lower size expression to IndexType)
+                // auto idxTy = builder_.getIndexType();
+                
+                
+            }
             break;
         }
 
