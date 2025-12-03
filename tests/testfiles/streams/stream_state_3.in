@@ -1,0 +1,26 @@
+procedure main() returns integer {
+
+    var integer ss;
+    var integer i;
+    var boolean b;
+    var character c;
+
+    i <- std_input;
+    i -> std_output;
+    ss = stream_state(std_input);
+    ss -> std_output;
+
+    c <- std_input; //eat the .
+
+    i <- std_input;
+    i -> std_output;
+
+    c <- std_input;
+    ss = stream_state(std_input);
+    ss -> std_output;
+
+    return 0;
+}
+
+//INPUT:.7
+//CHECK_FILE:stream_state_3.out
