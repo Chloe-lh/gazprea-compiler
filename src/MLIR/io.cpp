@@ -1,6 +1,128 @@
 #include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
 
+void MLIRGen::emitPrintScalar(const CompleteType &type, mlir::Value value) {
+    const char* formatStrName = nullptr;
+    switch (type.baseType) {
+        case BaseType::BOOL:
+            formatStrName = "charFormat";
+            break;
+        case BaseType::INTEGER:
+            formatStrName = "intFormat";
+            break;
+        case BaseType::REAL:
+            formatStrName = "floatFormat";
+            break;
+        case BaseType::CHARACTER:
+            formatStrName = "charFormat";
+            break;
+        case BaseType::STRING:
+            formatStrName = "strFormat";
+            break;
+        default:
+            throw std::runtime_error("MLIRGen::emitPrintScalar: Unsupported type for printing.");
+    }
+
+    auto formatString = module_.lookupSymbol<mlir::LLVM::GlobalOp>(formatStrName);
+    auto printfFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("printf");
+    if (!formatString || !printfFunc) {
+        throw std::runtime_error("MLIRGen::emitPrintScalar: Format string or printf not found.");
+    }
+
+    mlir::Value formatStringPtr =
+        builder_.create<mlir::LLVM::AddressOfOp>(loc_, formatString);
+
+    mlir::Value valueToPrint = value;
+    switch (type.baseType) {
+        case BaseType::BOOL: {
+            auto i8Ty = builder_.getI8Type();
+            auto tVal = builder_.create<mlir::arith::ConstantOp>(
+                loc_, i8Ty, builder_.getIntegerAttr(i8Ty, static_cast<int>('T')));
+            auto fVal = builder_.create<mlir::arith::ConstantOp>(
+                loc_, i8Ty, builder_.getIntegerAttr(i8Ty, static_cast<int>('F')));
+            valueToPrint = builder_.create<mlir::arith::SelectOp>(loc_, value, tVal, fVal);
+            valueToPrint = builder_.create<mlir::arith::ExtSIOp>(
+                loc_, builder_.getI32Type(), valueToPrint);
+            break;
+        }
+        case BaseType::REAL:
+            valueToPrint = builder_.create<mlir::arith::ExtFOp>(
+                loc_, builder_.getF64Type(), valueToPrint);
+            break;
+        case BaseType::CHARACTER:
+            valueToPrint = builder_.create<mlir::arith::ExtSIOp>(
+                loc_, builder_.getI32Type(), valueToPrint);
+            break;
+        case BaseType::INTEGER:
+            break;
+        case BaseType::STRING:
+            // assume valueToPrint is already a pointer
+            break;
+        default:
+            break;
+    }
+
+    builder_.create<mlir::LLVM::CallOp>(
+        loc_,
+        printfFunc,
+        mlir::ValueRange{formatStringPtr, valueToPrint});
+}
+
+void MLIRGen::emitPrintArray(const VarInfo &arrayVarInfo) {
+    if (arrayVarInfo.type.baseType != BaseType::ARRAY) {
+        throw std::runtime_error("emitPrintArray: non-array type");
+    }
+    if (!arrayVarInfo.value ||
+        !arrayVarInfo.value.getType().isa<mlir::MemRefType>()) {
+        throw std::runtime_error("emitPrintArray: array has no memref storage");
+    }
+    if (arrayVarInfo.type.dims.size() != 1 || arrayVarInfo.type.dims[0] < 0) {
+        throw std::runtime_error("emitPrintArray: only static 1D arrays supported for printing");
+    }
+
+    int64_t n = arrayVarInfo.type.dims[0];
+    CompleteType elemType = arrayVarInfo.type.subTypes.empty()
+                                ? CompleteType(BaseType::UNKNOWN)
+                                : arrayVarInfo.type.subTypes[0];
+
+    // Print '['
+    {
+        auto i8Ty = builder_.getI8Type();
+        auto c = builder_.create<mlir::arith::ConstantOp>(
+            loc_, i8Ty,
+            builder_.getIntegerAttr(i8Ty, static_cast<int> ('[')));
+        emitPrintScalar(CompleteType(BaseType::CHARACTER), c.getResult());
+    }
+
+    auto idxTy = builder_.getIndexType();
+    for (int64_t i = 0; i < n; ++i) {
+        // Print space before all but the first element
+        if (i > 0) {
+            auto i8Ty = builder_.getI8Type();
+            auto space = builder_.create<mlir::arith::ConstantOp>(
+                loc_, i8Ty,
+                builder_.getIntegerAttr(i8Ty, static_cast<int>(' ')));
+            emitPrintScalar(CompleteType(BaseType::CHARACTER), space.getResult());
+        }
+
+        auto idxConst = builder_.create<mlir::arith::ConstantOp>(
+            loc_, idxTy,
+            builder_.getIntegerAttr(idxTy, static_cast<int64_t>(i)));
+        mlir::Value elemVal = builder_.create<mlir::memref::LoadOp>(
+            loc_, arrayVarInfo.value, mlir::ValueRange{idxConst});
+        emitPrintScalar(elemType, elemVal);
+    }
+
+    // Print ']'
+    {
+        auto i8Ty = builder_.getI8Type();
+        auto c = builder_.create<mlir::arith::ConstantOp>(
+            loc_, i8Ty,
+            builder_.getIntegerAttr(i8Ty, static_cast<int> (']')));
+        emitPrintScalar(CompleteType(BaseType::CHARACTER), c.getResult());
+    }
+}
+
 void MLIRGen::visit(InputStatNode* node) {
     // Resolve the variable to read into
     VarInfo* targetVar = currScope_->resolveVar(node->name, node->line);
@@ -74,11 +196,10 @@ void MLIRGen::visit(InputStatNode* node) {
 }
 
 void MLIRGen::visit(OutputStatNode* node) {
-    
     if (!node->expr) {
-        return;
+        throw std::runtime_error("MLIRGen::OutpuStatNode: No expr found");
     }
-    
+
     // Handle string literals
     if (auto strNode = std::dynamic_pointer_cast<StringNode>(node->expr)) {
         auto printfFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("printf");
@@ -111,82 +232,14 @@ void MLIRGen::visit(OutputStatNode* node) {
     node->expr->accept(*this);
     VarInfo exprVarInfo = popValue();
 
-    // Normalize the expression to an SSA value (loads memref if needed)
-    mlir::Value loadedValue = getSSAValue(exprVarInfo);
 
-    // Determine format string name and get format string/printf upfront
-    const char* formatStrName = nullptr;
-    switch (exprVarInfo.type.baseType) {
-        case BaseType::BOOL:
-            formatStrName = "charFormat";
-            break;
-        case BaseType::INTEGER:
-            formatStrName = "intFormat";
-            break;
-        case BaseType::REAL:
-            formatStrName = "floatFormat";
-            break;
-        case BaseType::CHARACTER:
-            formatStrName = "charFormat";
-            break;
-        case BaseType::STRING:
-            formatStrName = "strFormat";
-            break;
-        default:
-            throw std::runtime_error("MLIRGen::OutputStat: Unsupported type for printing.");
+    if (exprVarInfo.type.baseType == BaseType::ARRAY) {
+        emitPrintArray(exprVarInfo);
+        return;
+    } else if (isScalarType(exprVarInfo.type.baseType)) {
+        mlir::Value loadedValue = getSSAValue(exprVarInfo);
+        emitPrintScalar(exprVarInfo.type, loadedValue);
+    } else {
+        throw std::runtime_error("MLIRGen::OutputStat: unsupported type for printing");
     }
-
-    // Lookup the format string and printf function (these are module-level symbols)
-    auto formatString = module_.lookupSymbol<mlir::LLVM::GlobalOp>(formatStrName);
-    auto printfFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("printf");
-    
-    if (!formatString || !printfFunc) {
-        throw std::runtime_error("MLIRGen::OutputStat: Format string or printf function not found.");
-    }
-    
-    // Get the address of the format string - create this before any value transformations
-    mlir::Value formatStringPtr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, formatString);
-    
-    // Now transform the value if needed (extensions)
-    mlir::Value valueToPrint = loadedValue;
-    switch (exprVarInfo.type.baseType) {
-        case BaseType::BOOL: {                 
-             // map to T/F
-            auto i8Ty = builder_.getI8Type();
-            auto tVal = builder_.create<mlir::arith::ConstantOp>(
-                loc_, i8Ty, builder_.getIntegerAttr(i8Ty, static_cast<int>('T')));
-            auto fVal = builder_.create<mlir::arith::ConstantOp>(
-                loc_, i8Ty, builder_.getIntegerAttr(i8Ty, static_cast<int>('F')));
-            valueToPrint = builder_.create<mlir::arith::SelectOp>(loc_, loadedValue, tVal, fVal);
-            // Promote to i32 to satisfy vararg promotion for %c
-            valueToPrint = builder_.create<mlir::arith::ExtSIOp>(loc_, builder_.getI32Type(), valueToPrint);
-            break;
-        }
-        case BaseType::REAL:
-            // Extend float to f64 for printing
-            valueToPrint = builder_.create<mlir::arith::ExtFOp>(
-                loc_, builder_.getF64Type(), loadedValue);
-            break;
-        case BaseType::CHARACTER:
-            // Extend character to i32 for printing
-            valueToPrint = builder_.create<mlir::arith::ExtSIOp>(
-                loc_, builder_.getI32Type(), loadedValue);
-            break;
-        case BaseType::INTEGER:
-            // No extension needed for integer
-            break;
-        case BaseType::STRING:
-            // For non-literal strings we'd expect a pointer; assume loadedValue is already a ptr
-            break;
-        default:
-            break;
-    }
-    
-    // Create the printf call with format string and value
-    // Both operands (formatStringPtr and valueToPrint) must dominate this operation
-    builder_.create<mlir::LLVM::CallOp>(
-        loc_, 
-        printfFunc, 
-        mlir::ValueRange{formatStringPtr, valueToPrint}
-    );
 }

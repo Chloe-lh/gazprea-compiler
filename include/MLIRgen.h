@@ -143,6 +143,8 @@ public:
 private:
     VarInfo popValue();
     void pushValue(VarInfo& value);
+    void emitPrintScalar(const CompleteType &type, mlir::Value value);
+    void emitPrintArray(const VarInfo &arrayVarInfo);
 
     BackEnd& backend_;
     mlir::OpBuilder& builder_;
