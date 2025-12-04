@@ -183,64 +183,24 @@ public:
   std::string id;
   int index;
   VarInfo *binding = nullptr;
-  ArrayAccessNode(const std::string &id, int index): id(id), index(index){}
+  ArrayAccessNode(const std::string &id, int index) : id(id), index(index) {}
   void accept(ASTVisitor &visitor) override; 
 };
 class ArrayLiteralNode;
 
-class ArrayTypeNode;
 class ArrayTypedDecNode : public DecNode {
 public:
   std::string qualifier = "const"; // optional default const
   std::string id;
-  std::shared_ptr<ArrayTypeNode> typeInfo; // MAY hold size if not vector
-  std::shared_ptr<ExprNode> init;          // nullable
-  ArrayTypedDecNode(const std::string &q, const std::string &id,
-                    std::shared_ptr<class ArrayTypeNode> type)
-      : qualifier(q), id(id), typeInfo(std::move(type)) {}
-  ArrayTypedDecNode(const std::string &q, const std::string &id,
-                    std::shared_ptr<class ArrayTypeNode> type,
+  CompleteType type;              // Also holds sizes
+  std::shared_ptr<ExprNode> init;           // nullable
+  ArrayTypedDecNode(const std::string &q, const std::string &id, CompleteType t)
+      : qualifier(q), id(id), type(std::move(t)) {}
+  ArrayTypedDecNode(const std::string &q, const std::string &id, CompleteType t,
                     std::shared_ptr<ExprNode> i)
-      : qualifier(q), id(id), typeInfo(std::move(type)), init(std::move(i)) {}
+      : qualifier(q), id(id), type(std::move(t)), init(std::move(i)) {}
 
   void accept(ASTVisitor &visitor) override;
-};
-// ARRAY TYPE NODE MAY HAVE A VECTOR TYPE OR ARRAY TYPE
-// Represents either an array type (with optional dimensions)
-// or a vector type (vector<T>), depending on `isVec`.
-class ArrayTypeNode : public ASTNode {
-public:
-    // True if this is a vector<T>, false if this is a T[...] array
-    bool isVec = false;
-    CompleteType elementType;
-    // Raw dimension-size expressions (null pointer = open "*")
-    // For vectors: this is always empty.
-    std::vector<std::shared_ptr<ExprNode>> sizeExprs;
-    // Results after semantic resolution:
-    // - integer value if compile-time known
-    // - nullopt if "*"
-    std::vector<std::optional<int64_t>> resolvedDims;
-    // Simple constructor for 1D array or vector
-    ArrayTypeNode(CompleteType elem, std::shared_ptr<ExprNode> sizeExpr, bool isOpen = false, bool isVector = false)
-        : isVec(isVector), elementType(std::move(elem)){
-        // A vector<T> has no explicit size
-        if (isVec) {return;}
-        // Normal array
-        sizeExprs.push_back(sizeExpr); // may be null for open dimension
-        resolvedDims.push_back(isOpen ? std::nullopt : std::nullopt);
-    }
-    // Constructor for multi-dimensional arrays OR vector<T>
-    ArrayTypeNode(CompleteType elem, std::vector<std::shared_ptr<ExprNode>> sizes, std::vector<std::optional<int64_t>> resolved = {}, bool isVector = false)
-        : isVec(isVector), elementType(std::move(elem)), sizeExprs(std::move(sizes)), resolvedDims(std::move(resolved)){
-        // For vector<T>, sizes/resolvedDims must be empty.
-        // This keeps the model clean and consistent.
-        if (isVec) {
-            sizeExprs.clear();
-            resolvedDims.clear();
-        }
-        // Otherwise let array dims pass through (0D–2D)
-    }
-    void accept(ASTVisitor &visitor) override;
 };
 
 class ExprListNode : public ASTNode {
@@ -450,12 +410,12 @@ public:
   void accept(ASTVisitor &visitor) override;
 };
 
-class StructAccessAssignStatNode: public StatNode {
-  public:
-    std::shared_ptr<StructAccessNode> target;
-    std::shared_ptr<ExprNode> expr;
-    StructAccessAssignStatNode(std::shared_ptr<StructAccessNode> target, std::shared_ptr<ExprNode> expr);
-    void accept(ASTVisitor &visitor) override;
+class StructAccessAssignStatNode : public StatNode {
+public:
+  std::shared_ptr<StructAccessNode> target;
+  std::shared_ptr<ExprNode> expr;
+  StructAccessAssignStatNode(std::shared_ptr<StructAccessNode> target, std::shared_ptr<ExprNode> expr);
+  void accept(ASTVisitor &visitor) override;
 };
 
 class OutputStatNode : public StatNode {

@@ -82,13 +82,22 @@ void ASTPrinter::visit(ArrayTypedDecNode *node) {
   if (!node) { printTreeLine("ArrayTypedDecNode", "<null>"); return; }
   printTreeLine("ArrayTypedDecNode", "name: " + node->id + ", qualifier: " + (node->qualifier.empty() ? std::string("const") : node->qualifier));
   indent++;
-  // pushChildContext(node->init == nullptr);
-  if (node->typeInfo){
-    node->typeInfo->accept(*this);
-  }else{
-    printTreeLine("<null type>");
+  // Print declared type (including any dimension info embedded in CompleteType)
+  {
+    bool isLast = (node->init == nullptr);
+    pushChildContext(isLast);
+    std::string details = "type: " + toString(node->type);
+    details += " (dims:";
+    for (size_t i = 0; i < node->type.dims.size(); ++i) {
+      if (i) details += ",";
+      int d = node->type.dims[i];
+      if (d >= 0) details += std::to_string(d);
+      else        details += "?";
+    }
+    details += ")";
+    printTreeLine("Type", details);
+    popChildContext();
   }
-  popChildContext();
 
   if (node->init) {
     pushChildContext(true);
@@ -104,44 +113,7 @@ void ASTPrinter::visit(ArrayTypedDecNode *node) {
 
   indent--;
 }
-void ASTPrinter::visit(ArrayTypeNode *node) {
-  if (!node) { printTreeLine("ArrayTypeNode"); return; }
-  std::string details = "element: " + toString(node->elementType);
-  // Include resolved dims info (if any) in the summary
-  if (!node->resolvedDims.empty()) {
-    details += " (dims:";
-    for (size_t i = 0; i < node->resolvedDims.size(); ++i) {
-      if (i) details += ",";
-      if (node->resolvedDims[i].has_value()) details += std::to_string(*node->resolvedDims[i]);
-      else details += "?";
-    }
-    details += ")";
-  }
 
-  printTreeLine("ArrayTypeNode", details);
-  indent++;
-
-  // Print each dimension's size expression (or wildcard)
-  for (size_t i = 0; i < node->sizeExprs.size(); ++i) {
-    bool isLast = (i + 1 == node->sizeExprs.size());
-    pushChildContext(isLast);
-    std::string dimLabel = "Dimension " + std::to_string(i);
-    // If there is no size expression (wildcard '*')
-    if (!node->sizeExprs[i]) {
-      printTreeLine(dimLabel, "*");
-    } else {
-      printTreeLine(dimLabel);
-      indent++;
-      pushChildContext(true);
-      node->sizeExprs[i]->accept(*this);
-      popChildContext();
-      indent--;
-    }
-    popChildContext();
-  }
-
-  indent--;
-}
 void ASTPrinter::visit(ExprListNode *node) {
   printTreeLine("ExprListNode");
   indent++;

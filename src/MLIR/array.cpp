@@ -154,23 +154,6 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
     }
 }
 
-// //holds elementType, sizeExprs, resolvedDims
-void MLIRGen::visit(ArrayTypeNode *node){ 
-    // if(!node.sizeExprs.empty()){
-    //     for(const auto &sz: node.sizeExprs){
-            
-    //     }
-    // }
-    // map MLIR type to MLIR scalar types
-    // if vector, shape dynamic vector
-    // for each dimension, push a value or a dynamic shape -> use sizeExprs
-    //convert lowered SSA into index type
-    
-    // bool = i1
-    // float/real/int  = i64
-
-
-}
 void MLIRGen::visit(ExprListNode *node){
     // Evaluate each element expression and push its VarInfo onto the value stack.
     // This leaves the element VarInfos on `v_stack_` for callers to pop in order.

@@ -90,7 +90,6 @@ public:
     void visit(ArraySliceExpr *node) override;      //TODO
     void visit(ArrayAccessNode *node) override;
     void visit(ArrayTypedDecNode *node) override;
-    void visit(ArrayTypeNode *node) override;
     void visit(ExprListNode *node) override;        //TODO
     void visit(ArrayLiteralNode *node) override;
     void visit(RangeExprNode *node) override;       //TODO
@@ -176,7 +175,6 @@ inline void MLIRGen::visit(ArrayStrideExpr *node)        { (void)node; /* TODO: 
 inline void MLIRGen::visit(ArraySliceExpr *node)         { (void)node; /* TODO: implement */ }
 inline void MLIRGen::visit(ArrayAccessNode *node)        { (void)node; /* TODO: implement */ }
 inline void MLIRGen::visit(ArrayTypedDecNode *node)      { (void)node; /* TODO: implement */ }
-inline void MLIRGen::visit(ArrayTypeNode *node)          { (void)node; /* TODO: implement */ }
 inline void MLIRGen::visit(ExprListNode *node)           { (void)node; /* TODO: implement */ }
 inline void MLIRGen::visit(ArrayLiteralNode *node)       { (void)node; /* TODO: implement */ }
 inline void MLIRGen::visit(RangeExprNode *node)          { (void)node; /* TODO: implement */ }
