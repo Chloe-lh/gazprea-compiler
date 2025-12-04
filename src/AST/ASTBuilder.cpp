@@ -280,21 +280,16 @@ std::any ASTBuilder::visitQualifier(GazpreaParser::QualifierContext *ctx) {
 }
 // returns CompleteType object based on grammar else returns unknown
 std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
-  //FOR ARRAYS
-  if (ctx->BOOLEAN())
-    return CompleteType(BaseType::BOOL);
-  if (ctx->STRING())
-    return CompleteType(BaseType::STRING);
+  // 1. Handle builtin types (everything except tuple + struct + aliases)
+  if (ctx->builtin_type()) {
+    return visit(ctx->builtin_type());
+  }
+
+  // 2. Handle type aliases - will be resolved to actual types in semantic analysis
   if (ctx->ID())
-    // Store the alias name, but leaves the type as BaseType::UNRESOLVED, which
-    // will be resolved during semantic analysis
     return CompleteType(ctx->ID()->getText());
-  if (ctx->INTEGER())
-    return CompleteType(BaseType::INTEGER);
-  if (ctx->REAL())
-    return CompleteType(BaseType::REAL);
-  if (ctx->CHARACTER())
-    return CompleteType(BaseType::CHARACTER);
+
+  // 3. handle tuples + structs
   if (ctx->tuple_dec()) 
     return visit(ctx->tuple_dec());
   if (ctx->struct_dec())
