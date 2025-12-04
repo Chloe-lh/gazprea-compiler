@@ -1,0 +1,29 @@
+procedure main() returns integer{
+    integer[5] arr = [1, 2, 3, 4, 5];
+    boolean[2] arr2 = [false, true];
+    character[9] arr3 = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+    real[1] arr4 = [3.14];
+    var integer[5] arrCopy;
+    var boolean[2] arr2Copy;
+
+
+    arr -> std_output;
+    "\n" -> std_output;
+    arr2 -> std_output;
+    "\n" -> std_output;
+    arr3 -> std_output;
+    "\n" -> std_output;
+    arr4 -> std_output;
+    "\n" -> std_output;
+
+    "\n" -> std_output;
+    arrCopy = arr;
+    arrCopy -> std_output;
+    "\n" -> std_output;
+    arr2Copy = arr2;
+    arr2Copy -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+//CHECK_FILE:simple_array_print.out

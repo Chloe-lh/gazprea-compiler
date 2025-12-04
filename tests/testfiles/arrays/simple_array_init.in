@@ -1,0 +1,8 @@
+procedure main() returns integer{
+    integer[5] arr = [1, 2, 3, 4, 5];
+    boolean[2] arr2 = [false, true];
+    character[9] arr3 = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+    real[1] arr4 = [3.14];
+    return 0;
+}
+//CHECK_FILE:simple_array_init.out
