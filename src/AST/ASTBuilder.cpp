@@ -551,6 +551,16 @@ std::any ASTBuilder::visitCharExpr(GazpreaParser::CharExprContext *ctx) {
   node->type = CompleteType(BaseType::CHARACTER);
   return expr_any(std::move(node));
 }
+
+
+std::any ASTBuilder::visitStdInputExpr(GazpreaParser::StdInputExprContext *ctx) {
+  // Treat std_input as a dummy integer 0
+  auto node = std::make_shared<IntNode>(0);
+  setLocationFromCtx(node, ctx);
+  node->type = CompleteType(BaseType::INTEGER); // Matches input_stream alias
+  return expr_any(std::move(node));
+}
+
 std::any ASTBuilder::visitStringExpr(GazpreaParser::StringExprContext *ctx) {
   std::string text = ctx->STRING_LIT()->getText();
   // Strip the surrounding quotes and unescape minimal sequences handled in CHAR

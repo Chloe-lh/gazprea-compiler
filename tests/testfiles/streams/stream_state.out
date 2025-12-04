@@ -1,0 +1,5 @@
+b (expect F): F
+State 1 (expect 1): 1
+i (expect 9): 9
+State 2 (expect 0): 0
+State 3 (expect 2): 2

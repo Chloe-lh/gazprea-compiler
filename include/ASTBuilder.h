@@ -86,6 +86,7 @@ public:
   std::any visitEqExpr(gazprea::GazpreaParser::EqExprContext *ctx) override;
   std::any visitAndExpr(gazprea::GazpreaParser::AndExprContext *ctx) override;
   std::any visitOrExpr(gazprea::GazpreaParser::OrExprContext *ctx) override;
+  std::any visitStdInputExpr(gazprea::GazpreaParser::StdInputExprContext *ctx) override;
   std::any
   visitTypeCastExpr(gazprea::GazpreaParser::TypeCastExprContext *ctx) override;
 
