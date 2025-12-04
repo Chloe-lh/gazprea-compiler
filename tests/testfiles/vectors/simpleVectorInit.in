@@ -2,10 +2,10 @@
 
 procedure main() returns integer {
     vector<character> vec1 = ['a', 'b'];
-    vector<boolean> vec2;
-    vector<integer> vec3;
-    vector<real> vec4;
-    vector<real> vec5;
+    var vector<boolean> vec2;
+    var vector<integer> vec3;
+    var vector<real> vec4;
+    var vector<real> vec5;
 
     // delayed init
     vec2 = [true, false];
