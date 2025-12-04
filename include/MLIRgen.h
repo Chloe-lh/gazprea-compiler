@@ -90,7 +90,6 @@ public:
     void visit(ArraySliceExpr *node) override;      //TODO
     void visit(ArrayAccessNode *node) override;
     void visit(ArrayTypedDecNode *node) override;
-    void visit(ArrayTypeNode *node) override;
     void visit(ExprListNode *node) override;        //TODO
     void visit(ArrayLiteralNode *node) override;
     void visit(RangeExprNode *node) override;       //TODO
@@ -139,11 +138,13 @@ public:
         const CompleteType &returnType,
         Scope* &savedScope);
     mlir::Value getSSAValue(const VarInfo &v);
-
+    mlir::Value lowerSizeExpr(std::shared_ptr<ExprNode> size);
 
 private:
     VarInfo popValue();
     void pushValue(VarInfo& value);
+    void emitPrintScalar(const CompleteType &type, mlir::Value value);
+    void emitPrintArray(const VarInfo &arrayVarInfo);
 
     BackEnd& backend_;
     mlir::OpBuilder& builder_;
@@ -166,5 +167,4 @@ private:
         mlir::Block* continueBlock;  // Block to branch to for continue
     };
     std::vector<LoopContext> loopContexts_;
-
 };

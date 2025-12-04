@@ -73,7 +73,6 @@ void ArrayStrideExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArraySliceExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArrayAccessNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArrayTypedDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
-void ArrayTypeNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ExprListNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArrayLiteralNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void RangeExprNode::accept(ASTVisitor &visitor) { visitor.visit(this); }

@@ -4,12 +4,14 @@
 #include <string>
 #include <vector>
 #include <variant>
+#include <optional>
 #include <assert.h>
 
 // Base Types
 enum class BaseType {
     UNRESOLVED,
     UNKNOWN,
+    EMPTY,
     BOOL,
     CHARACTER,
     INTEGER,
@@ -40,21 +42,23 @@ inline constexpr BaseType compositeTypes[] = {
 
 struct CompleteType {
     BaseType baseType;
-    std::vector<CompleteType> subTypes;
+    std::vector<CompleteType> subTypes; // used for composite types (tuple, struct, array, vector, matrix)
     std::string aliasName = "";
-    std::shared_ptr<CompleteType> elemType; //stores element type for arrays
     std::vector<std::string> fieldNames; //stores field names for structs only
+    std::vector<int> dims; // Dimension metadata for arrays / vectors / matrices.
 
-
+    CompleteType(): baseType(BaseType::UNKNOWN) {}
     CompleteType(BaseType baseType) : baseType(baseType) {}
     CompleteType(BaseType baseType, std::vector<CompleteType> subTypes)
         : baseType(baseType), subTypes(std::move(subTypes)) {}
-    CompleteType(std::string aliasName)
-        : baseType(BaseType::UNRESOLVED), aliasName(aliasName) {} // constructor for type aliases - actual type resolved during semantic analysis
-
+    CompleteType(std::string aliasName) : baseType(BaseType::UNRESOLVED), aliasName(aliasName) {} // constructor for type aliases - actual type resolved during semantic analysis
+    CompleteType(BaseType baseType, CompleteType subType, std::vector<int> dims)
+        : baseType(baseType), subTypes({subType}), dims(std::move(dims)) {} // constructor for arrays
 
     bool operator==(const CompleteType& other) const noexcept {
-        return baseType == other.baseType && subTypes == other.subTypes;
+        return baseType == other.baseType &&
+               subTypes == other.subTypes &&
+               dims == other.dims;
     }
     bool operator!=(const CompleteType& other) const noexcept {
         return !(*this == other);

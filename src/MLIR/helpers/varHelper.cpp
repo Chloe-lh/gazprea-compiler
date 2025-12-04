@@ -1,5 +1,6 @@
 #include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
+#include "Types.h"
 
 VarInfo MLIRGen::popValue() {
     if (v_stack_.empty()) {
@@ -36,11 +37,14 @@ mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
             }
             return mlir::LLVM::LLVMStructType::getLiteral(&context_, elemTys);
         }
+        case BaseType::ARRAY: {
+            throw std::runtime_error("getLLVMType: Arrays should not be called with this helper.");
+        }
         case BaseType::VECTOR: {
             throw std::runtime_error("getLLVMType: Vectors should not be called with this helper.");
         }
         default:
-            throw std::runtime_error("getLLVMType: Unsupported type: " + toString(type));
+            throw std::runtime_error("getLLVMType: Unsupported type");
     }
 }
 // Create a VarInfo that contains an allocated memref with the compile-time
@@ -147,10 +151,73 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
         builder_.create<mlir::LLVM::StoreOp>(
             loc_, srcStruct, variable->value);
         return;
-    }
+    } else if (variable->type.baseType == BaseType::ARRAY){
+        if (literal->type.baseType != BaseType::ARRAY) {
+            throw AssignError(line, "Cannot assign non-array to array variable");
+            // TODO: Implement int -> array
+        }
+        // Ensure both storages exist
+        if (!variable->value) allocaVar(variable, line);
+        if (!literal->value) allocaVar(literal, line);
 
-    // Struct assignment: copy whole LLVM struct value
-    if (variable->type.baseType == BaseType::STRUCT) {
+        auto getLen = [](const CompleteType &t) -> std::optional<int64_t> {
+            if (t.baseType != BaseType::ARRAY) return std::nullopt;
+            if (t.dims.size() != 1) return std::nullopt; // only 1D for now
+            if (t.dims[0] < 0) return std::nullopt;
+            return static_cast<int64_t>(t.dims[0]);
+        };
+
+        std::optional<int64_t> varLen = getLen(variable->type);
+        std::optional<int64_t> litLen = getLen(literal->type);
+
+        size_t n = 0;
+        if (varLen && litLen) {
+            if (varLen.value() != litLen.value()) {
+                throw AssignError(line, "Array initializer length does not match destination array length");
+            }
+            n = static_cast<size_t>(varLen.value());
+        } else if (varLen) {
+            n = static_cast<size_t>(varLen.value());
+        } else if (litLen) {
+            // Destination had inferred size; adopt the literal's concrete size.
+            n = static_cast<size_t>(litLen.value());
+            variable->type.dims = literal->type.dims;
+        } else {
+            throw AssignError(line, "cannot determine array length for assignment");
+        }
+        auto idxTy = builder_.getIndexType();
+        for(size_t t=0; t<n;++t){
+                // index constant
+            mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
+                loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(t)));
+
+            // load source element
+            mlir::Value srcElemVal = builder_.create<mlir::memref::LoadOp>(loc_, literal->value, mlir::ValueRange{idx});
+
+            // build a temp VarInfo for the source element
+            if (literal->type.subTypes.size() != 1) {
+                throw std::runtime_error("varHelper::assignTo: array literal type must have exactly one element subtype");
+            }
+            CompleteType srcElemCT = literal->type.subTypes[0];
+            VarInfo srcElemVar(srcElemCT);
+            srcElemVar.value = srcElemVal;
+            srcElemVar.isLValue = false;
+
+            // destination element type
+            if (variable->type.subTypes.size() != 1) {
+                throw std::runtime_error("varHelper::assignTo: array variable type must have exactly one element subtype");
+            }
+            CompleteType dstElemCT = variable->type.subTypes[0];
+
+            // promote/cast
+            VarInfo promoted = promoteType(&srcElemVar, &dstElemCT, line);
+            mlir::Value storeVal = getSSAValue(promoted);
+
+            // store into destination
+            builder_.create<mlir::memref::StoreOp>(loc_, storeVal, variable->value, mlir::ValueRange{idx});
+        }
+        return;
+    } else if (variable->type.baseType == BaseType::STRUCT) {
         // Ensure destination and source storage exist
         if (!variable->value) {
             allocaVar(variable, line);
@@ -166,21 +233,26 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
             builder_.create<mlir::LLVM::LoadOp>(loc_, structTy, literal->value);
         builder_.create<mlir::LLVM::StoreOp>(loc_, srcStruct, variable->value);
         return;
+    } else if (isScalarType(variable->type.baseType) && isScalarType(literal->type.baseType)) {
+
+        // Scalar assignment
+        // ensure var has a memref allocated
+        if (!variable->value) {
+            allocaVar(variable, line);
+        }
+
+        VarInfo promoted = promoteType(literal, &variable->type, line); // handle type promotions + errors
+
+        // Normalize promoted value to SSA (load memref if needed)
+        mlir::Value loadedVal = getSSAValue(promoted);
+        builder_.create<mlir::memref::StoreOp>(
+            loc_, loadedVal, variable->value, mlir::ValueRange{}
+        );
+    } else {
+        throw std::runtime_error("MLIRGen::assignTo: unsupported variable type");
     }
 
-    // Scalar assignment
-    // ensure var has a memref allocated
-    if (!variable->value) {
-        allocaVar(variable, line);
-    }
 
-    VarInfo promoted = promoteType(literal, &variable->type, line); // handle type promotions + errors
-
-    // Normalize promoted value to SSA (load memref if needed)
-    mlir::Value loadedVal = getSSAValue(promoted);
-    builder_.create<mlir::memref::StoreOp>(
-        loc_, loadedVal, variable->value, mlir::ValueRange{}
-    );
 }
 
 void MLIRGen::allocaLiteral(VarInfo* varInfo, int line) {
@@ -306,6 +378,19 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
             auto oneAttr = builder_.getIntegerAttr(i64Ty, 1);
             mlir::Value one = entryBuilder.create<mlir::arith::ConstantOp>(loc_, i64Ty, oneAttr);
             varInfo->value = entryBuilder.create<mlir::LLVM::AllocaOp>(loc_, ptrTy, structTy, one, 0u);
+            break;
+        }
+        case BaseType::ARRAY:{ 
+            mlir::Type elemTy = getLLVMType(varInfo->type.subTypes[0]);
+
+            if (varInfo->type.dims.size() == 1 && varInfo->type.dims[0] >= 0) {
+                int64_t n = varInfo->type.dims[0];
+                auto memTy = mlir::MemRefType::get({n}, elemTy);
+                varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
+            } else {
+                throw std::runtime_error("allocaVar: unsupported array shape for variable '" +
+                                         (varInfo->identifier.empty() ? std::string("<temporary>") : varInfo->identifier) + "'");
+            }
             break;
         }
 

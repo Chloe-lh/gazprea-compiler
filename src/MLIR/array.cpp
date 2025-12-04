@@ -1,107 +1,180 @@
 #include "AST.h"
 #include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
+#include "Types.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
+#include "llvm/ADT/SmallVector.h"
+#include <cstddef>
 #include <stdexcept>
 
 
 void MLIRGen::visit(ArrayStrideExpr *node)        { std::cout << "ArrayStrideExpr not implemented\n"; }
 void MLIRGen::visit(ArraySliceExpr *node)         { std::cout << "ArraySliceExpr not implemented\n"; }
-void MLIRGen::visit(ArrayAccessAssignStatNode *node) { //! WIP
-    if(!node->target||!node->expr){
-        throw std::runtime_error("ArrrayAccesssAssignStat node: missing target or expression");
+void MLIRGen::visit(ArrayAccessAssignStatNode *node) { 
+    if (!node->target || !node->expr) {
+        throw std::runtime_error("ArrayAccessAssignStat node: missing target or expression");
     }
+
+    // Evaluate RHS
     node->expr->accept(*this);
     VarInfo from = popValue();
-    if(from.type.baseType==BaseType::UNKNOWN){
+    if (from.type.baseType == BaseType::UNKNOWN) {
         throw std::runtime_error("ArrayAccessAssignStat node: RHS side has UNKNOWN type");
     }
+
+    ArrayAccessNode* target = node->target.get();
+    VarInfo* arrayVar = target->binding;
+    if (!arrayVar) throw std::runtime_error("ArrayAccessAssignStat node: target has no bound array");
+    if (!arrayVar->value) allocaVar(arrayVar, node->line);
+    if (!arrayVar->value) throw std::runtime_error("ArrayAccessAssignStat node: array has no storage");
+
+    // convert 1-based -> 0-based
+    if (target->index <= 0) throw std::runtime_error("ArrayAccessAssignStat: invalid index (must be >= 1)");
+    size_t idx0 = static_cast<size_t>(target->index - 1);
+
+    // --- element type ---
+    if (arrayVar->type.subTypes.size() != 1) {
+        throw std::runtime_error("ArrayAccessAssignStat node: array type must have exactly one element subtype");
+    }
+    CompleteType elemType = arrayVar->type.subTypes[0];
+
+    // Promote RHS to element type
+    VarInfo promoted = promoteType(&from, &elemType, node->line);
+    mlir::Value val = getSSAValue(promoted);
+
+    // Build index and store
+    auto idxTy = builder_.getIndexType();
+    auto idxConst = builder_.create<mlir::arith::ConstantOp>(
+        loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(idx0))
+    );
+
+    builder_.create<mlir::memref::StoreOp>(
+        loc_, val, arrayVar->value, mlir::ValueRange{idxConst}
+    );
 }
-void MLIRGen::visit(ArrayAccessNode *node){ 
-    if(!currScope_){
-        throw std::runtime_error("ArrayAccessNode: no current scope");
-    }
+
+void MLIRGen::visit(ArrayAccessNode *node) {
+    if (!currScope_) throw std::runtime_error("ArrayAccessNode: no current scope");
     VarInfo* arrVarInfo = node->binding;
-    if(!arrVarInfo){
-        throw std::runtime_error("ArrayAccessNode: no bound tuple variable for "+node->id);
-    }
-    if (arrVarInfo->type.baseType != BaseType::ARRAY) {
-        throw std::runtime_error("TupleAccessNode: Variable '" + node->id + "' is not an array.");
-    }
-    // global array
-    if(!arrVarInfo->value){
+    if (!arrVarInfo) throw std::runtime_error("ArrayAccessNode: unresolved array '"+node->id+"'");
+    if (arrVarInfo->type.baseType != BaseType::ARRAY)
+        throw std::runtime_error("ArrayAccessNode: Variable '" + node->id + "' is not an array.");
+
+    if (!arrVarInfo->value) {
         auto globalOp = module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->id);
-        if(globalOp){
+        if (globalOp) {
             arrVarInfo->value = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalOp);
-        }else{
+        } else {
             allocaVar(arrVarInfo, node->line);
         }
     }
-    if(!arrVarInfo->value){
-        throw std::runtime_error("TupleAccessNode: Tuple variable '" + node->id + "' has no allocated value.");
-    }
-    // Validate index (1-based)
-    if (node->index < 1 ||
-        node->index > static_cast<int>(arrVarInfo->type.subTypes.size())) {
-        throw std::runtime_error("TupleAccessNode: Index " +
-                                 std::to_string(node->index) +
-                                 " out of range for tuple of size " +
-                                 std::to_string(arrVarInfo->type.subTypes.size()));
-    }
-        // Extract the element at the specified index (convert from 1-based to 0-based)
-    mlir::Type structTy = getLLVMType(arrVarInfo->type);
-    mlir::Value structVal = builder_.create<mlir::LLVM::LoadOp>(
-        loc_, structTy, arrVarInfo->value);
-    llvm::SmallVector<int64_t, 1> pos{
-        static_cast<int64_t>(node->index - 1)};
-    mlir::Value elemVal =
-        builder_.create<mlir::LLVM::ExtractValueOp>(loc_, structVal, pos);
+    if (!arrVarInfo->value) throw std::runtime_error("ArrayAccessNode: array has no storage");
 
-       // Wrap element into a scalar VarInfo and push it.
-    CompleteType elemType =
-        arrVarInfo->type.subTypes[static_cast<size_t>(node->index - 1)];
-    VarInfo elementVarInfo(elemType);
-    allocaLiteral(&elementVarInfo, node->line);
-    builder_.create<mlir::memref::StoreOp>(
-        loc_, elemVal, elementVarInfo.value, mlir::ValueRange{});
+    if (node->index <= 0) throw std::runtime_error("ArrayAccessNode: invalid index (must be >= 1)");
+    size_t idx0 = static_cast<size_t>(node->index - 1);
+    // compute index value (1-based)
+    auto idxTy = builder_.getIndexType();
+    auto idxConst = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(idx0)));
 
-    pushValue(elementVarInfo);
+    // memref.load element
+    mlir::Value elemVal = builder_.create<mlir::memref::LoadOp>(loc_, arrVarInfo->value, mlir::ValueRange{idxConst});
+
+    // Create scalar VarInfo with element's CompleteType.
+    // For homogeneous arrays, element type is the single subtype.
+    if (arrVarInfo->type.subTypes.size() != 1) {
+        throw std::runtime_error("ArrayAccessNode: array type must have exactly one element subtype");
+    }
+    CompleteType elemType = arrVarInfo->type.subTypes[0];
+    VarInfo out(elemType);
+    out.value = elemVal;
+    out.isLValue = false;
+    pushValue(out);
 }
-void MLIRGen::visit(ArrayTypedDecNode *node){ 
+void MLIRGen::visit(ArrayTypedDecNode *node) {
+    // std::cerr << "[DEUBG] MLIR: visiting ArrayTypedDecNode\n";
+    //Resolve declared variable
     VarInfo* declaredVar = currScope_->resolveVar(node->id, node->line);
-    if(!declaredVar->value){
+    if (!declaredVar) {
+        throw std::runtime_error("ArrayTypedDec node: variable not declared in scope");
+    }
+
+    // Compute total number of elements for static arrays from CompleteType::dims
+    size_t totalElems = 1;
+    bool allStatic = true;
+    if (!declaredVar->type.dims.empty()) {
+        for (int d : declaredVar->type.dims) {
+            if (d < 0) {
+                allStatic = false;
+                break;
+            }
+            totalElems *= static_cast<size_t>(d);
+        }
+    } else {
+        allStatic = false;
+    }
+
+    // Allocate storage if not already done
+    if (!declaredVar->value) {
         allocaVar(declaredVar, node->line);
     }
-    if(node->typeInfo){
-        node->typeInfo->accept(*this);
-        VarInfo typeInfo = popValue();
-    }
-    if(node->init){
+    // --- Handle initializer expression ---
+    if (node->init) {
         node->init->accept(*this);
         VarInfo literal = popValue();
         assignTo(&literal, declaredVar, node->line);
-    }else{// implicit zero initialization
-        mlir::Value arrPtr = declaredVar->value;
-        mlir::Type structTy = getLLVMType(declaredVar->type);
-        mlir::Type ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
-        auto i32Ty = builder_.getI32Type();
-        mlir::Value zeroIdx = builder_.create<mlir::arith::ConstantOp>(loc_, i32Ty, builder_.getIntegerAttr(i32Ty, 0));
-        for (size_t i = 0; i < declaredVar->type.subTypes.size(); ++i) {
-            mlir::Value fieldIdx = builder_.create<mlir::arith::ConstantOp>(loc_, i32Ty, builder_.getIntegerAttr(i32Ty, i));
-            
-            // GEP to get address of the element
-            mlir::Value elemPtr = builder_.create<mlir::LLVM::GEPOp>(
-                loc_, ptrTy, structTy, arrPtr, mlir::ValueRange{zeroIdx, fieldIdx}
-            );
-            // Use helper to store zero into this address
-            VarInfo elemVar(declaredVar->type.subTypes[i]);
-            elemVar.value = elemPtr;
-            zeroInitializeVar(&elemVar);
+        return;
+    }
+
+    // --- Zero-initialize array if no initializer and static size known ---
+    if (allStatic) {
+        size_t n = totalElems;
+        if (declaredVar->type.subTypes.size() != 1) {
+            throw std::runtime_error("ArrayTypedDecNode: array type must have exactly one element subtype");
+        }
+
+        // Zero initialize for each type
+        CompleteType elemType = declaredVar->type.subTypes[0];
+        mlir::Value zeroVal;
+        switch (elemType.baseType) {
+            case BaseType::INTEGER: {
+                auto t = builder_.getI32Type();
+                zeroVal = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, t, builder_.getIntegerAttr(t, 0));
+                break;
+            }
+            case BaseType::REAL: {
+                auto t = builder_.getF32Type();
+                zeroVal = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, t, builder_.getFloatAttr(t, 0.0));
+                break;
+            }
+            case BaseType::BOOL: {
+                auto t = builder_.getI1Type();
+                zeroVal = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, t, builder_.getIntegerAttr(t, 0));
+                break;
+            }
+            case BaseType::CHARACTER: {
+                auto t = builder_.getI8Type();
+                zeroVal = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, t, builder_.getIntegerAttr(t, 0));
+                break;
+            }
+            default:
+                throw std::runtime_error("ArrayTypedDecNode: unsupported element type for zero initialization");
+        }
+
+        mlir::Type idxTy = builder_.getIndexType();
+        for (size_t i = 0; i < n; ++i) {
+            mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
+                loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(i)));
+            builder_.create<mlir::memref::StoreOp>(
+                loc_, zeroVal, declaredVar->value, mlir::ValueRange{idx});
         }
     }
 }
-void MLIRGen::visit(ArrayTypeNode *node)          { std::cout << "ArrayTypeNode not implemented\n"; }
+
 void MLIRGen::visit(ExprListNode *node){
     // Evaluate each element expression and push its VarInfo onto the value stack.
     // This leaves the element VarInfos on `v_stack_` for callers to pop in order.
@@ -118,7 +191,7 @@ void MLIRGen::visit(ExprListNode *node){
     }
 }
 void MLIRGen::visit(ArrayLiteralNode *node){
-    // Allocate storage for the array literal and populate it element-wise.
+
     VarInfo arrVarInfo(node->type);
     allocaLiteral(&arrVarInfo, node->line);
 
@@ -126,38 +199,18 @@ void MLIRGen::visit(ArrayLiteralNode *node){
         throw std::runtime_error("ArrayLiteralNode: failed to allocate array storage.");
     }
 
-    // Determine number of elements in the literal
-    size_t nElems = 0;
-    if (node->list) nElems = node->list->list.size();
-
-    // Build an LLVM aggregate (undef) and insert elements
-    mlir::Type arrTy = getLLVMType(node->type);
-    mlir::Value agg = builder_.create<mlir::LLVM::UndefOp>(loc_, arrTy);
-
-    for (size_t i = 0; i < nElems; ++i) {
-        auto &elemExpr = node->list->list[i];
-        if (!elemExpr) {
-            // Insert a zero-initialized element for null entries
-            VarInfo zeroElem{ node->type.subTypes.empty() ? CompleteType(BaseType::UNKNOWN) : node->type.subTypes[0] };
-            allocaLiteral(&zeroElem, node->line);
-            mlir::Value loaded = getSSAValue(zeroElem);
-            llvm::SmallVector<int64_t, 1> pos{static_cast<int64_t>(i)};
-            agg = builder_.create<mlir::LLVM::InsertValueOp>(loc_, agg, loaded, pos);
-            continue;
-        }
-
-        // Evaluate element expression and obtain its VarInfo
-        elemExpr->accept(*this);
-        VarInfo elemVar = popValue();
-
-        // Normalize to SSA value and insert into aggregate
-        mlir::Value loadedVal = getSSAValue(elemVar);
-        llvm::SmallVector<int64_t, 1> pos{static_cast<int64_t>(i)};
-        agg = builder_.create<mlir::LLVM::InsertValueOp>(loc_, agg, loadedVal, pos);
+    std::cout << (node->list->list.size());
+    for (size_t i = 0; i < node->list->list.size(); ++i) {
+        node->list->list[i]->accept(*this);
+        VarInfo elem = popValue();
+        mlir::Value val = getSSAValue(elem);
+        // MLIR memref uses 0-based index
+        auto idxConst = builder_.create<mlir::arith::ConstantOp>(
+            loc_, builder_.getIndexType(), builder_.getIntegerAttr(builder_.getIndexType(), static_cast<int64_t>(i))
+        );
+        builder_.create<mlir::memref::StoreOp>(loc_, val, arrVarInfo.value, mlir::ValueRange{idxConst});
     }
-
-    // Store the aggregate into the allocated literal storage and push the array VarInfo
-    builder_.create<mlir::LLVM::StoreOp>(loc_, agg, arrVarInfo.value);
     pushValue(arrVarInfo);
 }
+
 void MLIRGen::visit(RangeExprNode *node)          { std::cout << "RangeExprNode not implemented\n"; }

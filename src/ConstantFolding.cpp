@@ -181,15 +181,6 @@ void ConstantFoldingVisitor::visit(ArrayTypedDecNode *node) { // resolve size fr
     //     }
     // }
 }
-void ConstantFoldingVisitor::visit(ArrayTypeNode *node) {
-    // if(!node->isOpen){ // int expr
-    //     node->sizeExpr->accept(*this);
-    //     if(node->sizeExpr->constant.has_value() && node->sizeExpr->constant->type.baseType == BaseType::INTEGER){
-    //         int64_t v = std::get<int64_t>(node->sizeExpr->constant->value);
-    //         node->resolvedSize = v;
-    //     }
-    // }
-}
 void ConstantFoldingVisitor::visit(ExprListNode *node) {
     if(!node) return;
     if(!node->list.empty()){

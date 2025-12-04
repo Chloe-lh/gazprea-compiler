@@ -76,7 +76,6 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         void visit(ArraySliceExpr *node) override;
         void visit(ArrayAccessNode *node) override;
         void visit(ArrayTypedDecNode *node) override;
-        void visit(ArrayTypeNode *node) override;
         void visit(ExprListNode *node) override;
         void visit(ArrayLiteralNode *node) override;
         void visit(RangeExprNode *node) override;

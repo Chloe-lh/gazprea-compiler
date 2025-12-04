@@ -43,6 +43,14 @@ void MLIRGen::visit(IdNode* node) {
                         node->id + "'");
                 }
             }
+        } else if (varInfo->type.baseType == BaseType::ARRAY) {
+            // TODO: Implement global arrays
+            allocaVar(varInfo, node->line);
+            if (!varInfo->value) {
+                throw std::runtime_error(
+                    "visit(IdNode*): Failed to allocate array variable '" +
+                    node->id + "'");
+            }
         } else if (isScalarType(varInfo->type.baseType)) {
             // Scalar: try to resolve as a global first
             auto globalOp = module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->id);
