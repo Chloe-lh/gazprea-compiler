@@ -163,7 +163,6 @@ void MLIRGen::visit(ExprListNode *node){
     }
 }
 void MLIRGen::visit(ArrayLiteralNode *node){
-        // std::cerr << "[DEUBG] MLIR: visiting ArrayLiteralNode\n";
 
     VarInfo arrVarInfo(node->type);
     allocaLiteral(&arrVarInfo, node->line);

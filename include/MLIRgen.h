@@ -168,16 +168,3 @@ private:
     };
     std::vector<LoopContext> loopContexts_;
 };
-
-// TODO: implement full MLIR lowering for array-related nodes.
-// For now, provide stub implementations so that partially implemented
-// features do not cause link-time failures while we focus on simple
-// array declaration + initialization.
-inline void MLIRGen::visit(ArrayStrideExpr *node)        { (void)node; /* TODO: implement */ }
-inline void MLIRGen::visit(ArraySliceExpr *node)         { (void)node; /* TODO: implement */ }
-inline void MLIRGen::visit(ArrayAccessNode *node)        { (void)node; /* TODO: implement */ }
-inline void MLIRGen::visit(ArrayTypedDecNode *node)      { (void)node; /* TODO: implement */ }
-inline void MLIRGen::visit(ExprListNode *node)           { (void)node; /* TODO: implement */ }
-inline void MLIRGen::visit(ArrayLiteralNode *node)       { (void)node; /* TODO: implement */ }
-inline void MLIRGen::visit(RangeExprNode *node)          { (void)node; /* TODO: implement */ }
-inline void MLIRGen::visit(ArrayAccessAssignStatNode *node) { (void)node; /* TODO: implement */ }
