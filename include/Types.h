@@ -11,6 +11,7 @@
 enum class BaseType {
     UNRESOLVED,
     UNKNOWN,
+    EMPTY,
     BOOL,
     CHARACTER,
     INTEGER,
@@ -51,6 +52,8 @@ struct CompleteType {
     CompleteType(BaseType baseType, std::vector<CompleteType> subTypes)
         : baseType(baseType), subTypes(std::move(subTypes)) {}
     CompleteType(std::string aliasName) : baseType(BaseType::UNRESOLVED), aliasName(aliasName) {} // constructor for type aliases - actual type resolved during semantic analysis
+    CompleteType(BaseType baseType, CompleteType subType, std::vector<int> dims)
+        : baseType(baseType), subTypes({subType}), dims(std::move(dims)) {} // constructor for arrays
 
     bool operator==(const CompleteType& other) const noexcept {
         return baseType == other.baseType &&

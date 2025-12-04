@@ -212,9 +212,11 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
             "Declarations must appear at the top of a block.");
     }
 
-    if (!node->typeInfo) {
+    // Resolve any aliases inside the declared type.
+    CompleteType declaredType = resolveUnresolvedType(current_, node->type, node->line);
+    if (!(declaredType.baseType == BaseType::ARRAY)) {
         throw TypeError(node->line,
-            "Array declaration missing type information for '" + node->id + "'");
+            "ArrayTypedDecNode used with non-array type for '" + node->id + "'");
     }
 
     node->type = declaredType;
@@ -232,12 +234,9 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
         throw std::runtime_error("Failed to declare variable: " + node->id);
     }
 
-    // Handle static array sizes
-    if (!node->typeInfo->resolvedDims.empty()) {
-        declared->arraySize = node->typeInfo->resolvedDims[0];
-        // std::cerr << "[DEBUG] Declared array size: " 
-        //           << (declared->arraySize.has_value() ? std::to_string(declared->arraySize.value()) : "unknown")
-        //           << "\n";
+    // 
+    if (!declaredType.dims.empty() && declaredType.dims[0] >= 0) {
+        declared->arraySize = declaredType.dims[0];
     }
 
     // Handle initializer
@@ -261,21 +260,11 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
 
         {
             CompleteType resolvedInit = resolveUnresolvedType(current_, initType, node->line);
-            CompleteType promoted = promote(resolvedInit, arrayType);
-            if (!(promoted == arrayType)) {
-                // Try the other direction as a fallback
-                promoted = promote(arrayType, resolvedInit);
-            }
-            if (!(promoted == arrayType)) {
-                // Not promotable — report a semantic type error resembling
-                // handleAssignError's message.
-                throw TypeError(node->line,
-                    std::string("Semantic Analysis: Cannot assign type '") + toString(resolvedInit) +
-                    "' to variable '" + node->id + "' of type '" + toString(arrayType) + "'.");
-            }
+            CompleteType promoted = promote(resolvedInit, declaredType);
+            handleAssignError(node->id, declaredType, promoted, node->line);
         }
-    } else {
-        // std::cerr << "[DEBUG] No initializer for " << node->id << "\n";
+    } else if (declaredType.dims[0] == -1) {
+        throw StatementError(node->line, "Cannot have inferred type array without initializer");
     }
 
     // std::cerr << "[DEBUG] Finished ArrayTypedDecNode: " << node->id << "\n";
