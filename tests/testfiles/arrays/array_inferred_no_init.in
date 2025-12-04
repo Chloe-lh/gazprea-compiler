@@ -1,0 +1,6 @@
+procedure main() returns integer{
+    integer[*] arr;
+    return 0;
+}
+//CHECK_FILE:array_inferred_no_init.out
+

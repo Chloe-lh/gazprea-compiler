@@ -1,0 +1,13 @@
+procedure main() returns integer{
+    var integer[4] ziInt;
+    var boolean[3] ziBool;
+
+    ziInt -> std_output;
+    "\n" -> std_output;
+    ziBool -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+//CHECK_FILE:array_zero_init_print.out
+
