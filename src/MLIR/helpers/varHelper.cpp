@@ -186,17 +186,19 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
             mlir::Value srcElemVal = builder_.create<mlir::memref::LoadOp>(loc_, literal->value, mlir::ValueRange{idx});
 
             // build a temp VarInfo for the source element
-            CompleteType srcElemCT = !literal->type.subTypes.empty()
-                                   ? literal->type.subTypes[t]
-                                   : CompleteType(literal->type.elemType);
+            if (literal->type.subTypes.size() != 1) {
+                throw std::runtime_error("varHelper::assignTo: array literal type must have exactly one element subtype");
+            }
+            CompleteType srcElemCT = literal->type.subTypes[0];
             VarInfo srcElemVar(srcElemCT);
             srcElemVar.value = srcElemVal;
             srcElemVar.isLValue = false;
 
             // destination element type
-            CompleteType dstElemCT = !variable->type.subTypes.empty()
-                                   ? variable->type.subTypes[t]
-                                   : CompleteType(variable->type.elemType);
+            if (variable->type.subTypes.size() != 1) {
+                throw std::runtime_error("varHelper::assignTo: array variable type must have exactly one element subtype");
+            }
+            CompleteType dstElemCT = variable->type.subTypes[0];
 
             // promote/cast
             VarInfo promoted = promoteType(&srcElemVar, &dstElemCT, line);

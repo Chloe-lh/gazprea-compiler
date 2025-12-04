@@ -96,7 +96,6 @@ std::any ASTBuilder::visitBuiltin_type(GazpreaParser::Builtin_typeContext *ctx) 
 
     CompleteType arr(BaseType::ARRAY);
     arr.subTypes.push_back(elem);        // element type as single subtype
-    arr.elemType = elem.baseType;        // used by array/vector helpers
     arr.dims = std::move(dims);          // save dimensions
     return arr;
 }

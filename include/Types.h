@@ -41,21 +41,16 @@ inline constexpr BaseType compositeTypes[] = {
 
 struct CompleteType {
     BaseType baseType;
-    std::vector<CompleteType> subTypes; // used for structs
+    std::vector<CompleteType> subTypes; // used for composite types (tuple, struct, array, vector, matrix)
     std::string aliasName = "";
-    BaseType elemType; //stores element type for arrays/vectors
     std::vector<std::string> fieldNames; //stores field names for structs only
-    // Dimension metadata for arrays / vectors / matrices.
-    std::vector<int> dims;
+    std::vector<int> dims; // Dimension metadata for arrays / vectors / matrices.
 
     CompleteType(): baseType(BaseType::UNKNOWN) {}
     CompleteType(BaseType baseType) : baseType(baseType) {}
     CompleteType(BaseType baseType, std::vector<CompleteType> subTypes)
         : baseType(baseType), subTypes(std::move(subTypes)) {}
-    CompleteType(BaseType baseType, BaseType elemType) : baseType(baseType), elemType(elemType){}
     CompleteType(std::string aliasName) : baseType(BaseType::UNRESOLVED), aliasName(aliasName) {} // constructor for type aliases - actual type resolved during semantic analysis
-    CompleteType(BaseType baseType, BaseType elemType, std::vector<int> dims) : baseType(baseType), elemType(elemType), dims(dims) {} // constructor for array/matrix types
-
 
     bool operator==(const CompleteType& other) const noexcept {
         return baseType == other.baseType &&

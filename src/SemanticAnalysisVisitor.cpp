@@ -192,8 +192,10 @@ void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
         return;
     }
 
-    // Element type comes from elemType, not subTypes
-    node->type = CompleteType(baseType.elemType);
+    if (baseType.subTypes.size() != 1) {
+        throw std::runtime_error("Semantic Analysis: ARRAY type must have exactly one element subtype.");
+    }
+    node->type = baseType.subTypes[0];
 
     // Attach variable for codegen
     node->binding = var;
@@ -215,14 +217,7 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
             "Array declaration missing type information for '" + node->id + "'");
     }
 
-    // Resolve element type
-    CompleteType elemType = resolveUnresolvedType(current_, node->typeInfo->elementType, node->line);
-
-    // Determine container type
-    BaseType container = node->typeInfo->isVec ? BaseType::VECTOR : BaseType::ARRAY;
-    CompleteType arrayType(container, { elemType });
-
-    node->type = arrayType;
+    node->type = declaredType;
 
     // Qualifier checks
     bool isConst = (node->qualifier != "var");
@@ -231,7 +226,7 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
     }
 
     // Declare variable
-    current_->declareVar(node->id, arrayType, isConst, node->line);
+    current_->declareVar(node->id, declaredType, isConst, node->line);
     VarInfo* declared = current_->resolveVar(node->id, node->line);
     if (!declared) {
         throw std::runtime_error("Failed to declare variable: " + node->id);
@@ -288,56 +283,6 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
 
 
 
-// arrays do not have aliases
-void SemanticAnalysisVisitor::visit(ArrayTypeNode *node) {
-    // std::cout << "[DEUBG] semantic analysis: visiting ArrayTypeNode\n";
-    if (!node) return;
-
-    // Validate element type: must be one of INTEGER, BOOL, CHARACTER or REAL
-    // `elementType` is a CompleteType; check its baseType field.
-    if (!(node->elementType.baseType == BaseType::INTEGER ||
-          node->elementType.baseType == BaseType::BOOL ||
-          node->elementType.baseType == BaseType::CHARACTER ||
-          node->elementType.baseType == BaseType::REAL)) {
-        throw TypeError(node->line, "Semantic Analysis: Invalid declared array element type");
-    }
-  
-    // ensure that the size expressions are valid
-    for (auto &s : node->sizeExprs) {
-        if (!s) { // '*' wildcard -> dynamic
-            node->resolvedDims.emplace_back(std::nullopt);
-            continue;
-        }
-        s->accept(*this);
-        if (s->type.baseType != BaseType::INTEGER) {
-            throw TypeError(node->line, "Semantic Analysis: array size must be integer.");
-        }
-
-        // Prefer explicit integer literal values even if constant folding
-        // hasn't run yet. This ensures sizes like `[3]` are known at
-        // semantic-analysis time so bounds checks can be performed.
-        if (auto in = std::dynamic_pointer_cast<IntNode>(s)) {
-            int64_t v = in->value;
-            if (v < 0) {
-                throw TypeError(node->line, "Semantic Analysis: array size must be non-negative.");
-            }
-            node->resolvedDims.emplace_back(v);
-            continue;
-        }
-
-        if (s->constant.has_value()) {
-            int64_t v = std::get<int64_t>(s->constant->value);
-            if (v < 0) {
-                throw TypeError(node->line, "Semantic Analysis: array size must be non-negative.");
-            }
-            node->resolvedDims.emplace_back(v);
-        } else {
-            node->resolvedDims.emplace_back(std::nullopt); // runtime/dynamic size
-        }
-    }
-
-    node->type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{node->elementType});
-}
 
 void SemanticAnalysisVisitor::visit(ExprListNode *node) {
     // std::cout << "[DEUBG] semantic analysis: visiting ExprListNode\n";
@@ -348,13 +293,13 @@ void SemanticAnalysisVisitor::visit(ExprListNode *node) {
 
 void SemanticAnalysisVisitor::visit(ArrayLiteralNode *node) {
     // std::cerr << "[DEBUG]: visiting ArrayLiteralNode" << std::endl;
-    // If no elements, produce array<UNKNOWN>
+    // If no elements, set to special type EMPTY so it is assignable
     if (!node->list || node->list->list.empty()) {
-        node->type = CompleteType(BaseType::ARRAY, BaseType::UNKNOWN);
+        node->type = CompleteType(BaseType::ARRAY, BaseType::EMPTY, {0});
         return;
     }
 
-    // Evaluate element expressions and compute a common element type
+    // Handle potentially mixed types (as long as they are promotable)
     CompleteType common = CompleteType(BaseType::UNKNOWN);
     for (size_t i = 0; i < node->list->list.size(); ++i) {
         auto &elem = node->list->list[i];
@@ -374,8 +319,7 @@ void SemanticAnalysisVisitor::visit(ArrayLiteralNode *node) {
         }
     }
 
-    // Store element type directly in elemType
-    node->type = CompleteType(BaseType::ARRAY, {common});
+    node->type = CompleteType(BaseType::ARRAY, common, {static_cast<int>(node->list->list.size())});
 }
 
 void SemanticAnalysisVisitor::visit(RangeExprNode *node) {

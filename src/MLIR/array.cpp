@@ -34,7 +34,10 @@ void MLIRGen::visit(ArrayAccessAssignStatNode *node) {
     size_t idx0 = static_cast<size_t>(target->index - 1);
 
     // --- element type ---
-    CompleteType elemType = arrayVar->type.elemType;  // use elemType directly
+    if (arrayVar->type.subTypes.size() != 1) {
+        throw std::runtime_error("ArrayAccessAssignStat node: array type must have exactly one element subtype");
+    }
+    CompleteType elemType = arrayVar->type.subTypes[0];
 
     // Promote RHS to element type
     VarInfo promoted = promoteType(&from, &elemType, node->line);
@@ -77,10 +80,12 @@ void MLIRGen::visit(ArrayAccessNode *node) {
     // memref.load element
     mlir::Value elemVal = builder_.create<mlir::memref::LoadOp>(loc_, arrVarInfo->value, mlir::ValueRange{idxConst});
 
-    // Create scalar VarInfo with element's CompleteType
-    CompleteType elemType = !arrVarInfo->type.subTypes.empty()
-                             ? arrVarInfo->type.subTypes[idx0]
-                             : CompleteType(arrVarInfo->type.elemType);
+    // Create scalar VarInfo with element's CompleteType.
+    // For homogeneous arrays, element type is the single subtype.
+    if (arrVarInfo->type.subTypes.size() != 1) {
+        throw std::runtime_error("ArrayAccessNode: array type must have exactly one element subtype");
+    }
+    CompleteType elemType = arrVarInfo->type.subTypes[0];
     VarInfo out(elemType);
     out.value = elemVal;
     out.isLValue = false;
@@ -144,11 +149,14 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
             mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
                 loc_, idxTy, builder_.getIntegerAttr(idxTy, i)
             );
-            mlir::Value elemPtr = builder_.create<mlir::memref::LoadOp>(
-                loc_, declaredVar->value, idx
-            );
-            VarInfo elemVar(declaredVar->type.elemType);
-            elemVar.value = elemPtr;
+            mlir::Value elemVal = builder_.create<mlir::memref::LoadOp>(
+                loc_, declaredVar->value, idx);
+
+            if (declaredVar->type.subTypes.size() != 1) {
+                throw std::runtime_error("ArrayTypedDecNode: array type must have exactly one element subtype");
+            }
+            VarInfo elemVar(declaredVar->type.subTypes[0]);
+            elemVar.value = elemVal;
             zeroInitializeVar(&elemVar);
         }
     }
