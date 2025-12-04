@@ -129,20 +129,48 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
     // --- Zero-initialize array if no initializer and static size known ---
     if (allStatic) {
         size_t n = totalElems;
+        if (declaredVar->type.subTypes.size() != 1) {
+            throw std::runtime_error("ArrayTypedDecNode: array type must have exactly one element subtype");
+        }
+
+        // Zero initialize for each type
+        CompleteType elemType = declaredVar->type.subTypes[0];
+        mlir::Value zeroVal;
+        switch (elemType.baseType) {
+            case BaseType::INTEGER: {
+                auto t = builder_.getI32Type();
+                zeroVal = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, t, builder_.getIntegerAttr(t, 0));
+                break;
+            }
+            case BaseType::REAL: {
+                auto t = builder_.getF32Type();
+                zeroVal = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, t, builder_.getFloatAttr(t, 0.0));
+                break;
+            }
+            case BaseType::BOOL: {
+                auto t = builder_.getI1Type();
+                zeroVal = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, t, builder_.getIntegerAttr(t, 0));
+                break;
+            }
+            case BaseType::CHARACTER: {
+                auto t = builder_.getI8Type();
+                zeroVal = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, t, builder_.getIntegerAttr(t, 0));
+                break;
+            }
+            default:
+                throw std::runtime_error("ArrayTypedDecNode: unsupported element type for zero initialization");
+        }
+
         mlir::Type idxTy = builder_.getIndexType();
         for (size_t i = 0; i < n; ++i) {
             mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
-                loc_, idxTy, builder_.getIntegerAttr(idxTy, i)
-            );
-            mlir::Value elemVal = builder_.create<mlir::memref::LoadOp>(
-                loc_, declaredVar->value, idx);
-
-            if (declaredVar->type.subTypes.size() != 1) {
-                throw std::runtime_error("ArrayTypedDecNode: array type must have exactly one element subtype");
-            }
-            VarInfo elemVar(declaredVar->type.subTypes[0]);
-            elemVar.value = elemVal;
-            zeroInitializeVar(&elemVar);
+                loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(i)));
+            builder_.create<mlir::memref::StoreOp>(
+                loc_, zeroVal, declaredVar->value, mlir::ValueRange{idx});
         }
     }
 }
