@@ -1,9 +1,11 @@
-procedure main()
+procedure main() {
     integer[3] a = [1, 2, 3];
     integer[3] b = [4, 5, 6];
     integer[3] sum = a + b;
     integer[3] scaled = a * 2;
     print(sum);
     print(scaled);
-end
+
+    return 0;
+}
 //CHECK_FILE:array_ops.out
