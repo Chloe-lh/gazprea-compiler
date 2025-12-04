@@ -152,70 +152,7 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
             loc_, srcStruct, variable->value);
         return;
     } else if (variable->type.baseType == BaseType::ARRAY){
-        if (literal->type.baseType != BaseType::ARRAY) {
-            throw AssignError(line, "Cannot assign non-array to array variable");
-            // TODO: Implement int -> array
-        }
-        // Ensure both storages exist
-        if (!variable->value) allocaVar(variable, line);
-        if (!literal->value) allocaVar(literal, line);
-
-        auto getLen = [](const CompleteType &t) -> std::optional<int64_t> {
-            if (t.baseType != BaseType::ARRAY) return std::nullopt;
-            if (t.dims.size() != 1) return std::nullopt; // only 1D for now
-            if (t.dims[0] < 0) return std::nullopt;
-            return static_cast<int64_t>(t.dims[0]);
-        };
-
-        std::optional<int64_t> varLen = getLen(variable->type);
-        std::optional<int64_t> litLen = getLen(literal->type);
-
-        size_t n = 0;
-        if (varLen && litLen) {
-            if (varLen.value() != litLen.value()) {
-                throw AssignError(line, "Array initializer length does not match destination array length");
-            }
-            n = static_cast<size_t>(varLen.value());
-        } else if (varLen) {
-            n = static_cast<size_t>(varLen.value());
-        } else if (litLen) {
-            // Destination had inferred size; adopt the literal's concrete size.
-            n = static_cast<size_t>(litLen.value());
-            variable->type.dims = literal->type.dims;
-        } else {
-            throw AssignError(line, "cannot determine array length for assignment");
-        }
-        auto idxTy = builder_.getIndexType();
-        for(size_t t=0; t<n;++t){
-                // index constant
-            mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
-                loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(t)));
-
-            // load source element
-            mlir::Value srcElemVal = builder_.create<mlir::memref::LoadOp>(loc_, literal->value, mlir::ValueRange{idx});
-
-            // build a temp VarInfo for the source element
-            if (literal->type.subTypes.size() != 1) {
-                throw std::runtime_error("varHelper::assignTo: array literal type must have exactly one element subtype");
-            }
-            CompleteType srcElemCT = literal->type.subTypes[0];
-            VarInfo srcElemVar(srcElemCT);
-            srcElemVar.value = srcElemVal;
-            srcElemVar.isLValue = false;
-
-            // destination element type
-            if (variable->type.subTypes.size() != 1) {
-                throw std::runtime_error("varHelper::assignTo: array variable type must have exactly one element subtype");
-            }
-            CompleteType dstElemCT = variable->type.subTypes[0];
-
-            // promote/cast
-            VarInfo promoted = promoteType(&srcElemVar, &dstElemCT, line);
-            mlir::Value storeVal = getSSAValue(promoted);
-
-            // store into destination
-            builder_.create<mlir::memref::StoreOp>(loc_, storeVal, variable->value, mlir::ValueRange{idx});
-        }
+        assignToArray(literal, variable, line);
         return;
     } else if (variable->type.baseType == BaseType::STRUCT) {
         // Ensure destination and source storage exist
@@ -253,6 +190,73 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
     }
 
 
+}
+
+void MLIRGen::assignToArray(VarInfo* literal, VarInfo* variable, int line) {
+    if (literal->type.baseType != BaseType::ARRAY) {
+        throw AssignError(line, "Cannot assign non-array to array variable");
+        // TODO: Implement int -> array
+    }
+    // Ensure both storages exist
+    if (!variable->value) allocaVar(variable, line);
+    if (!literal->value) allocaVar(literal, line);
+
+    auto getLen = [](const CompleteType &t) -> std::optional<int64_t> {
+        if (t.baseType != BaseType::ARRAY) return std::nullopt;
+        if (t.dims.size() != 1) return std::nullopt; // only 1D for now
+        if (t.dims[0] < 0) return std::nullopt;
+        return static_cast<int64_t>(t.dims[0]);
+    };
+
+    std::optional<int64_t> varLen = getLen(variable->type);
+    std::optional<int64_t> litLen = getLen(literal->type);
+
+    size_t n = 0;
+    if (varLen && litLen) {
+        if (varLen.value() != litLen.value()) {
+            throw AssignError(line, "Array initializer length does not match destination array length");
+        }
+        n = static_cast<size_t>(varLen.value());
+    } else if (varLen) {
+        n = static_cast<size_t>(varLen.value());
+    } else if (litLen) {
+        // Destination had inferred size; adopt the literal's concrete size.
+        n = static_cast<size_t>(litLen.value());
+        variable->type.dims = literal->type.dims;
+    } else {
+        throw AssignError(line, "cannot determine array length for assignment");
+    }
+    auto idxTy = builder_.getIndexType();
+    for(size_t t=0; t<n;++t){
+            // index constant
+        mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
+            loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(t)));
+
+        // load source element
+        mlir::Value srcElemVal = builder_.create<mlir::memref::LoadOp>(loc_, literal->value, mlir::ValueRange{idx});
+
+        // build a temp VarInfo for the source element
+        if (literal->type.subTypes.size() != 1) {
+            throw std::runtime_error("varHelper::assignTo: array literal type must have exactly one element subtype");
+        }
+        CompleteType srcElemCT = literal->type.subTypes[0];
+        VarInfo srcElemVar(srcElemCT);
+        srcElemVar.value = srcElemVal;
+        srcElemVar.isLValue = false;
+
+        // destination element type
+        if (variable->type.subTypes.size() != 1) {
+            throw std::runtime_error("varHelper::assignTo: array variable type must have exactly one element subtype");
+        }
+        CompleteType dstElemCT = variable->type.subTypes[0];
+
+        // promote/cast
+        VarInfo promoted = promoteType(&srcElemVar, &dstElemCT, line);
+        mlir::Value storeVal = getSSAValue(promoted);
+
+        // store into destination
+        builder_.create<mlir::memref::StoreOp>(loc_, storeVal, variable->value, mlir::ValueRange{idx});
+    }
 }
 
 void MLIRGen::allocaLiteral(VarInfo* varInfo, int line) {
