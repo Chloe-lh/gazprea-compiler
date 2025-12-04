@@ -37,6 +37,9 @@ mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
             }
             return mlir::LLVM::LLVMStructType::getLiteral(&context_, elemTys);
         }
+        case BaseType::ARRAY: {
+            throw std::runtime_error("getLLVMType: Arrays should not be called with this helper.");
+        }
         case BaseType::VECTOR: {
             throw std::runtime_error("getLLVMType: Vectors should not be called with this helper.");
         }
@@ -375,7 +378,7 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
             break;
         }
         case BaseType::ARRAY:{ 
-            mlir::Type elemTy = getLLVMType(varInfo->type);
+            mlir::Type elemTy = getLLVMType(varInfo->type.subTypes[0]);
 
             if (varInfo->type.dims.size() == 1 && varInfo->type.dims[0] >= 0) {
                 int64_t n = varInfo->type.dims[0];
