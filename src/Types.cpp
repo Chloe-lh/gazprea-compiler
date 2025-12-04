@@ -230,17 +230,27 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
 
             switch (to.baseType) {
                 case BaseType::ARRAY: {
-                    // TODO: Add len checks
                     if (to.subTypes.size() != 1) {
                         throw std::runtime_error(
                             "promote(): to array with subtype len " +
                             std::to_string(to.subTypes.size()));
                     }
 
+                    // ensure dimensions match
+                    if (!from.dims.empty() && !to.dims.empty() &&
+                        from.dims[0] != to.dims[0]) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+
+                    if (from.dims[0] != to.dims[0]) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+
                     CompleteType result(BaseType::ARRAY);
                     CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
 
                     result.subTypes.push_back(subtypeResult);
+                    result.dims = to.dims;
 
                     return result;
                 }
@@ -253,10 +263,20 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                             std::to_string(to.subTypes.size()));
                     }
 
+                    if (!from.dims.empty() && !to.dims.empty() &&
+                        from.dims[0] != to.dims[0]) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+
+                    if (from.dims[0] != to.dims[0]) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+
                     CompleteType result(BaseType::VECTOR);
                     CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
 
                     result.subTypes.push_back(subtypeResult);
+                    result.dims = to.dims;
 
                     return result;
                 }
@@ -282,6 +302,7 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                     CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
 
                     result.subTypes.push_back(subtypeResult);
+                    result.dims = to.dims;
 
                     return result;
                 }
@@ -296,6 +317,7 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                     CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
 
                     result.subTypes.push_back(subtypeResult);
+                    result.dims = to.dims;
 
                     return result;
                 }
@@ -346,14 +368,14 @@ void validateSubtypes(CompleteType completeType) {
         //  - MATRIX: 2 dimensions
         // else: should not carry dimensions
         if (completeType.baseType == BaseType::VECTOR && completeType.dims.size() != 1) {
-            throw std::runtime_error("Semantic Validation: VECTOR cannot have " + std::to_string(completeType.dims.size()) + " dimensions.");
+            throw std::runtime_error("Semantic Validation: Type" + toString(completeType) + " cannot have " + std::to_string(completeType.dims.size()) + " dimensions.");
         } else if (completeType.baseType == BaseType::ARRAY && completeType.dims.size() != 1) {
-            throw std::runtime_error("Semantic Validation: ARRAY cannot have " + std::to_string(completeType.dims.size()) + " dimensions.");
+            throw std::runtime_error("Semantic Validation: Type" + toString(completeType) + " cannot have " + std::to_string(completeType.dims.size()) + " dimensions.");
         } else if (completeType.baseType == BaseType::MATRIX) {
-            throw std::runtime_error("Semantic Validation: MATRIX cannot have " + std::to_string(completeType.dims.size()) + " dimensions.");
+            throw std::runtime_error("Semantic Validation: Type" + toString(completeType) + " cannot have " + std::to_string(completeType.dims.size()) + " dimensions.");
         } else if (isScalarType(completeType.baseType) || completeType.baseType == BaseType::TUPLE || completeType.baseType == BaseType::STRUCT){
             if (!completeType.dims.empty()) {
-                throw std::runtime_error("Semantic Validation: Type '" + toString(completeType.baseType) + "' cannot have dimensions.");
+                throw std::runtime_error("Semantic Validation: Type" + toString(completeType) + " cannot have " + std::to_string(completeType.dims.size()) + " dimensions.");
             }
         }
     }
