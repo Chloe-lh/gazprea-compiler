@@ -150,29 +150,35 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
         return;
     }
     if (variable->type.baseType == BaseType::ARRAY){
-        // RHS must be an array for whole-array assignment/copy
         if (literal->type.baseType != BaseType::ARRAY) {
-            throw AssignError(line, "Cannot assign non-array to array variable '");
+            throw AssignError(line, "Cannot assign non-array to array variable");
         }
-            // Ensure both storages exist
+        // Ensure both storages exist
         if (!variable->value) allocaVar(variable, line);
         if (!literal->value) allocaVar(literal, line);
+
+        auto getLen = [](const CompleteType &t) -> std::optional<int64_t> {
+            if (t.baseType != BaseType::ARRAY) return std::nullopt;
+            if (t.dims.size() != 1) return std::nullopt; // only 1D for now
+            if (t.dims[0] < 0) return std::nullopt;
+            return static_cast<int64_t>(t.dims[0]);
+        };
+
+        std::optional<int64_t> varLen = getLen(variable->type);
+        std::optional<int64_t> litLen = getLen(literal->type);
+
         size_t n = 0;
-        bool varHas = variable->arraySize.has_value();
-        bool litHas = literal->arraySize.has_value();
-        if (varHas && litHas) {
-            if (variable->arraySize.value() != literal->arraySize.value()) {
+        if (varLen && litLen) {
+            if (varLen.value() != litLen.value()) {
                 throw AssignError(line, "Array initializer length does not match destination array length");
             }
-            n = static_cast<size_t>(variable->arraySize.value());
-        } else if (varHas) {
-            n = static_cast<size_t>(variable->arraySize.value());
-        } else if (litHas) {
-            // Destination has dynamic/unknown length but literal has a known length.
-            // Use the literal length for the copy and record it on the destination
-            // variable so further codegen can allocate a static memref if desired.
-            n = static_cast<size_t>(literal->arraySize.value());
-            variable->arraySize = literal->arraySize;
+            n = static_cast<size_t>(varLen.value());
+        } else if (varLen) {
+            n = static_cast<size_t>(varLen.value());
+        } else if (litLen) {
+            // Destination had inferred size; adopt the literal's concrete size.
+            n = static_cast<size_t>(litLen.value());
+            variable->type.dims = literal->type.dims;
         } else {
             throw AssignError(line, "cannot determine array length for assignment");
         }
@@ -371,17 +377,13 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
         case BaseType::ARRAY:{ 
             mlir::Type elemTy = getLLVMType(varInfo->type);
 
-            if (varInfo->arraySize.has_value()) {
-                int64_t n = varInfo->arraySize.value();
+            if (varInfo->type.dims.size() == 1 && varInfo->type.dims[0] >= 0) {
+                int64_t n = varInfo->type.dims[0];
                 auto memTy = mlir::MemRefType::get({n}, elemTy);
                 varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
             } else {
-                //TODO dynamic dimension
-                // auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, elemTy);
-                // // compute runtime size (lower size expression to IndexType)
-                // auto idxTy = builder_.getIndexType();
-                
-                
+                throw std::runtime_error("allocaVar: unsupported array shape for variable '" +
+                                         (varInfo->identifier.empty() ? std::string("<temporary>") : varInfo->identifier) + "'");
             }
             break;
         }

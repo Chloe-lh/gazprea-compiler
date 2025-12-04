@@ -150,8 +150,8 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
     }
     // validate range against compile-time array size if available
     VarInfo* varInfo = current_->resolveVar(node->id, node->line);
-    if (node->range && varInfo && varInfo->arraySize.has_value()) {
-        auto sz = varInfo->arraySize.value();
+    if (node->range && varInfo && !varInfo->type.dims.empty() && varInfo->type.dims[0] >= 0) {
+        auto sz = varInfo->type.dims[0];
         // If start/end are integer literals, check bounds
         if (node->range->start) {
             if (auto in = std::dynamic_pointer_cast<IntNode>(node->range->start)) {
@@ -187,8 +187,9 @@ void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
     }
 
     // Check index is positive if known at compile-time
-    if (node->index <= 0 && var->arraySize.has_value()) {
-        IndexError(("Index " + std::to_string(node->index) + " out of range for array of length " + std::to_string(var->arraySize.value())).c_str());
+    if (node->index <= 0 && !var->type.dims.empty() && var->type.dims[0] >= 0) {
+        IndexError(("Index " + std::to_string(node->index) + " out of range for array of length " +
+                    std::to_string(var->type.dims[0])).c_str());
         return;
     }
 
@@ -234,11 +235,6 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
         throw std::runtime_error("Failed to declare variable: " + node->id);
     }
 
-    // 
-    if (!declaredType.dims.empty() && declaredType.dims[0] >= 0) {
-        declared->arraySize = declaredType.dims[0];
-    }
-
     // Handle initializer
     if (node->init) {
         // std::cerr << "[DEBUG] Initializer present for " << node->id << "\n";
@@ -249,12 +245,18 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
         // Array literal initializer
         if (auto lit = std::dynamic_pointer_cast<ArrayLiteralNode>(node->init)) {
             int64_t litSize = lit->list ? lit->list->list.size() : 0;
-            if (declared->arraySize.has_value() && declared->arraySize.value() != litSize) {
+            if (!declaredType.dims.empty() && declaredType.dims[0] >= 0 &&
+                declaredType.dims[0] != litSize) {
                 throw TypeError(node->line,
                     "Array initializer length (" + std::to_string(litSize) + 
-                    ") does not match declared size (" + std::to_string(declared->arraySize.value()) + ")");
+                    ") does not match declared size (" + std::to_string(declaredType.dims[0]) + ")");
             }
-            declared->arraySize = litSize;
+            // If size was inferred (e.g., '*'), fix it to the literal length.
+            if (!declaredType.dims.empty() && declaredType.dims[0] < 0) {
+                declaredType.dims[0] = static_cast<int>(litSize);
+                declared->type.dims = declaredType.dims;
+                node->type.dims = declaredType.dims;
+            }
         }
 
 
@@ -263,7 +265,7 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
             CompleteType promoted = promote(resolvedInit, declaredType);
             handleAssignError(node->id, declaredType, promoted, node->line);
         }
-    } else if (declaredType.dims[0] == -1) {
+    } else if (!declaredType.dims.empty() && declaredType.dims[0] == -1) {
         throw StatementError(node->line, "Cannot have inferred type array without initializer");
     }
 
@@ -1271,17 +1273,18 @@ void SemanticAnalysisVisitor::visit(AddExpr* node) {
     }
     // ! THIS IS A STUB METHOD, COMPILE TIME SIZE SHOULD BE EVALUATED IN CONSTANT FOLDING
     // If both are arrays, attempt to compare compile-time sizes.
-    // Note: CompleteType does not carry dimension sizes, so inspect the
-    // expression nodes for compile-time size info: IdNode -> VarInfo::arraySize,
+    // Note: CompleteType carries dimension sizes in dims, so inspect the
+    // expression nodes for compile-time size info: IdNode -> type.dims[0],
     // ArrayLiteralNode -> literal element count. If both sizes are known and
     // differ, throw a SizeError.
     if (leftOperandType.baseType == BaseType::ARRAY && rightOperandType.baseType == BaseType::ARRAY) {
         auto getCompileTimeSize = [&](std::shared_ptr<ExprNode> expr) -> std::optional<int64_t> {
             if (!expr) return std::nullopt;
-            // IdNode: check binding's VarInfo
+            // IdNode: check binding's VarInfo type dims
             if (auto idn = std::dynamic_pointer_cast<IdNode>(expr)) {
-                if (idn->binding && idn->binding->arraySize.has_value()) {
-                    return idn->binding->arraySize.value();
+                if (idn->binding && !idn->binding->type.dims.empty() &&
+                    idn->binding->type.dims[0] >= 0) {
+                    return static_cast<int64_t>(idn->binding->type.dims[0]);
                 }
                 return std::nullopt;
             }

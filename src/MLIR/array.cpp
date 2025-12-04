@@ -91,7 +91,6 @@ void MLIRGen::visit(ArrayAccessNode *node) {
     out.isLValue = false;
     pushValue(out);
 }
-// ArrayTypedDec node has a ArrayType node with size info and resolved Dims
 void MLIRGen::visit(ArrayTypedDecNode *node) {
     // std::cerr << "[DEUBG] MLIR: visiting ArrayTypedDecNode\n";
     //Resolve declared variable
@@ -100,30 +99,19 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
         throw std::runtime_error("ArrayTypedDec node: variable not declared in scope");
     }
 
-    if (!node->typeInfo) {
-        throw std::runtime_error("ArrayTypedDec node: missing typeInfo");
-    }
-
-    // Element type (already resolved by semantic analysis)
-    CompleteType elemCT = node->typeInfo->elementType;
-
-    // Compute total number of elements for static arrays
+    // Compute total number of elements for static arrays from CompleteType::dims
     size_t totalElems = 1;
     bool allStatic = true;
-    for (auto &dim : node->typeInfo->resolvedDims) {
-        if (!dim.has_value()) { 
-            allStatic = false; 
-            break; 
+    if (!declaredVar->type.dims.empty()) {
+        for (int d : declaredVar->type.dims) {
+            if (d < 0) {
+                allStatic = false;
+                break;
+            }
+            totalElems *= static_cast<size_t>(d);
         }
-        if (dim.value() < 0) throw std::runtime_error("Negative array size");
-        totalElems *= static_cast<size_t>(dim.value());
-    }
-
-    // Preserve/compute array size information for codegen (total elems)
-    if (allStatic && !node->typeInfo->resolvedDims.empty()) {
-        declaredVar->arraySize = totalElems; // store total elements for bounds & zero-init
     } else {
-        declaredVar->arraySize.reset(); // dynamic array
+        allStatic = false;
     }
 
     // Allocate storage if not already done
@@ -141,9 +129,9 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
         return;
     }
 
-    // --- Zero-initialize array if no initializer ---
-    if (declaredVar->arraySize.has_value()) {
-        size_t n = declaredVar->arraySize.value();
+    // --- Zero-initialize array if no initializer and static size known ---
+    if (allStatic) {
+        size_t n = totalElems;
         mlir::Type idxTy = builder_.getIndexType();
         for (size_t i = 0; i < n; ++i) {
             mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
@@ -181,12 +169,6 @@ void MLIRGen::visit(ArrayLiteralNode *node){
         // std::cerr << "[DEUBG] MLIR: visiting ArrayLiteralNode\n";
 
     VarInfo arrVarInfo(node->type);
-    // If the literal has a known element count, allocate a fixed-size
-    // memref so allocaVar can create a static AllocaOp. Otherwise the
-    // dynamic-allocation path is not yet implemented in allocaVar.
-    if (node->list && node->list->list.size() > 0) {
-        arrVarInfo.arraySize = static_cast<int64_t>(node->list->list.size());
-    }
     allocaLiteral(&arrVarInfo, node->line);
 
     if (!arrVarInfo.value) {
