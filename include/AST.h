@@ -184,7 +184,7 @@ public:
   int index;
   VarInfo *binding = nullptr;
   ArrayAccessNode(const std::string &id, int index) : id(id), index(index) {}
-  void accept(ASTVisitor &visitor) override; 
+  void accept(ASTVisitor &visitor) override;
 };
 class ArrayLiteralNode;
 
@@ -193,7 +193,7 @@ public:
   std::string qualifier = "const"; // optional default const
   std::string id;
   CompleteType type;              // Also holds sizes
-  std::shared_ptr<ExprNode> init;           // nullable
+  std::shared_ptr<ExprNode> init; // nullable
   ArrayTypedDecNode(const std::string &q, const std::string &id, CompleteType t)
       : qualifier(q), id(id), type(std::move(t)) {}
   ArrayTypedDecNode(const std::string &q, const std::string &id, CompleteType t,
@@ -390,7 +390,8 @@ class DestructAssignStatNode : public StatNode {
 public:
   std::vector<std::string> names;
   std::shared_ptr<ExprNode> expr;
-  DestructAssignStatNode(std::vector<std::string> names, std::shared_ptr<ExprNode> expr);
+  DestructAssignStatNode(std::vector<std::string> names,
+                         std::shared_ptr<ExprNode> expr);
   void accept(ASTVisitor &visitor) override;
 };
 class ArrayAccessAssignStatNode : public StatNode {
@@ -414,7 +415,8 @@ class StructAccessAssignStatNode : public StatNode {
 public:
   std::shared_ptr<StructAccessNode> target;
   std::shared_ptr<ExprNode> expr;
-  StructAccessAssignStatNode(std::shared_ptr<StructAccessNode> target, std::shared_ptr<ExprNode> expr);
+  StructAccessAssignStatNode(std::shared_ptr<StructAccessNode> target,
+                             std::shared_ptr<ExprNode> expr);
   void accept(ASTVisitor &visitor) override;
 };
 
