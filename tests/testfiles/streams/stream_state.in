@@ -1,0 +1,48 @@
+procedure main() returns integer {
+
+    var boolean b;
+    var integer i;
+
+    // --- Step 1: Input stream is "9" ---
+    // Attempt to read a boolean. "9" is not "true" or "false", so this is a Parse Error.
+    b <- std_input;
+    
+    "b (expect F): " -> std_output;
+    b -> std_output;
+    "\n" -> std_output;
+
+    // Check state. Expect 1 (Parse Error).
+    i = stream_state(std_input); 
+    "State 1 (expect 1): " -> std_output;
+    i -> std_output;
+    "\n" -> std_output;
+
+    // --- Step 2: Read "9" as integer ---
+    // The "9" remains in the buffer (depending on runtime implementation) or next input is read.
+    // Expect success.
+    i <- std_input; 
+    
+    "i (expect 9): " -> std_output;
+    i -> std_output;
+    "\n" -> std_output;
+
+    // Check state. Expect 0 (Success).
+    i = stream_state(std_input); 
+    "State 2 (expect 0): " -> std_output;
+    i -> std_output;
+    "\n" -> std_output;
+
+    // --- Step 3: Read End of Stream ---
+    b <- std_input; 
+    
+    // Check state. Expect 2 (EOF).
+    i = stream_state(std_input); 
+    "State 3 (expect 2): " -> std_output;
+    i -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+
+//INPUT:9
+//CHECK_FILE:stream_state.out

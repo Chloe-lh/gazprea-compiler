@@ -15,6 +15,7 @@ set(
     "${CMAKE_CURRENT_SOURCE_DIR}/AST/ASTBuilder.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/AST/ASTBuilderUtils.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/AST/array.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/AST/struct.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/AST/func.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/AST/ops.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/AST/tuple.cpp"
@@ -23,6 +24,7 @@ set(
     # MLIR lowering sources
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/base.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/alias.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/array.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/assign.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/comp.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/controlFlow.cpp"
@@ -32,6 +34,7 @@ set(
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/io.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/literal.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/ops.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/struct.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/tuple.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/helpers/compHelper.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/MLIR/helpers/castHelper.cpp"

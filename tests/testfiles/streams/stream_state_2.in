@@ -1,0 +1,21 @@
+procedure main() returns integer {
+
+    var boolean b;
+    var character c;
+    var integer i;
+    var real r;
+    b <- std_input;
+    i <- std_input;
+    c <- std_input;
+    r <- std_input;
+    
+    b -> std_output;
+    " " -> std_output;
+    r -> std_output;
+
+    return 0;
+
+}
+
+//INPUT_FILE:stream_state_2.ins
+//CHECK_FILE:stream_state_2.out

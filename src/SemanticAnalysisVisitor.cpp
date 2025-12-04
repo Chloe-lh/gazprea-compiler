@@ -95,6 +95,22 @@ void SemanticAnalysisVisitor::visit(FileNode* node) {
     current_ = nullptr;
     enterScopeFor(node, false, nullptr);
     current_->setGlobalTrue();
+    
+    try {
+        // making a dummy alias for the input stream
+        current_->declareAlias("input_stream", CompleteType(BaseType::INTEGER), 0);
+    } catch (...) { /* ignore redeclaration */ }
+
+    // define 'stream_state' procedure
+    try {
+        std::vector<VarInfo> params;
+        params.emplace_back("s", CompleteType(BaseType::INTEGER), true);
+        
+        CompleteType returnType(BaseType::INTEGER);
+        
+        // Declare in global scope
+        current_->declareProc("stream_state", params, returnType, 0);
+    } catch (...) { /* ignore redeclaration */ }
 
     for (const auto& stat: node->stats) {
         stat->accept(*this);
