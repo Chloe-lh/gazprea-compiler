@@ -1,0 +1,30 @@
+//CHECK_FILE:simpleVectorInit.out
+
+procedure main() returns integer {
+    vector<character> vec1 = ['a', 'b'];
+    vector<boolean> vec2;
+    vector<integer> vec3;
+    vector<real> vec4;
+    vector<real> vec5;
+
+    // delayed init
+    vec2 = [true, false];
+    vec3 = [1, 2, 3];
+    vec4 = [1.0, 2.0, 3.0];
+
+    // assignment
+    vec5 = vec4;
+
+    vec1 -> std_output;
+    "\n" -> std_output;
+    vec2 -> std_output;
+    "\n" -> std_output;
+    vec3 -> std_output;
+    "\n" -> std_output;
+    vec4 -> std_output;
+    "\n" -> std_output;
+    vec5 -> std_output;
+    "\n" -> std_output;
+
+    return 1;
+}
