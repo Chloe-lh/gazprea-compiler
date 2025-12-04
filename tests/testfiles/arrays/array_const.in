@@ -4,4 +4,4 @@ procedure main() returns integer {
     arr = [40, 50, 60];   // illegal reassignment
     return 0;
 }
-//array_const.out
+//CHECK_FILE:array_const.out
