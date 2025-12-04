@@ -67,7 +67,9 @@ std::any ASTBuilder::visitBuiltin_type(GazpreaParser::Builtin_typeContext *ctx) 
 
     // 2. Vector<T> case: VECTOR '<' type '>'
     if (ctx->VECTOR()) {
-        throw std::runtime_error("Not implemented");
+      auto type = visit(ctx->type());
+      CompleteType elem = std::any_cast<CompleteType>(type);
+      return CompleteType(BaseType::VECTOR, elem, {-1});
     }
 
     // 3. Scalar type (no array size)
@@ -209,17 +211,16 @@ ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
 
     CompleteType ct = std::any_cast<CompleteType>(anyType);
 
-    // Array declarations get a dedicated ArrayTypedDecNode so later
-    // passes can recognize them easily.
-    if (ct.baseType == BaseType::ARRAY) {
+
+    // Arrays and vectors bundled into same node -
+    // Distinguished by `CompleteType::baseType`
+    if (ct.baseType == BaseType::ARRAY || ct.baseType == BaseType::VECTOR) {
       auto arrDec = std::make_shared<ArrayTypedDecNode>(qualifier, id, ct, init);
       setLocationFromCtx(arrDec, ctx);
       return node_any(std::move(arrDec));
     }
 
-    // Vectors will eventually have their own dedicated decl node; for now,
-    // reject them explicitly rather than silently treating them as scalars.
-    if (ct.baseType == BaseType::VECTOR || ct.baseType == BaseType:: MATRIX) {
+    if (ct.baseType == BaseType:: MATRIX) {
       throw std::runtime_error(
           "ASTBuilder::visitExplicitTypedDec: vector and matrix not supported yet");
     }

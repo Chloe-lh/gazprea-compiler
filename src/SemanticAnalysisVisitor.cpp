@@ -226,9 +226,9 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
 
     // Resolve any aliases inside the declared type.
     CompleteType declaredType = resolveUnresolvedType(current_, node->type, node->line);
-    if (!(declaredType.baseType == BaseType::ARRAY)) {
+    if (declaredType.baseType != BaseType::ARRAY && declaredType.baseType != BaseType::VECTOR) {
         throw TypeError(node->line,
-            "ArrayTypedDecNode used with non-array type for '" + node->id + "'");
+            "ArrayTypedDecNode cannot be used for type '" + toString(declaredType) + "', at declaration '" + node->name + "'.");
     }
 
     node->type = declaredType;
@@ -253,30 +253,42 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
         CompleteType initType = resolveUnresolvedType(current_, node->init->type, node->line);
         // std::cerr << "[DEBUG] Initializer type: " << toString(initType) << "\n";
 
-        // Array literal initializer
+        // 1. Handle array literals as initializer
         if (auto lit = std::dynamic_pointer_cast<ArrayLiteralNode>(node->init)) {
             int64_t litSize = lit->list ? lit->list->list.size() : 0;
-            if (!declaredType.dims.empty() && declaredType.dims[0] >= 0 &&
-                declaredType.dims[0] != litSize) {
-                throw TypeError(node->line,
-                    "Array initializer length (" + std::to_string(litSize) + 
-                    ") does not match declared size (" + std::to_string(declaredType.dims[0]) + ")");
+
+            if (declaredType.dims.empty()) throw std::runtime_error("SemanticAnalysis::ArrayTypedDecNode: empty dims field");
+
+            // If `lhs` is array, then ensure its dims match + determine any inferred dimensions 
+            if (declaredType.baseType == BaseType::ARRAY) {
+                if (declaredType.dims[0] >= 0 && declaredType.dims[0] != litSize) {
+                    throw TypeError(node->line,
+                        "Array initializer length (" + std::to_string(litSize) + 
+                        ") does not match declared size (" + std::to_string(declaredType.dims[0]) + ")");
+                }
+
+                // If `lhs` is array, update any inferred sizes to literal length
+                if ( declaredType.dims[0] < 0) {
+                    declaredType.dims[0] = static_cast<int>(litSize);
+                    declared->type.dims = declaredType.dims;
+                    node->type.dims = declaredType.dims;
+                }
             }
-            // If size was inferred (e.g., '*'), fix it to the literal length.
-            if (!declaredType.dims.empty() && declaredType.dims[0] < 0) {
-                declaredType.dims[0] = static_cast<int>(litSize);
-                declared->type.dims = declaredType.dims;
-                node->type.dims = declaredType.dims;
-            }
+
+        } else {
+            throw std::runtime_error("SemanticAnalysis::ArrayTypedDecNode: Unknown initializer for array '" + node->id + "'.");
         }
 
 
-        {
-            CompleteType resolvedInit = resolveUnresolvedType(current_, initType, node->line);
-            CompleteType promoted = promote(resolvedInit, declaredType);
-            handleAssignError(node->id, declaredType, promoted, node->line);
-        }
-    } else if (!declaredType.dims.empty() && declaredType.dims[0] == -1) {
+
+        // 2. Resolve vectors
+        CompleteType resolvedInit = resolveUnresolvedType(current_, initType, node->line);
+        CompleteType promoted = promote(resolvedInit, declaredType);
+        handleAssignError(node->id, declaredType, promoted, node->line);
+    } else if (declaredType.dims.empty()) {
+        throw std::runtime_error("SemanticAnalysis::ArrayTypedDecNode: Empty dims for '" + node->id + "'.");
+    } else if (declaredType.dims[0] == -1 && node->type.baseType == BaseType::ARRAY) {
+        // Vectors are allowed to have dims=-1 because it represents dynamic sizing.
         throw StatementError(node->line, "Cannot have inferred type array without initializer");
     }
 
