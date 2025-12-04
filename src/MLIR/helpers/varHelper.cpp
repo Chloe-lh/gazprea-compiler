@@ -151,10 +151,10 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
         builder_.create<mlir::LLVM::StoreOp>(
             loc_, srcStruct, variable->value);
         return;
-    }
-    if (variable->type.baseType == BaseType::ARRAY){
+    } else if (variable->type.baseType == BaseType::ARRAY){
         if (literal->type.baseType != BaseType::ARRAY) {
             throw AssignError(line, "Cannot assign non-array to array variable");
+            // TODO: Implement int -> array
         }
         // Ensure both storages exist
         if (!variable->value) allocaVar(variable, line);
@@ -217,9 +217,7 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
             builder_.create<mlir::memref::StoreOp>(loc_, storeVal, variable->value, mlir::ValueRange{idx});
         }
         return;
-    }
-    // Struct assignment: copy whole LLVM struct value
-    if (variable->type.baseType == BaseType::STRUCT) {
+    } else if (variable->type.baseType == BaseType::STRUCT) {
         // Ensure destination and source storage exist
         if (!variable->value) {
             allocaVar(variable, line);
@@ -235,21 +233,26 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
             builder_.create<mlir::LLVM::LoadOp>(loc_, structTy, literal->value);
         builder_.create<mlir::LLVM::StoreOp>(loc_, srcStruct, variable->value);
         return;
+    } else if (isScalarType(variable->type.baseType) && isScalarType(literal->type.baseType)) {
+
+        // Scalar assignment
+        // ensure var has a memref allocated
+        if (!variable->value) {
+            allocaVar(variable, line);
+        }
+
+        VarInfo promoted = promoteType(literal, &variable->type, line); // handle type promotions + errors
+
+        // Normalize promoted value to SSA (load memref if needed)
+        mlir::Value loadedVal = getSSAValue(promoted);
+        builder_.create<mlir::memref::StoreOp>(
+            loc_, loadedVal, variable->value, mlir::ValueRange{}
+        );
+    } else {
+        throw std::runtime_error("MLIRGen::assignTo: unsupported variable type");
     }
 
-    // Scalar assignment
-    // ensure var has a memref allocated
-    if (!variable->value) {
-        allocaVar(variable, line);
-    }
 
-    VarInfo promoted = promoteType(literal, &variable->type, line); // handle type promotions + errors
-
-    // Normalize promoted value to SSA (load memref if needed)
-    mlir::Value loadedVal = getSSAValue(promoted);
-    builder_.create<mlir::memref::StoreOp>(
-        loc_, loadedVal, variable->value, mlir::ValueRange{}
-    );
 }
 
 void MLIRGen::allocaLiteral(VarInfo* varInfo, int line) {

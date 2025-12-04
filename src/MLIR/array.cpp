@@ -122,9 +122,6 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
     if (node->init) {
         node->init->accept(*this);
         VarInfo literal = popValue();
-        // std::cerr << "[DEBUG:ASSIGN] Declared type: " << toString(declaredVar->type)
-        //   << ", initializer type: " << toString(literal.type)
-        //   << ", line: " << node->line << "\n";
         assignTo(&literal, declaredVar, node->line);
         return;
     }
