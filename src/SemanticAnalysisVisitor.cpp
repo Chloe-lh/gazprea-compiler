@@ -96,14 +96,9 @@ void SemanticAnalysisVisitor::visit(FileNode* node) {
     enterScopeFor(node, false, nullptr);
     current_->setGlobalTrue();
 
-    try{
-        for (const auto& stat: node->stats) {
-            stat->accept(*this);
-        }
-    }catch(const std::exception &e){
-        std::cerr << "[EXCEPTION] " << e.what() << " at node type " 
-              << typeid(*node).name() << " line " << node->line << "\n";
-        throw;
+
+    for (const auto& stat: node->stats) {
+        stat->accept(*this);
     }
 
     exitScope();
