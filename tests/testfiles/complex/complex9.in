@@ -1,9 +1,7 @@
 
 // Tuple element access inside a loop and whole-tuple reassignment.
-
-const tuple(integer, character, real) BASE = (1, 'z', 0.0);
-
 procedure main() returns integer {
+    const tuple(integer, character, real) BASE = (1, 'z', 0.0);
     var tuple(integer, character, real) t;
     var integer i = 0;
 

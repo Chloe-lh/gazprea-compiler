@@ -289,6 +289,7 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
         }
 
 
+        handleGlobalErrors(node);
 
         // 2. Resolve vectors
         CompleteType resolvedInit = resolveUnresolvedType(current_, initType, node->line);
@@ -497,12 +498,13 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
 
     bool isConst = true;
     if (node->qualifier == "var") {
-        if (current_->isInGlobal()) { throw GlobalError(node->line, "Cannot use var in global"); }
         isConst = false;
     } else if (node->qualifier == "const") {
     } else {
         throw std::runtime_error("Semantic Analysis: Invalid qualifier provided for typed declaration '" + node->qualifier + "'.");
     }
+
+    handleGlobalErrors(node);
 
     // Declared type is carried as a CompleteType on the alias node
     // TypeAliasNode::visit() already resolves the alias and subtypes
@@ -723,9 +725,11 @@ void SemanticAnalysisVisitor::visit(ProcedureBlockNode* node) {
 
 void SemanticAnalysisVisitor::visit(InferredDecNode* node) {
     if (!current_->isDeclarationAllowed()) {
-        throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block."); // FIXME: placeholder error
+        throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block."); 
     }
     node->init->accept(*this);
+
+    handleGlobalErrors(node);
 
     bool isConst = true;
     if (node->qualifier == "var") {
@@ -765,6 +769,8 @@ void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
             "Semantic Analysis: Invalid qualifier provided for tuple declaration '" +
             node->qualifier + "'.");
     }
+
+    handleGlobalErrors(node);
 
     // Ensure not already declared in scope
     current_->declareVar(node->name, varType, isConst, node->line);
@@ -810,8 +816,12 @@ void SemanticAnalysisVisitor::visit(StructTypedDecNode* node) {
         node->init->accept(*this);
     }
 
+
     // Optional: declare a variable of this struct type if a name was provided
     if (!node->name.empty()) {
+
+        // Allow global struct TYPE declrs, but disallow global struct vars
+        handleGlobalErrors(node);
         // Ensure not already declared in this scope
         current_->declareVar(node->name, structType, isConst, node->line);
 
@@ -1791,4 +1801,14 @@ bool SemanticAnalysisVisitor::guaranteesReturn(const BlockNode* block) const {
 
 const std::unordered_map<const ASTNode*, Scope*>& SemanticAnalysisVisitor::getScopeMap() const {
     return scopeByCtx_;
+}
+
+void SemanticAnalysisVisitor::handleGlobalErrors(DecNode *node) {
+    if (!current_->isInGlobal()) {
+        return;
+    }
+
+    if (!node->init) throw GlobalError(node->line, "Uninitialized global");
+    if (!isScalarType(node->init->type.baseType)) throw GlobalError(node->line, "Non-scalar global variables are illegal");
+    if (node->qualifier == "var") throw GlobalError(node->line, "'var' qualifier in global scope");
 }
