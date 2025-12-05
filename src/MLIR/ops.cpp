@@ -1,5 +1,10 @@
+#include "AST.h"
 #include "MLIRgen.h"
+#include "Types.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "ConstantFolding.h"
+#include "CompileTimeExceptions.h"
+#include <iostream>
 
 void MLIRGen::visit(ParenExpr* node) {
     node->expr->accept(*this);
@@ -273,4 +278,122 @@ void MLIRGen::visit(MultExpr* node){
     builder_.create<mlir::memref::StoreOp>(loc_, result, outVar.value, mlir::ValueRange{});
     outVar.identifier = "";
     pushValue(outVar);
+}
+void MLIRGen::visit(DotExpr *node){
+    // If this DotExpr was folded into a compile-time constant, emit it
+    // now and return.
+    //TODO add vector support to tryEmitConstantForNode so we can put vectors on the stack
+    if (tryEmitConstantForNode(node)) return; // THIS SHOULD WORK - NO NEED TO COMPLICATED IN MLIR
+
+
+    // Runtime lowering: implement vector (1D) dot product
+    // as an scf.for loop that sums element-wise products. Other
+    // shapes (matrix-matrix, vector-matrix) currently fall back to
+    // emitting an allocated zero result to avoid value-stack underflow.
+
+    //! this is basically not used at all
+    // Evaluate operands
+    if (node->left) node->left->accept(*this);
+    VarInfo leftInfo = popValue();
+    if (node->right) node->right->accept(*this);
+    VarInfo rightInfo = popValue();
+
+    // Helper to detect 1D containers
+    auto is1D = [](const CompleteType &t){
+        return t.baseType == BaseType::ARRAY || t.baseType == BaseType::VECTOR;
+    };
+
+    if (is1D(leftInfo.type) && is1D(rightInfo.type)) {
+        // Ensure we have concrete (compile-time) lengths
+        if (leftInfo.type.dims.empty() || rightInfo.type.dims.empty()) {
+            throw SizeError(node->line, "MLIRGen: dynamic vector lengths not supported in dot product");
+        }
+        int64_t Llen = leftInfo.type.dims[0];
+        int64_t Rlen = rightInfo.type.dims[0];
+        if (Llen < 0 || Rlen < 0) {
+            throw SizeError(node->line, "MLIRGen: invalid vector dimensions for dot product");
+        }
+        if (Llen != Rlen) {
+            throw SizeError(node->line, "MLIRGen: vector lengths must match for dot product");
+        }
+
+        // Create accumulator (scalar) of the node's result type
+        VarInfo acc(node->type);
+        allocaLiteral(&acc, node->line);
+
+        // Initialize accumulator to zero
+        mlir::Type accSSAType = getLLVMType(node->type);
+        mlir::Value zeroConst = builder_.create<mlir::arith::ConstantOp>(loc_, accSSAType, builder_.getZeroAttr(accSSAType));
+        builder_.create<mlir::memref::StoreOp>(loc_, zeroConst, acc.value, mlir::ValueRange{});
+
+        // Loop index type
+        auto idxTy = builder_.getIndexType();
+        mlir::Value lb = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, 0));
+        mlir::Value ub = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, Llen));
+        mlir::Value step = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, 1));
+
+        auto forOp = builder_.create<mlir::scf::ForOp>(loc_, lb, ub, step, mlir::ValueRange{});
+
+        // Insert loop body
+        builder_.setInsertionPointToStart(forOp.getBody());
+        {
+            mlir::Value idx = forOp.getInductionVar();
+
+            // load elements from each operand
+            mlir::Value lElem = builder_.create<mlir::memref::LoadOp>(loc_, leftInfo.value, mlir::ValueRange{idx});
+            mlir::Value rElem = builder_.create<mlir::memref::LoadOp>(loc_, rightInfo.value, mlir::ValueRange{idx});
+
+            // Wrap and promote element types to the accumulator type
+            if (leftInfo.type.subTypes.empty() || rightInfo.type.subTypes.empty()) {
+                throw SizeError(node->line, "MLIRGen: dot product element type unknown");
+            }
+            CompleteType leftElemCT = leftInfo.type.subTypes[0];
+            CompleteType rightElemCT = rightInfo.type.subTypes[0];
+            CompleteType targetElemCT = node->type; // scalar promoted type
+
+            VarInfo lElemVar(leftElemCT);
+            allocaLiteral(&lElemVar, node->line);
+            builder_.create<mlir::memref::StoreOp>(loc_, lElem, lElemVar.value, mlir::ValueRange{});
+            VarInfo rElemVar(rightElemCT);
+            allocaLiteral(&rElemVar, node->line);
+            builder_.create<mlir::memref::StoreOp>(loc_, rElem, rElemVar.value, mlir::ValueRange{});
+
+            VarInfo lProm = promoteType(&lElemVar, &targetElemCT, node->line);
+            VarInfo rProm = promoteType(&rElemVar, &targetElemCT, node->line);
+
+            mlir::Value lVal = getSSAValue(lProm);
+            mlir::Value rVal = getSSAValue(rProm);
+
+            // multiply
+            mlir::Value prod;
+            if (lVal.getType().isa<mlir::IntegerType>())
+                prod = builder_.create<mlir::arith::MulIOp>(loc_, lVal, rVal);
+            else
+                prod = builder_.create<mlir::arith::MulFOp>(loc_, lVal, rVal);
+
+            mlir::Value accVal = builder_.create<mlir::memref::LoadOp>(loc_, acc.value, mlir::ValueRange{});
+            mlir::Value sum;
+            if (accVal.getType().isa<mlir::IntegerType>()) {
+                sum = builder_.create<mlir::arith::AddIOp>(loc_, accVal, prod);
+            } else {
+                sum = builder_.create<mlir::arith::AddFOp>(loc_, accVal, prod);
+            }
+
+            builder_.create<mlir::memref::StoreOp>(loc_, sum, acc.value, mlir::ValueRange{});
+            builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{});
+        }
+
+        // Move insertion point after loop
+        builder_.setInsertionPointAfter(forOp);
+
+        acc.identifier = "";
+        pushValue(acc);
+        return;
+    }
+
+    // Fallback: emit an allocated zero result so callers still get a value
+    VarInfo out(node->type);
+    allocaLiteral(&out, node->line);
+    out.identifier = "";
+    pushValue(out);
 }

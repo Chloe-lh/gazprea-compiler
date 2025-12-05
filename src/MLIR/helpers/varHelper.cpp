@@ -321,7 +321,6 @@ bool MLIRGen::tryEmitConstantForNode(ExprNode* node) {
         return false;
     }
 }
-
 void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
     mlir::Block *block = builder_.getBlock();
     if (!block) block = builder_.getInsertionBlock();

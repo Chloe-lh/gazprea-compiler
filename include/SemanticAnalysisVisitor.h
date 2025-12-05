@@ -49,6 +49,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         // Expressions / Operators
         void visit(ParenExpr* node) override;
         void visit(UnaryExpr* node) override;   // unary+, unary-, not
+        void visit(DotExpr* node) override;
         void visit(ExpExpr* node) override;     // ^
         void visit(MultExpr* node) override;    // *,/,%
         void visit(AddExpr* node) override;     // +, -

@@ -283,14 +283,76 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
     // std::cerr << "[DEBUG] Finished ArrayTypedDecNode: " << node->id << "\n";
 }
 
-
-
-
 void SemanticAnalysisVisitor::visit(ExprListNode *node) {
     // std::cout << "[DEUBG] semantic analysis: visiting ExprListNode\n";
     for (auto &e : node->list) {
         if (e) e->accept(*this);
     }
+}
+void SemanticAnalysisVisitor::visit(DotExpr *node){ 
+    // expressions must be resolved to a vector/matrix/array
+    if(node->left) node->left->accept(*this);
+    if(node->right) node->right->accept(*this);
+    CompleteType leftType = resolveUnresolvedType(current_, node->left->type, node->line);
+    CompleteType rightType = resolveUnresolvedType(current_, node->right->type, node->line);
+    // left and right operands must be a vector/matrix/array
+    if(!(leftType.baseType == BaseType::ARRAY || leftType.baseType == BaseType::VECTOR || leftType.baseType == BaseType::MATRIX)){
+        throw TypeError(node->line, "Semantic Analysis: left expression in dot product must be a array/vector/matrix type");
+    }
+    if(!(node->right->type.baseType!= BaseType::ARRAY || node->right->type.baseType != BaseType::VECTOR || node->left->type.baseType!= BaseType::MATRIX)){
+        throw TypeError(node->line, "Semantic Analysis: right expression in dot product must be a array/vector/matrix type");
+    }
+    auto is1D = [](const CompleteType &t){
+        return t.baseType == BaseType::ARRAY || t.baseType == BaseType::VECTOR;
+    };
+    auto isMatrix=[](const CompleteType &t){
+        return t.baseType == BaseType::MATRIX;
+    };
+    // extract element types
+    CompleteType leftElem = leftType.subTypes.empty() ? CompleteType(BaseType::UNKNOWN) : leftType.subTypes[0];
+    CompleteType rightElem = rightType.subTypes.empty() ? CompleteType(BaseType::UNKNOWN) : rightType.subTypes[0];
+    // ensure element types are numeric
+    CompleteType promoted = promote(leftElem, rightElem);
+    if(promoted.baseType == BaseType::UNKNOWN) promoted = promote(rightElem, leftElem);
+    if(promoted.baseType == BaseType::UNKNOWN) throw TypeError(node->line, "Semantic Analysis: element types must be numeric for dot product");
+
+    auto getDim = [](const std::vector<int> &d, size_t i) -> int {
+        if (i < d.size()) return d[i];
+        return -1;
+    };
+
+    bool L1 = is1D(leftType);
+    bool R1 = is1D(rightType);
+    bool LM = isMatrix(leftType);
+    bool RM = isMatrix(rightType);
+
+    // check dimensions
+    if(L1 && R1){ // vector ** vector = scalar
+        int Llen = getDim(leftType.dims, 0);
+        int Rlen = getDim(rightType.dims, 0);
+        if(Llen < 0 || Rlen < 0) SizeError("Semantic Analysis: invalid vector/array dimensions");
+        if(Llen != Rlen) SizeError("Semantic Analysis: vectors/arrays must have the same dimensions in order to calculate dot product");
+        node->type = promoted;
+        return;
+    }else if(LM && RM){ // matrix ** matrix = vector
+         /*
+        the number of columns of the first operand must equal the number of rows of the second operand, e.g. an 
+        mxn matrix multiplied by an nxp matrix will produce an mxp matrix. If the dimensions are not correct a 
+        SizeError should be raised.
+        */
+        int Lrow = getDim(leftType.dims, 0);
+        int Lcol = getDim(leftType.dims, 1);
+        int Rrow = getDim(rightType.dims, 0);
+        int Rcol = getDim(rightType.dims, 1);
+        if(Lrow<0||Lcol<0||Rrow<0||Rcol<0) SizeError("Semantic Analysis: invalid matrix dimensions");
+        if(Lrow!=Rcol || Lcol!=Rrow) SizeError("Semantic Analysis: invalid matrix dimensions for dot product");
+        int outRows = Lrow;
+        int outCols = Rcol;
+        node->type = CompleteType(BaseType::VECTOR, promoted, {outRows, outCols});
+        return;
+    }
+    // maybe vector and matrix
+    node->type = CompleteType(BaseType::UNKNOWN);
 }
 
 void SemanticAnalysisVisitor::visit(ArrayLiteralNode *node) {

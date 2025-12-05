@@ -68,6 +68,7 @@ public:
     void visit(EqExpr* node) override;      // ==, !=
     void visit(AndExpr* node) override;     // and
     void visit(OrExpr* node) override;      // or, xor
+    void visit(DotExpr* node) override;
     void visit (StructAccessNode* node) override;
     void visit(TupleAccessNode* node) override;
     void visit(TypeCastNode* node) override;

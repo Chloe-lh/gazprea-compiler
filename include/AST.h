@@ -15,8 +15,7 @@ struct ConstantValue {
 
   // now includes array constants
   std::variant<int64_t, double, bool, char, std::string,
-               std::vector<ConstantValue>>
-      value;
+               std::vector<ConstantValue>> value;
 
   ConstantValue() : type(CompleteType(BaseType::UNKNOWN)) {}
 
@@ -287,6 +286,11 @@ class OrExpr : public BinaryExprNode {
 public:
   OrExpr(const std::string &op, std::shared_ptr<ExprNode> l,
          std::shared_ptr<ExprNode> r);
+  void accept(ASTVisitor &visitor) override;
+};
+class DotExpr : public BinaryExprNode{
+  public:
+  DotExpr(const std::string &op, std::shared_ptr<ExprNode> l, std::shared_ptr<ExprNode> r);
   void accept(ASTVisitor &visitor) override;
 };
 class TrueNode : public LiteralExprNode {

@@ -21,6 +21,7 @@ void NotExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void EqExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void AndExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void OrExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void DotExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
 // Basic types
 void TrueNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
@@ -114,6 +115,10 @@ OrExpr::OrExpr(const std::string &op, std::shared_ptr<ExprNode> left,
 EqExpr::EqExpr(const std::string &op, std::shared_ptr<ExprNode> left,
                std::shared_ptr<ExprNode> right)
     : BinaryExprNode(op, std::move(left), std::move(right)) {}
+
+DotExpr::DotExpr(const std::string &op, std::shared_ptr<ExprNode> left,
+         std::shared_ptr<ExprNode> right)
+  : BinaryExprNode(op, std::move(left), std::move(right)) {}
 
 ParenExpr::ParenExpr(std::shared_ptr<ExprNode> expr) : expr(std::move(expr)) {}
 CharNode::CharNode(char v) : value(v) {}

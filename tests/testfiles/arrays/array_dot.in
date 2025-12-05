@@ -1,0 +1,10 @@
+procedure main() returns integer{
+    integer[3] v = [1, 2, 3];
+    integer[3] u = [4, 5, 6];
+
+    /* v[1] * u[1] + v[2] * u[2] + v[3] * u[3] */
+    /* 1 * 4 + 2 * 5 + 3 * 6 &=&  32 */
+    integer dot = v ** u;  /* Perform a dot product */
+    return 0;
+}
+//CHECK_FILE:array_dot.out
