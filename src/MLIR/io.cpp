@@ -236,6 +236,8 @@ void MLIRGen::visit(OutputStatNode* node) {
     if (exprVarInfo.type.baseType == BaseType::ARRAY) {
         emitPrintArray(exprVarInfo);
         return;
+    } else if (exprVarInfo.type.baseType == BaseType::VECTOR) {
+        throw TypeError(node->line, "Cannot print vectors");
     } else if (isScalarType(exprVarInfo.type.baseType)) {
         mlir::Value loadedValue = getSSAValue(exprVarInfo);
         emitPrintScalar(exprVarInfo.type, loadedValue);
