@@ -97,6 +97,7 @@ public:
     // helpers
     void assignTo(VarInfo* literal, VarInfo* variable, int line);
     void assignToArray(VarInfo* literal, VarInfo* variable, int line);
+    void assignToVector(VarInfo* literal, VarInfo* variable, int line);
     void allocaLiteral(VarInfo* varInfo, int line);
     void allocaVar(VarInfo* varInfo, int line);
     void zeroInitializeVar(VarInfo* varInfo);
