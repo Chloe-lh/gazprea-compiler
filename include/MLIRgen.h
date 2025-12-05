@@ -143,6 +143,9 @@ public:
     mlir::Value lowerSizeExpr(std::shared_ptr<ExprNode> size);
 
 private:
+    // Helper to find the enclosing function and its entry block for allocas
+    mlir::func::FuncOp getCurrentEnclosingFunction();
+
     VarInfo popValue();
     void pushValue(VarInfo& value);
     void emitPrintScalar(const CompleteType &type, mlir::Value value);

@@ -380,30 +380,26 @@ bool MLIRGen::tryEmitConstantForNode(ExprNode* node) {
     }
 }
 
-void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
+mlir::func::FuncOp MLIRGen::getCurrentEnclosingFunction() {
     mlir::Block *block = builder_.getBlock();
     if (!block) block = builder_.getInsertionBlock();
     if (!block) {
         throw std::runtime_error("allocaVar: builder has no current block");
     }
 
-    // Find the parent function op from the current block
     mlir::Operation *op = block->getParentOp();
-    mlir::func::FuncOp funcOp = nullptr;
-
     while (op) {
         if (auto f = llvm::dyn_cast<mlir::func::FuncOp>(op)) {
-            funcOp = f;
-            break;
+            return f;
         }
         op = op->getParentOp();
     }
 
-    if (!funcOp) {
-        throw std::runtime_error("allocaVar: could not find parent function for allocation");
-    }
+    throw std::runtime_error("allocaVar: could not find parent function for allocation");
+}
 
-    // Always allocate at the beginning of the entry block
+void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
+    mlir::func::FuncOp funcOp = getCurrentEnclosingFunction();
     mlir::Block &entry = funcOp.front();
     mlir::OpBuilder entryBuilder(&entry, entry.begin());
 
