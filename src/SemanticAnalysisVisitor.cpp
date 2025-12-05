@@ -504,10 +504,7 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
         throw std::runtime_error("Semantic Analysis: Invalid qualifier provided for typed declaration '" + node->qualifier + "'.");
     }
 
-    if (current_->isInGlobal()) {
-        if (!node->init) throw GlobalError(node->line, "Uninitialized global");
-        if (!isScalarType(node->init->type.baseType)) throw GlobalError(node->line, "Non scalar initializer in global scope");
-    }
+    handleGlobalErrors(node);
 
     // Declared type is carried as a CompleteType on the alias node
     // TypeAliasNode::visit() already resolves the alias and subtypes
@@ -1812,6 +1809,6 @@ void SemanticAnalysisVisitor::handleGlobalErrors(DecNode *node) {
     }
 
     if (!node->init) throw GlobalError(node->line, "Uninitialized global");
-    if (!isScalarType(node->init->type.baseType)) throw GlobalError(node->line, "Non scalar initializer in global scope");
+    if (!isScalarType(node->init->type.baseType)) throw GlobalError(node->line, "Non-scalar global variables are illegal");
     if (node->qualifier == "var") throw GlobalError(node->line, "'var' qualifier in global scope");
 }
