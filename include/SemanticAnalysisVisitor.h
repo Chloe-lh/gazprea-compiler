@@ -96,6 +96,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         void enterScopeFor(const ASTNode* ownerCtx, const bool inLoop, const CompleteType* returnType);
         void exitScope();
         bool guaranteesReturn(const BlockNode* block) const;
+        void handleGlobalErrors(DecNode *node);
         CompleteType resolveUnresolvedType(Scope *scope, const CompleteType &t, int line);
 
 };
