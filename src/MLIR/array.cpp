@@ -99,6 +99,58 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
         throw std::runtime_error("ArrayTypedDec node: variable not declared in scope");
     }
 
+    // Check if array is dynamic (dims[0] == -1)
+    bool isDynamic = !declaredVar->type.dims.empty() && declaredVar->type.dims[0] < 0;
+
+    // --- Handle initializer expression ---
+    if (node->init) {
+        // For dynamic arrays, we need to compute size from initializer first
+        if (isDynamic) {
+            // Visit initializer to get source VarInfo
+            node->init->accept(*this);
+            VarInfo literal = popValue();
+            
+            // Compute size in MLIR (runtime computation)
+            mlir::Value sizeValue = computeArraySize(&literal, node->line);
+            
+            // Allocate variable with computed size
+            if (!declaredVar->value) {
+                allocaVar(declaredVar, node->line, sizeValue);
+            }
+            
+            // Now assign the initializer to the variable
+            assignTo(&literal, declaredVar, node->line);
+            return;
+        } else {
+            // Static array - allocate first, then assign
+            // Compute total number of elements for static arrays from CompleteType::dims
+            size_t totalElems = 1;
+            bool allStatic = true;
+            if (!declaredVar->type.dims.empty()) {
+                for (int d : declaredVar->type.dims) {
+                    if (d < 0) {
+                        allStatic = false;
+                        break;
+                    }
+                    totalElems *= static_cast<size_t>(d);
+                }
+            } else {
+                allStatic = false;
+            }
+
+            // Allocate storage if not already done
+            if (!declaredVar->value) {
+                allocaVar(declaredVar, node->line);
+            }
+            
+            node->init->accept(*this);
+            VarInfo literal = popValue();
+            assignTo(&literal, declaredVar, node->line);
+            return;
+        }
+    }
+
+    // --- Zero-initialize array if no initializer and static size known ---
     // Compute total number of elements for static arrays from CompleteType::dims
     size_t totalElems = 1;
     bool allStatic = true;
@@ -113,20 +165,7 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
     } else {
         allStatic = false;
     }
-
-    // Allocate storage if not already done
-    if (!declaredVar->value) {
-        allocaVar(declaredVar, node->line);
-    }
-    // --- Handle initializer expression ---
-    if (node->init) {
-        node->init->accept(*this);
-        VarInfo literal = popValue();
-        assignTo(&literal, declaredVar, node->line);
-        return;
-    }
-
-    // --- Zero-initialize array if no initializer and static size known ---
+    
     if (allStatic) {
         size_t n = totalElems;
         if (declaredVar->type.subTypes.size() != 1) {

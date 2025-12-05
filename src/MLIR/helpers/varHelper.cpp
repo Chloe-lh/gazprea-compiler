@@ -156,8 +156,7 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
             throw AssignError(line, "Cannot assign non-array to array variable");
             // TODO: Implement int -> array
         }
-        // Ensure both storages exist
-        if (!variable->value) allocaVar(variable, line);
+        // Ensure literal storage exists first (needed to get size for dynamic arrays)
         if (!literal->value) allocaVar(literal, line);
 
         auto getLen = [](const CompleteType &t) -> std::optional<int64_t> {
@@ -170,52 +169,84 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
         std::optional<int64_t> varLen = getLen(variable->type);
         std::optional<int64_t> litLen = getLen(literal->type);
 
-        size_t n = 0;
+        auto idxTy = builder_.getIndexType();
+        mlir::Value nVal; // Runtime size value
+        
         if (varLen && litLen) {
             if (varLen.value() != litLen.value()) {
                 throw AssignError(line, "Array initializer length does not match destination array length");
             }
-            n = static_cast<size_t>(varLen.value());
+            nVal = builder_.create<mlir::arith::ConstantIndexOp>(
+                loc_, static_cast<int64_t>(varLen.value()));
         } else if (varLen) {
-            n = static_cast<size_t>(varLen.value());
+            nVal = builder_.create<mlir::arith::ConstantIndexOp>(
+                loc_, static_cast<int64_t>(varLen.value()));
         } else if (litLen) {
             // Destination had inferred size; adopt the literal's concrete size.
-            n = static_cast<size_t>(litLen.value());
+            nVal = builder_.create<mlir::arith::ConstantIndexOp>(
+                loc_, static_cast<int64_t>(litLen.value()));
             variable->type.dims = literal->type.dims;
         } else {
-            throw AssignError(line, "cannot determine array length for assignment");
-        }
-        auto idxTy = builder_.getIndexType();
-        for(size_t t=0; t<n;++t){
-                // index constant
-            mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
-                loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(t)));
-
-            // load source element
-            mlir::Value srcElemVal = builder_.create<mlir::memref::LoadOp>(loc_, literal->value, mlir::ValueRange{idx});
-
-            // build a temp VarInfo for the source element
-            if (literal->type.subTypes.size() != 1) {
-                throw std::runtime_error("varHelper::assignTo: array literal type must have exactly one element subtype");
+            // Both are dynamic - get size from source memref at runtime
+            if (!literal->value.getType().isa<mlir::MemRefType>()) {
+                throw AssignError(line, "cannot determine array length for assignment");
             }
-            CompleteType srcElemCT = literal->type.subTypes[0];
-            VarInfo srcElemVar(srcElemCT);
-            srcElemVar.value = srcElemVal;
-            srcElemVar.isLValue = false;
-
-            // destination element type
-            if (variable->type.subTypes.size() != 1) {
-                throw std::runtime_error("varHelper::assignTo: array variable type must have exactly one element subtype");
-            }
-            CompleteType dstElemCT = variable->type.subTypes[0];
-
-            // promote/cast
-            VarInfo promoted = promoteType(&srcElemVar, &dstElemCT, line);
-            mlir::Value storeVal = getSSAValue(promoted);
-
-            // store into destination
-            builder_.create<mlir::memref::StoreOp>(loc_, storeVal, variable->value, mlir::ValueRange{idx});
+            auto zeroIdx = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+            // Get the dynamic size from the memref (in current block)
+            nVal = builder_.create<mlir::memref::DimOp>(loc_, literal->value, zeroIdx);
+            // Update variable type to match (dynamic size)
+            variable->type.dims = literal->type.dims;
         }
+        
+        // Ensure destination is allocated (should already be done for dynamic arrays in visit(ArrayTypedDecNode*))
+        if (!variable->value) {
+            // If variable is dynamic, we need to allocate it with the runtime size
+            if (!varLen) {
+                // This should not happen if visit(ArrayTypedDecNode*) worked correctly
+                throw AssignError(line, "Dynamic array destination not allocated before assignment");
+            } else {
+                allocaVar(variable, line);
+            }
+        }
+        
+        // Create a loop to copy elements
+        auto c0 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+        auto c1 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
+        
+        builder_.create<mlir::scf::ForOp>(
+            loc_, c0, nVal, c1, mlir::ValueRange{},
+            [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value iv, mlir::ValueRange args) {
+                // Use loop index iv
+                mlir::Value idx = iv;
+
+                // load source element
+                mlir::Value srcElemVal = b.create<mlir::memref::LoadOp>(l, literal->value, mlir::ValueRange{idx});
+
+                // build a temp VarInfo for the source element
+                if (literal->type.subTypes.size() != 1) {
+                    throw std::runtime_error("varHelper::assignTo: array literal type must have exactly one element subtype");
+                }
+                CompleteType srcElemCT = literal->type.subTypes[0];
+                VarInfo srcElemVar(srcElemCT);
+                srcElemVar.value = srcElemVal;
+                srcElemVar.isLValue = false;
+
+                // destination element type
+                if (variable->type.subTypes.size() != 1) {
+                    throw std::runtime_error("varHelper::assignTo: array variable type must have exactly one element subtype");
+                }
+                CompleteType dstElemCT = variable->type.subTypes[0];
+
+                // promote/cast
+                VarInfo promoted = promoteType(&srcElemVar, &dstElemCT, line);
+                mlir::Value storeVal = getSSAValue(promoted);
+
+                // store into destination
+                b.create<mlir::memref::StoreOp>(l, storeVal, variable->value, mlir::ValueRange{idx});
+                
+                b.create<mlir::scf::YieldOp>(l);
+            }
+        );
         return;
     } else if (variable->type.baseType == BaseType::STRUCT) {
         // Ensure destination and source storage exist
@@ -253,6 +284,35 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
     }
 
 
+}
+
+mlir::Value MLIRGen::computeArraySize(VarInfo* source, int line) {
+    if (!source) {
+        throw std::runtime_error("computeArraySize: source VarInfo is null");
+    }
+    
+    // Check if source is an array literal (has compile-time known size)
+    // For array literals, semantic analysis may have set dims[0] to the literal size
+    // We create a runtime Value for it (even though it's compile-time known)
+    if (source->type.baseType == BaseType::ARRAY && !source->type.dims.empty() && source->type.dims[0] >= 0) {
+        // Static size from type - create constant index value
+        return builder_.create<mlir::arith::ConstantIndexOp>(
+            loc_, static_cast<int64_t>(source->type.dims[0]));
+    }
+    
+    // For dynamic arrays or arrays where we need runtime size, use memref::DimOp
+    // But first ensure the value exists
+    if (!source->value) {
+        throw std::runtime_error("computeArraySize: source value is null - array must be allocated first");
+    }
+    
+    if (source->value.getType().isa<mlir::MemRefType>()) {
+        auto memrefType = source->value.getType().cast<mlir::MemRefType>();
+        auto zeroIdx = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+        return builder_.create<mlir::memref::DimOp>(loc_, source->value, zeroIdx);
+    }
+    
+    throw std::runtime_error("computeArraySize: source is not a memref or array type");
 }
 
 void MLIRGen::allocaLiteral(VarInfo* varInfo, int line) {
@@ -322,7 +382,7 @@ bool MLIRGen::tryEmitConstantForNode(ExprNode* node) {
     }
 }
 
-void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
+void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
     mlir::Block *block = builder_.getBlock();
     if (!block) block = builder_.getInsertionBlock();
     if (!block) {
@@ -384,9 +444,24 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
             mlir::Type elemTy = getLLVMType(varInfo->type.subTypes[0]);
 
             if (varInfo->type.dims.size() == 1 && varInfo->type.dims[0] >= 0) {
+                // Static array size
                 int64_t n = varInfo->type.dims[0];
                 auto memTy = mlir::MemRefType::get({n}, elemTy);
                 varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
+            } else if (varInfo->type.dims.size() == 1 && varInfo->type.dims[0] < 0) {
+                // Dynamic array size - requires sizeValue parameter
+                if (!sizeValue) {
+                    throw std::runtime_error("allocaVar: dynamic array requires sizeValue parameter for variable '" +
+                                             (varInfo->identifier.empty() ? std::string("<temporary>") : varInfo->identifier) + "'");
+                }
+                auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, elemTy);
+                varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
+                    loc_,
+                    memTy,
+                    mlir::ValueRange{sizeValue}, // dynamic size operand
+                    mlir::ValueRange{},           // symbol operands
+                    mlir::IntegerAttr()           // no alignment
+                );
             } else {
                 throw std::runtime_error("allocaVar: unsupported array shape for variable '" +
                                          (varInfo->identifier.empty() ? std::string("<temporary>") : varInfo->identifier) + "'");

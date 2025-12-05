@@ -97,7 +97,8 @@ public:
     // helpers
     void assignTo(VarInfo* literal, VarInfo* variable, int line);
     void allocaLiteral(VarInfo* varInfo, int line);
-    void allocaVar(VarInfo* varInfo, int line);
+    void allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue = nullptr);
+    mlir::Value computeArraySize(VarInfo* source, int line);
     void zeroInitializeVar(VarInfo* varInfo);
     VarInfo castType(VarInfo* from, CompleteType* to, int line);
     VarInfo promoteType(VarInfo* from, CompleteType* to, int line);
