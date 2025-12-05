@@ -17,9 +17,9 @@ namespace gazprea{
     int index;
     if(ac){
       if(ac->ID()) id = ac->ID()->getText();
-      if(ac->INT()){
+      if(ac->expr()){
         try{
-          index = std::stoi(ac->INT()->getText());
+          index = std::stoi(ac->expr()->getText());
         }catch(const std::exception &){
           index = 0;
         }
@@ -43,9 +43,9 @@ namespace gazprea{
     if(aa->ID()){
       id =aa->ID()->getText();
     }
-    if (aa->INT()) {
+    if (aa->expr()) {
       try{
-        index = std::stoi(aa->INT()->getText());
+        index = std::stoi(aa->expr()->getText());
       }catch(const std::exception &){
         index = 0;
       }
