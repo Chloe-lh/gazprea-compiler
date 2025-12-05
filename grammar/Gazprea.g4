@@ -117,7 +117,7 @@ struct_access: ID '.' ID;
 
 // Arrays
 array_literal : SQLEFT exprList? SQRIGHT;
-array_access :  ID SQLEFT INT SQRIGHT;
+array_access :  ID SQLEFT INT SQRIGHT  (SQLEFT INT SQRIGHT)?; //added support for 2D accessing
 
 exprList : expr (COMMA expr)* ;
 rangeExpr : RANGE expr

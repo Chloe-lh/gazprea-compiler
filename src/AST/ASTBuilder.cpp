@@ -82,10 +82,11 @@ std::any ASTBuilder::visitBuiltin_type(GazpreaParser::Builtin_typeContext *ctx) 
     // Grammar: size : '[' (INT|MULT) ']' ('[' (INT|MULT) ']')?
     auto *sizectx = ctx->size();
     std::vector<int> dims;
+    bool isMat = false;
     for (auto child : sizectx->children) {
         auto *t = dynamic_cast<antlr4::tree::TerminalNode*>(child);
         if (!t) continue;
-
+        if (sizectx->children.size() == 2)  isMat = true;
         int token = t->getSymbol()->getType();
         if (token == GazpreaParser::INT) {
             int64_t val = std::stoll(t->getText());
@@ -95,13 +96,17 @@ std::any ASTBuilder::visitBuiltin_type(GazpreaParser::Builtin_typeContext *ctx) 
             dims.push_back(-1);
         }
     }
-    if(dims.size()==2){
+    if(isMat){ 
+      CompleteType arr(BaseType::MATRIX);
+      arr.subTypes.push_back(elem);        // element type as single subtype
+      arr.dims = std::move(dims);          // save dimensions
+      return arr;
+    }else{
       CompleteType arr(BaseType::ARRAY);
+      arr.subTypes.push_back(elem);        // element type as single subtype
+      arr.dims = std::move(dims);          // save dimensions
+      return arr;
     }
-    CompleteType arr(BaseType::ARRAY);
-    arr.subTypes.push_back(elem);        // element type as single subtype
-    arr.dims = std::move(dims);          // save dimensions
-    return arr;
 }
 
 std::any ASTBuilder::visitBlock(GazpreaParser::BlockContext *ctx) {
@@ -214,17 +219,12 @@ ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
     CompleteType ct = std::any_cast<CompleteType>(anyType);
 
 
-    // Arrays and vectors bundled into same node -
+    // Arrays, vectors and matrices bundled into same node -
     // Distinguished by `CompleteType::baseType`
-    if (ct.baseType == BaseType::ARRAY || ct.baseType == BaseType::VECTOR) {
+    if (ct.baseType == BaseType::ARRAY || ct.baseType == BaseType::VECTOR || ct.baseType == BaseType::MATRIX) {
       auto arrDec = std::make_shared<ArrayTypedDecNode>(qualifier, id, ct, init);
       setLocationFromCtx(arrDec, ctx);
       return node_any(std::move(arrDec));
-    }
-
-    if (ct.baseType == BaseType:: MATRIX) {
-      throw std::runtime_error(
-          "ASTBuilder::visitExplicitTypedDec: vector and matrix not supported yet");
     }
 
     // All other builtin types (scalar/tuple/struct/string) are represented

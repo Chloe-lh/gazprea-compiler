@@ -14,19 +14,28 @@ namespace gazprea{
     if(!ctx || !ctx->array_access() || !ctx->expr()) throw std::runtime_error("visitArrayAccessAssignStat: invalid context");
     GazpreaParser::Array_accessContext *ac = ctx->array_access();
     std::string id;
-    int index;
+    int index = 0;
+    int index2 = 0;
     if(ac){
       if(ac->ID()) id = ac->ID()->getText();
-      if(ac->INT()){
+      auto ints = ac->INT();
+      if(!ints.empty()){
         try{
-          index = std::stoi(ac->INT()->getText());
+          index = std::stoi(ints[0]->getText());
         }catch(const std::exception &){
           index = 0;
+        }
+        if(ints.size() >= 2){
+          try{
+            index2 = std::stoi(ints[1]->getText());
+          }catch(const std::exception &){
+            index2 = 0;
+          }
         }
       }
     }
     
-    auto lhs = std::make_shared<ArrayAccessNode>(id, index);
+    auto lhs = std::make_shared<ArrayAccessNode>(id, index, index2);
     auto rhsAny = visit(ctx->expr());
     auto rhs = safe_any_cast_ptr<ExprNode>(rhsAny);
     auto node = std::make_shared<ArrayAccessAssignStatNode>(std::move(lhs), std::move(rhs));
@@ -38,20 +47,37 @@ namespace gazprea{
   }
   std::any ASTBuilder::visitArrayAccessExpr(GazpreaParser::ArrayAccessExprContext *ctx){
     std::string id="";
-    int index;
+    int index = 0;
+    int index2 = 0; // optional - for matrices
     auto aa = ctx->array_access();
     if(aa->ID()){
-      id =aa->ID()->getText();
+      id=aa->ID()->getText();
     }
-    if (aa->INT()) {
+    // there may be two integers = matrix
+    auto ints = aa->INT();
+    if(!ints.empty()){
       try{
-        index = std::stoi(aa->INT()->getText());
+        index = std::stoi(ints[0]->getText());
       }catch(const std::exception &){
         index = 0;
       }
+      if(ints.size() == 2){
+        try{
+          index2 = std::stoi(ints[1]->getText());
+        }catch(const std::exception &){
+          index2 = 0;
+        }
+      }
     }
-    auto node = std::make_shared<ArrayAccessNode>(id, index);
-    node->type = CompleteType(BaseType::ARRAY);
+    /*
+    initializing all accesses with TWO indexes - [i1][i2] -> if 1D [x][0] so not garbage values
+    */
+    auto node = std::make_shared<ArrayAccessNode>(id, index, index2);
+    if(index2!=0){
+      node->type = CompleteType(BaseType::MATRIX);
+    }else{
+      node->type = CompleteType(BaseType::ARRAY);
+    }
     setLocationFromCtx(node, ctx);
     return expr_any(std::move(node));
   }
@@ -84,7 +110,7 @@ namespace gazprea{
     setLocationFromCtx(node, ctx);
     return expr_any(std::move(node));
   };
-
+  // no need to check array literal for matrix
   std::any ASTBuilder::visitArray_literal(GazpreaParser::Array_literalContext *ctx){
     std::shared_ptr<ExprListNode> list = nullptr; //optional expression list
     if (ctx->exprList()) {
