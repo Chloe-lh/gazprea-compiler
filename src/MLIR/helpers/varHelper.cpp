@@ -280,6 +280,11 @@ void MLIRGen::assignToVector(VarInfo* literal, VarInfo* variable, int line) {
 
     if (variable->runtimeLen == -1) throw std::runtime_error("MLIRGen::assignToVector: Runtime len of " + std::to_string(variable->runtimeLen) + " is invalid");
 
+    // resize the vector to the rhs
+    mlir::Value newVector = allocaVector(variable->runtimeLen, variable);
+    variable->value = newVector;
+
+    // Copy over elements to the new vector
     auto idxTy = builder_.getIndexType();
     for(size_t t=0; t < variable->runtimeLen; ++t){
         // index constant
@@ -478,6 +483,27 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
                                      " for variable '" + varName + "'");
         }
     }
+}
+
+mlir::Value MLIRGen::allocaVector(int len, VarInfo *varInfo) {
+    // get front of block to ensure alloca's are at top of block
+    mlir::func::FuncOp funcOp = getCurrentEnclosingFunction();
+    mlir::Block &entry = funcOp.front();
+    mlir::OpBuilder entryBuilder(&entry, entry.begin());
+
+
+    mlir::Type elemTy = getLLVMType(varInfo->type.subTypes[0]);
+    auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, elemTy);
+    mlir::Value arrayLen = entryBuilder.create<mlir::arith::ConstantOp>(
+        loc_, builder_.getIndexType(), builder_.getIntegerAttr(builder_.getIndexType(), len));
+    auto alloca = entryBuilder.create<mlir::memref::AllocaOp>(
+        loc_,
+        memTy,
+        mlir::ValueRange{arrayLen},
+        mlir::ValueRange{},
+        mlir::IntegerAttr());
+    varInfo->value = alloca;
+    return alloca;
 }
 
 void MLIRGen::zeroInitializeVar(VarInfo* var) {
