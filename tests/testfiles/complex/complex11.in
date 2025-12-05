@@ -3,9 +3,8 @@
 
 typealias tuple(integer, character, real) Triple;
 
-const tuple(integer, character, real) BASE = (10, 'z', 0.5);
-
 procedure main() returns integer {
+    const Triple BASE = (10, 'z', 0.5);
     var Triple t;
     var integer i = 0;
 
