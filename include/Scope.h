@@ -17,6 +17,8 @@ struct VarInfo {
     bool isLValue = false;
     mlir::Value value = nullptr;
 
+    int runtimeLen = -1; // For dynamic sizing, ONLY determine at runtime
+
     VarInfo(CompleteType completeType): type(completeType) {}
     VarInfo(std::string identifier, CompleteType completeType, bool isConst): identifier(identifier), type(completeType), isConst(isConst) {} // for part 1 compatability
     VarInfo(std::string identifier, CompleteType completeType, bool isConst, bool isLValue): identifier(identifier), type(completeType), isConst(isConst), isLValue(isLValue) {}

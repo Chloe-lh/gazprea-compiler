@@ -1,0 +1,30 @@
+procedure main() returns integer {
+    var vector<integer> v1;
+    var vector<integer> v2;
+
+    var integer[5] arrPad;
+    var integer[2] arrSlice;
+
+    v1 = [1, 2, 3];
+    v2 = [9, 8];
+
+    arrPad = v1;      // [1 2 3 0 0]
+    arrSlice = v1;    // [1 2]
+
+    arrPad -> std_output;
+    "\n" -> std_output;
+    arrSlice -> std_output;
+    "\n" -> std_output;
+
+    arrPad = v2;      // [9 8 0 0 0]
+    arrSlice = v2;    // [9 8]
+
+    arrPad -> std_output;
+    "\n" -> std_output;
+    arrSlice -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+
+//CHECK_FILE:vectorArrayPadSlice.out

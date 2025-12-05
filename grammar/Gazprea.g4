@@ -42,16 +42,11 @@ stat
     | loop_stat                           #LoopStat
     ;
 
-type //this should include basic types
-    : BOOLEAN 
-    | CHARACTER 
-    | INTEGER 
-    | REAL 
-    | STRING
+type 
+    : builtin_type
     | tuple_dec
     | struct_dec
-    | VECTOR '<' type '>'  
-    | ID
+    | ID                        // type aliasing
     ;
 
 // Built-in scalar types (used to disambiguate declarations)

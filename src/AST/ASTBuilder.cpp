@@ -67,7 +67,9 @@ std::any ASTBuilder::visitBuiltin_type(GazpreaParser::Builtin_typeContext *ctx) 
 
     // 2. Vector<T> case: VECTOR '<' type '>'
     if (ctx->VECTOR()) {
-        throw std::runtime_error("Not implemented");
+      auto type = visit(ctx->type());
+      CompleteType elem = std::any_cast<CompleteType>(type);
+      return CompleteType(BaseType::VECTOR, elem, {-1});
     }
 
     // 3. Scalar type (no array size)
@@ -209,17 +211,16 @@ ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
 
     CompleteType ct = std::any_cast<CompleteType>(anyType);
 
-    // Array declarations get a dedicated ArrayTypedDecNode so later
-    // passes can recognize them easily.
-    if (ct.baseType == BaseType::ARRAY) {
+
+    // Arrays and vectors bundled into same node -
+    // Distinguished by `CompleteType::baseType`
+    if (ct.baseType == BaseType::ARRAY || ct.baseType == BaseType::VECTOR) {
       auto arrDec = std::make_shared<ArrayTypedDecNode>(qualifier, id, ct, init);
       setLocationFromCtx(arrDec, ctx);
       return node_any(std::move(arrDec));
     }
 
-    // Vectors will eventually have their own dedicated decl node; for now,
-    // reject them explicitly rather than silently treating them as scalars.
-    if (ct.baseType == BaseType::VECTOR || ct.baseType == BaseType:: MATRIX) {
+    if (ct.baseType == BaseType:: MATRIX) {
       throw std::runtime_error(
           "ASTBuilder::visitExplicitTypedDec: vector and matrix not supported yet");
     }
@@ -280,21 +281,16 @@ std::any ASTBuilder::visitQualifier(GazpreaParser::QualifierContext *ctx) {
 }
 // returns CompleteType object based on grammar else returns unknown
 std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
-  //FOR ARRAYS
-  if (ctx->BOOLEAN())
-    return CompleteType(BaseType::BOOL);
-  if (ctx->STRING())
-    return CompleteType(BaseType::STRING);
+  // 1. Handle builtin types (everything except tuple + struct + aliases)
+  if (ctx->builtin_type()) {
+    return visit(ctx->builtin_type());
+  }
+
+  // 2. Handle type aliases - will be resolved to actual types in semantic analysis
   if (ctx->ID())
-    // Store the alias name, but leaves the type as BaseType::UNRESOLVED, which
-    // will be resolved during semantic analysis
     return CompleteType(ctx->ID()->getText());
-  if (ctx->INTEGER())
-    return CompleteType(BaseType::INTEGER);
-  if (ctx->REAL())
-    return CompleteType(BaseType::REAL);
-  if (ctx->CHARACTER())
-    return CompleteType(BaseType::CHARACTER);
+
+  // 3. handle tuples + structs
   if (ctx->tuple_dec()) 
     return visit(ctx->tuple_dec());
   if (ctx->struct_dec())
