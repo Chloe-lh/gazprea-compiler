@@ -271,8 +271,12 @@ void MLIRGen::assignToVector(VarInfo* literal, VarInfo* variable, int line) {
     if (!variable->value) allocaVar(variable, line);
     if (!literal->value) allocaVar(literal, line);
 
-    // Copy size of literal over to vector
-    variable->runtimeLen = literal->runtimeLen;
+    // First try updating lhs len using compile time sizing - then fallback to dynamic sizing
+    if (literal->type.dims.size() > 0 && literal->type.dims[0] >= 0) {
+        variable->runtimeLen = literal->type.dims[0];
+    } else {
+        variable->runtimeLen = literal->runtimeLen;
+    }
 
     if (variable->runtimeLen == -1) throw std::runtime_error("MLIRGen::assignToVector: Runtime len of " + std::to_string(variable->runtimeLen) + " is invalid");
 
