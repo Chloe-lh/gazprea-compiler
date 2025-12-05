@@ -1,0 +1,35 @@
+procedure main() returns integer {
+    var vector<integer> v;
+
+    var integer[1] a1;
+    var integer[3] a3;
+    var integer[2] a2;
+
+    v = [7];
+    a1 = v;
+    a3 = v;      // [7 0 0]
+
+    a1 -> std_output;
+    "\n" -> std_output;
+    a3 -> std_output;
+    "\n" -> std_output;
+
+    v = [1, 2, 3];
+    a3 = v;
+    a2 = v;      // [1 2]
+
+    a3 -> std_output;
+    "\n" -> std_output;
+    a2 -> std_output;
+    "\n" -> std_output;
+
+    v = [4, 5];
+    a2 = v;
+
+    a2 -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+
+//CHECK_FILE:vectorResizeReassign.out
