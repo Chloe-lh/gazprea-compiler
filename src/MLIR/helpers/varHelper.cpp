@@ -227,10 +227,20 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
         mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
             loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(t)));
 
-        // If the rhs is a smaller vector, we zero pad it.
+        // If the rhs is a smaller vector, we zero pad it with the lhs' element type.
         if (rhs->type.baseType == BaseType::VECTOR && t >= rhsLen) {
-            mlir::Value zero = builder_.create<mlir::arith::ConstantOp>(
-                loc_, idxTy, builder_.getIntegerAttr(idxTy, 0));
+            BaseType elemBaseType = lhs->type.subTypes[0].baseType;
+            mlir::Type elemTy = getLLVMType(lhs->type.subTypes[0]);
+            mlir::Value zero;
+
+            if (elemBaseType == BaseType::INTEGER || elemBaseType == BaseType::BOOL || elemBaseType == BaseType::CHARACTER) {
+                zero = builder_.create<mlir::arith::ConstantOp>(loc_, elemTy, builder_.getIntegerAttr(elemTy, 0));
+            } else if (elemBaseType == BaseType::REAL) {
+                zero = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, elemTy, builder_.getFloatAttr(elemTy, 0.0));
+            } else {
+                throw std::runtime_error("assignToArray: unsupported element type for zero padding");
+            }
             builder_.create<mlir::memref::StoreOp>(loc_, zero, lhs->value, mlir::ValueRange{idx});
             continue;
         }
