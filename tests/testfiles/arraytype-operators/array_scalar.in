@@ -4,5 +4,6 @@ procedure main() returns integer{
     integer[*] res = v + i;
 
     res -> std_output;
+    "\n" -> std_output;
 }
 //CHECK_FILE:array_scalar.out
