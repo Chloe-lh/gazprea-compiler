@@ -195,70 +195,70 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
 
 }
 
-void MLIRGen::assignToArray(VarInfo* literal, VarInfo* variable, int line) {
-    if (literal->type.baseType != BaseType::ARRAY) {
-        throw AssignError(line, "Cannot assign non-array to array variable");
+void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
+    if (rhs->type.baseType != BaseType::ARRAY && rhs->type.baseType != BaseType::VECTOR) {
+        throw AssignError(line, "Cannot assign type" + toString(rhs->type) + " to array lhs");
         // TODO: Implement int -> array
     }
     // Ensure both storages exist
-    if (!variable->value) allocaVar(variable, line);
-    if (!literal->value) allocaVar(literal, line);
+    if (!lhs->value) allocaVar(lhs, line);
+    if (!rhs->value) allocaVar(rhs, line);
 
-    auto getLen = [](const CompleteType &t) -> std::optional<int64_t> {
-        if (t.baseType != BaseType::ARRAY) return std::nullopt;
-        if (t.dims.size() != 1) return std::nullopt; // only 1D for now
-        if (t.dims[0] < 0) return std::nullopt;
-        return static_cast<int64_t>(t.dims[0]);
-    };
-
-    std::optional<int64_t> varLen = getLen(variable->type);
-    std::optional<int64_t> litLen = getLen(literal->type);
-
-    size_t n = 0;
-    if (varLen && litLen) {
-        if (varLen.value() != litLen.value()) {
-            throw AssignError(line, "Array initializer length does not match destination array length");
-        }
-        n = static_cast<size_t>(varLen.value());
-    } else if (varLen) {
-        n = static_cast<size_t>(varLen.value());
-    } else if (litLen) {
-        // Destination had inferred size; adopt the literal's concrete size.
-        n = static_cast<size_t>(litLen.value());
-        variable->type.dims = literal->type.dims;
-    } else {
-        throw AssignError(line, "cannot determine array length for assignment");
+    // Ensure name dimension count, e.g. to prevent matrix assignment to array
+    if (lhs->type.dims.size() != rhs->type.dims.size()) {
+        throw SizeError(line, "Mismatched lhs (array) and rhs dimensions of " + std::to_string(lhs->type.dims.size()) + " and " + std::to_string(rhs->type.dims.size()));
     }
+
+    int lhsLen = lhs->type.dims[0] == -1 ? lhs->runtimeLen : lhs->type.dims[0];
+    int rhsLen = rhs->type.dims[0] == -1 ? rhs->runtimeLen : rhs->type.dims[0];
+
+    // Enforce same length assignment only, only exception being vectors.
+    // A smaller vector results in 0-padding, a larger vector results in slicing.
+    if (lhsLen != rhsLen && rhs->type.baseType != BaseType::VECTOR) {
+        throw SizeError(line, "Mismatched lhs (array) and rhs lengths of " + std::to_string(lhs->type.dims[0]) + " and " + std::to_string(rhs->type.dims[0]));
+    }
+
+    if (lhsLen <= 0) throw std::runtime_error("MLIRGen::assignToArray: Runtime len of " + std::to_string(lhsLen) + " is invalid");
+
+    size_t n = lhsLen;
     auto idxTy = builder_.getIndexType();
     for(size_t t=0; t<n;++t){
             // index constant
         mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
             loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(t)));
 
+        // If the rhs is a smaller vector, we zero pad it.
+        if (rhs->type.baseType == BaseType::VECTOR && t >= rhsLen) {
+            mlir::Value zero = builder_.create<mlir::arith::ConstantOp>(
+                loc_, idxTy, builder_.getIntegerAttr(idxTy, 0));
+            builder_.create<mlir::memref::StoreOp>(loc_, zero, lhs->value, mlir::ValueRange{idx});
+            continue;
+        }
+
         // load source element
-        mlir::Value srcElemVal = builder_.create<mlir::memref::LoadOp>(loc_, literal->value, mlir::ValueRange{idx});
+        mlir::Value srcElemVal = builder_.create<mlir::memref::LoadOp>(loc_, rhs->value, mlir::ValueRange{idx});
 
         // build a temp VarInfo for the source element
-        if (literal->type.subTypes.size() != 1) {
-            throw std::runtime_error("varHelper::assignTo: array literal type must have exactly one element subtype");
+        if (rhs->type.subTypes.size() != 1) {
+            throw std::runtime_error("varHelper::assignTo: array rhs type must have exactly one element subtype");
         }
-        CompleteType srcElemCT = literal->type.subTypes[0];
+        CompleteType srcElemCT = rhs->type.subTypes[0];
         VarInfo srcElemVar(srcElemCT);
         srcElemVar.value = srcElemVal;
         srcElemVar.isLValue = false;
 
         // destination element type
-        if (variable->type.subTypes.size() != 1) {
-            throw std::runtime_error("varHelper::assignTo: array variable type must have exactly one element subtype");
+        if (lhs->type.subTypes.size() != 1) {
+            throw std::runtime_error("varHelper::assignTo: array lhs type must have exactly one element subtype");
         }
-        CompleteType dstElemCT = variable->type.subTypes[0];
+        CompleteType dstElemCT = lhs->type.subTypes[0];
 
         // promote/cast
         VarInfo promoted = promoteType(&srcElemVar, &dstElemCT, line);
         mlir::Value storeVal = getSSAValue(promoted);
 
         // store into destination
-        builder_.create<mlir::memref::StoreOp>(loc_, storeVal, variable->value, mlir::ValueRange{idx});
+        builder_.create<mlir::memref::StoreOp>(loc_, storeVal, lhs->value, mlir::ValueRange{idx});
     }
 }
 
