@@ -820,10 +820,11 @@ void SemanticAnalysisVisitor::visit(StructTypedDecNode* node) {
     }
 
 
-    handleGlobalErrors(node);
-
     // Optional: declare a variable of this struct type if a name was provided
     if (!node->name.empty()) {
+
+        // Allow global struct TYPE declrs, but disallow global struct vars
+        handleGlobalErrors(node);
         // Ensure not already declared in this scope
         current_->declareVar(node->name, structType, isConst, node->line);
 
