@@ -31,6 +31,7 @@ enum class CallType { FUNCTION, PROCEDURE, STRUCT_LITERAL, ARRAY_LITERAL };
 // abstract class that is extended by the different passes in the pipeline
 class ASTVisitor;
 // forward declarations
+class ExprNode;
 class BlockNode;
 class TypeAliasNode;
 class TupleAccessNode;
@@ -51,6 +52,8 @@ class DecNode : public ASTNode {
 public:
   std::string name;
   std::string declTypeName; // Renamed from 'type' to 'declTypeName'
+  std::string qualifier = "const";      // default const; overridden where needed
+  std::shared_ptr<ExprNode> init;       // optional initializer shared by declarations
   virtual ~DecNode() = default;
   virtual void accept(ASTVisitor &visitor) = 0;
   // SCOPE
@@ -191,15 +194,18 @@ class ArrayLiteralNode;
 
 class ArrayTypedDecNode : public DecNode {
 public:
-  std::string qualifier = "const"; // optional default const
   std::string id;
   CompleteType type;              // Also holds sizes
-  std::shared_ptr<ExprNode> init; // nullable
   ArrayTypedDecNode(const std::string &q, const std::string &id, CompleteType t)
-      : qualifier(q), id(id), type(std::move(t)) {}
+      : id(id), type(std::move(t)) {
+    this->qualifier = q;
+  }
   ArrayTypedDecNode(const std::string &q, const std::string &id, CompleteType t,
                     std::shared_ptr<ExprNode> i)
-      : qualifier(q), id(id), type(std::move(t)), init(std::move(i)) {}
+      : id(id), type(std::move(t)) {
+    this->qualifier = q;
+    this->init = std::move(i);
+  }
 
   void accept(ASTVisitor &visitor) override;
 };
@@ -336,16 +342,13 @@ public:
 
 class TupleTypedDecNode : public DecNode {
 public:
-  std::string qualifier; // optional
-  std::shared_ptr<ExprNode> init;
-
   // Constructor matching the usage
   TupleTypedDecNode(const std::string &q, const std::string &name,
                     CompleteType tupleType)
-      : qualifier(q), init(nullptr) // initializer list
   {
     this->name = name;
     this->type = std::move(tupleType);
+    this->qualifier = q;
   }
 
   void accept(ASTVisitor &visitor) override;
@@ -357,8 +360,6 @@ public:
 //    e.g. struct MyStruct (integer memb1, boolean memb2) varDec;
 class StructTypedDecNode : public DecNode {
 public:
-  std::string qualifier;          // optional
-  std::shared_ptr<ExprNode> init; // optional
   StructTypedDecNode(const std::string &name, const std::string &qualifier,
                      CompleteType structType);
   void accept(ASTVisitor &visitor) override;
@@ -366,9 +367,7 @@ public:
 
 class TypedDecNode : public DecNode {
 public:
-  std::string qualifier;                     // optional
   std::shared_ptr<TypeAliasNode> type_alias; // type OR alias
-  std::shared_ptr<ExprNode> init;            // optional initializer
   TypedDecNode(const std::string &name,
                std::shared_ptr<TypeAliasNode> type_alias,
                const std::string &qualifier = "",
@@ -378,8 +377,6 @@ public:
 };
 class InferredDecNode : public DecNode {
 public:
-  std::string qualifier;
-  std::shared_ptr<ExprNode> init;
   InferredDecNode(const std::string &name, const std::string &qualifier,
                   std::shared_ptr<ExprNode> init);
   void accept(ASTVisitor &visitor) override;

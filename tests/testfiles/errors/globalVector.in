@@ -1,0 +1,14 @@
+// keep this whitespace
+
+// keep this whitespace
+vector<character> globalVec = ['a'];
+
+procedure main() returns integer {
+    vector<character> emptyVec;
+    vector<boolean> boolVec;
+    vector<character> vec;
+
+    return 0;
+}
+
+//CHECK_FILE:globalVector.out

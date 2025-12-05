@@ -1,9 +1,8 @@
-// Global struct type and variable usage
+// no longer testing global structs bc initializers are scalar-only
 struct Point (integer x, integer y);
 
-const Point ORIGIN = Point(0, 0);
-
 procedure main() returns integer {
+    const Point ORIGIN = Point(0, 0);
     Point p = ORIGIN;
 
     p.x -> std_output;
@@ -14,4 +13,3 @@ procedure main() returns integer {
     return 0;
 }
 //CHECK_FILE:structGlobals.out
-

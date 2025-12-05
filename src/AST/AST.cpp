@@ -202,9 +202,10 @@ void TypeAliasDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 StructTypedDecNode::StructTypedDecNode(const std::string &name,
                                        const std::string &qualifier,
                                        CompleteType structType)
-    : qualifier(qualifier), init(nullptr) {
+{
   this->name = name;
   this->type = std::move(structType);
+  this->qualifier = qualifier;
 }
 StructAccessAssignStatNode::StructAccessAssignStatNode(
     std::shared_ptr<StructAccessNode> target,
@@ -214,16 +215,19 @@ TypedDecNode::TypedDecNode(const std::string &name,
                            std::shared_ptr<TypeAliasNode> type_alias,
                            const std::string &qualifier,
                            std::shared_ptr<ExprNode> init)
-    : qualifier(qualifier), type_alias(std::move(type_alias)),
-      init(std::move(init)) {
+    : type_alias(std::move(type_alias)) {
   this->name = name;
+  this->qualifier = qualifier;
+  this->init = std::move(init);
 }
 
 InferredDecNode::InferredDecNode(const std::string &name,
                                  const std::string &qualifier,
                                  std::shared_ptr<ExprNode> init)
-    : qualifier(qualifier), init(std::move(init)) {
+{
   this->name = name;
+  this->qualifier = qualifier;
+  this->init = std::move(init);
 }
 
 TupleTypeAliasNode::TupleTypeAliasNode(const std::string &aliasName,
