@@ -284,6 +284,7 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
         // 2. Resolve vectors
         CompleteType resolvedInit = resolveUnresolvedType(current_, initType, node->line);
         CompleteType promoted = promote(resolvedInit, declaredType);
+        node->type = promoted;
         handleAssignError(node->id, declaredType, promoted, node->line);
     } else if (declaredType.dims.empty()) {
         throw std::runtime_error("SemanticAnalysis::ArrayTypedDecNode: Empty dims for '" + node->id + "'.");
