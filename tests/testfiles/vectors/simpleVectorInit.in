@@ -19,7 +19,7 @@ procedure main() returns integer {
     // delayed init
     vec2 = [true, false];
     vec3 = [1, 2, 3];
-    vec4 = [1.0, 2.0, 3.0];
+    vec4 = [1.01, 2.0, 3.008];
 
     // assignment
     vec5 = vec4;
