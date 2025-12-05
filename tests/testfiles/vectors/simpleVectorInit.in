@@ -6,6 +6,15 @@ procedure main() returns integer {
     var vector<integer> vec3;
     var vector<real> vec4;
     var vector<real> vec5;
+    
+    // array containers since vectors can't be printed
+    var character[2] arr1;
+    var boolean[2] arr2;
+    var integer[3] arr3;
+    var real[3] arr4;
+    var real[3] arr5;
+
+
 
     // delayed init
     vec2 = [true, false];
@@ -15,15 +24,24 @@ procedure main() returns integer {
     // assignment
     vec5 = vec4;
 
-    vec1 -> std_output;
+    // copy over results into arrays
+    arr1 = vec1;
+    arr2 = vec2;
+    arr3 = vec3;
+    arr4 = vec4;
+    arr5 = vec5;
+
+    // print results
+
+    arr1 -> std_output;
     "\n" -> std_output;
-    vec2 -> std_output;
+    arr2 -> std_output;
     "\n" -> std_output;
-    vec3 -> std_output;
+    arr3 -> std_output;
     "\n" -> std_output;
-    vec4 -> std_output;
+    arr4 -> std_output;
     "\n" -> std_output;
-    vec5 -> std_output;
+    arr5 -> std_output;
     "\n" -> std_output;
 
     return 1;
