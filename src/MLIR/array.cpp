@@ -199,7 +199,6 @@ void MLIRGen::visit(ArrayLiteralNode *node){
         throw std::runtime_error("ArrayLiteralNode: failed to allocate array storage.");
     }
 
-    std::cout << (node->list->list.size());
     for (size_t i = 0; i < node->list->list.size(); ++i) {
         node->list->list[i]->accept(*this);
         VarInfo elem = popValue();

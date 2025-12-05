@@ -14,6 +14,8 @@ VarInfo MLIRGen::promoteType(VarInfo* from, CompleteType* toType, int line) {
         return *from;
     }
 
+    // TODO: support scalar -> array/matrix promotion
+
     // Only support integer -> real promotion
     if (from->type.baseType == BaseType::INTEGER && toType->baseType == BaseType::REAL) {
         VarInfo to = VarInfo(*toType);

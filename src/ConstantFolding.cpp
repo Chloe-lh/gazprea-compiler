@@ -192,9 +192,7 @@ void ConstantFoldingVisitor::visit(ExprListNode *node) {
 void ConstantFoldingVisitor::visit(ArrayLiteralNode *node) {
     if (!node) return;
     if (!node->list || node->list->list.empty()) {
-        node->type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{CompleteType(BaseType::UNKNOWN)});
-        // optionally set node->constant to an empty-array ConstantValue
-        return;
+        throw std::runtime_error("ConstantFolding::ArrayLiteralNode: null or empty list");
     }
 
     std::vector<ConstantValue> elems;
@@ -218,13 +216,9 @@ void ConstantFoldingVisitor::visit(ArrayLiteralNode *node) {
             common = promoted;
         }
         ConstantValue cv;
-        cv.type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{common});
+        cv.type = node->type;
         cv.value = elems;
         node->constant = cv;
-        node->type = cv.type; // keep AST type consistent
-    } else {
-        // still set node->type via semantic later; optionally set array<UNKNOWN>
-        node->type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{CompleteType(BaseType::UNKNOWN)});
     }
 }
 void ConstantFoldingVisitor::visit(RangeExprNode *node) {}
