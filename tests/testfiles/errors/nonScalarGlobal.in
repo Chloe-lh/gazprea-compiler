@@ -1,0 +1,7 @@
+character globalCharArr = 'a';
+integer[3] globalIntArr = [1, 2, 3];   // Non scalar global initializer
+
+procedure main() returns integer {
+    return 0;
+}
+//CHECK_FILE:nonScalarGlobal.out
