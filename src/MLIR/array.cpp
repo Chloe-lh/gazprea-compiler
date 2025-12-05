@@ -102,15 +102,14 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
     // Check if array is dynamic (dims[0] == -1)
     bool isDynamic = !declaredVar->type.dims.empty() && declaredVar->type.dims[0] < 0;
 
-    // --- Handle initializer expression ---
     if (node->init) {
-        // For dynamic arrays, we need to compute size from initializer first
+        // For dynamic arrays compute size from initializer first
         if (isDynamic) {
             // Visit initializer to get source VarInfo
             node->init->accept(*this);
             VarInfo literal = popValue();
             
-            // Compute size in MLIR (runtime computation)
+            // Compute size as runtime computation
             mlir::Value sizeValue = computeArraySize(&literal, node->line);
             
             // Allocate variable with computed size
@@ -118,11 +117,11 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
                 allocaVar(declaredVar, node->line, sizeValue);
             }
             
-            // Now assign the initializer to the variable
+            // Assign the initializer to the variable
             assignTo(&literal, declaredVar, node->line);
             return;
         } else {
-            // Static array - allocate first, then assign
+            // Static array - allocate, then assign
             // Compute total number of elements for static arrays from CompleteType::dims
             size_t totalElems = 1;
             bool allStatic = true;
