@@ -1,0 +1,8 @@
+boolean aVar = false;
+integer anInt = 99999;
+var integer aNum = 3;
+
+procedure main() returns integer {
+    return 0;
+}
+//CHECK_FILE:globalVarError.out
