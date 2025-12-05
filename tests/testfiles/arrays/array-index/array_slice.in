@@ -1,8 +1,8 @@
 procedure main() returns integer {
-    integer[*] a = 1..5; /* a = [1, 2, 3, 4, 5] */
-    integer x = a[..4]; /* x == [1, 2, 3] */
-    integer y = a[4..]; /* x == [4, 5] */
-    integer z = a[..-1]; /* x == [1, 2, 3, 4, (5? IDK)] */
+    integer[*] a = [1, 2, 3, 4, 5]; /* a = [1, 2, 3, 4, 5] */
+    integer[*] x = a[..4]; /* x == [1, 2, 3] */
+    integer[*] y = a[4..]; /* x == [4, 5] */
+    integer[*] z = a[..-1]; /* x == [1, 2, 3, 4, (5? IDK)] */
 
     x -> std_output;
     y -> std_output;
