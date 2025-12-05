@@ -274,7 +274,16 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                     node->type.dims = declaredType.dims;
                 }
             }
-
+        // Handle initializer as identifier
+        } else if (auto rhsId = std::dynamic_pointer_cast<IdNode>(node->init)) {
+            // 1b. Identifier initializer: permit only array/vector on RHS 
+            // TODO: Implement scalar initializer support
+            if (initType.baseType != BaseType::ARRAY &&
+                initType.baseType != BaseType::VECTOR) {
+                throw std::runtime_error(
+                    "SemanticAnalysis::ArrayTypedDecNode: Unsupported identifier initializer type '" +
+                    toString(initType) + "' for '" + node->id + "'.");
+            }
         } else {
             throw std::runtime_error("SemanticAnalysis::ArrayTypedDecNode: Unknown initializer for array '" + node->id + "'.");
         }
