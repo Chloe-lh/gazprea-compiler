@@ -122,6 +122,12 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
     if (node->init) {
         node->init->accept(*this);
         VarInfo literal = popValue();
+        // If the initializer is an empty array literal, its type will be
+        // an ARRAY with a concrete dim of 0 (or an UNKNOWN element type
+        // with dims {0}). In that case there's nothing to assign.
+        if (literal.type.baseType == BaseType::ARRAY && literal.type.subTypes[0]==BaseType::EMPTY) {
+            return;
+        }
         assignTo(&literal, declaredVar, node->line);
         return;
     }

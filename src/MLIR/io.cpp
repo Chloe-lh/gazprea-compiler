@@ -1,5 +1,6 @@
 #include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
+#include "Types.h"
 
 void MLIRGen::emitPrintScalar(const CompleteType &type, mlir::Value value) {
     const char* formatStrName = nullptr;
@@ -67,7 +68,46 @@ void MLIRGen::emitPrintScalar(const CompleteType &type, mlir::Value value) {
         printfFunc,
         mlir::ValueRange{formatStringPtr, valueToPrint});
 }
+void MLIRGen::emitPrintMatrix(const VarInfo &matrixVarInfo){
+    if(matrixVarInfo.type.baseType != BaseType::MATRIX){
+        throw std::runtime_error("emitMatrix: non-matrix type");
+    }
+    if (!matrixVarInfo.value ||
+        !matrixVarInfo.value.getType().isa<mlir::MemRefType>()) {
+        throw std::runtime_error("emitPrintArray: array has no memref storage");
+    }
+    if (matrixVarInfo.type.dims.size() != 1 || matrixVarInfo.type.dims[0] < 0) {
+        throw std::runtime_error("emitPrintArray: only static 1D arrays supported for printing");
+    }
+    int64_t rows = matrixVarInfo.type.dims[0];
+    int64_t cols = matrixVarInfo.type.dims[1];
+    CompleteType elemType = matrixVarInfo.type.subTypes.empty()
+                                ? CompleteType(BaseType::UNKNOWN)
+                                : matrixVarInfo.type.subTypes[0];
 
+    auto rowElemTy = getLLVMType(elemType); // or builder_.getI32Type()/getF32Type etc.
+    // result memref type for a row: memref<cols x elemTy> but SubView result will be memref<1 x cols x elemTy> or memref<cols x elemTy> depending on offsets/sizes
+    for (int64_t r = 0; r < rows; ++r) {
+        // offsets: [r, 0]
+        auto idxTy = builder_.getIndexType();
+        auto rConst = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, r));
+        auto zero   = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, 0));
+        // sizes: [1, cols] 
+        auto one = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, 1));
+        auto nConst = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, cols));
+
+        // Compute the subview result type: memref<1 x cols x elemTy> or memref<cols x elemTy>
+        mlir::MemRefType subviewTy = mlir::MemRefType::get({cols}, /*elementType=*/builder_.getI32Type()); // choose correct element
+        auto sub = builder_.create<mlir::memref::SubViewOp>(loc_, subviewTy,
+                    matrixVarInfo.value, mlir::ValueRange{rConst.getResult(), zero.getResult()},
+                    mlir::ValueRange{nConst.getResult()}, mlir::ValueRange{});
+
+        // Now build VarInfo for row and call emitPrintArray
+        VarInfo rowVar(CompleteType(BaseType::ARRAY, elemType, {static_cast<int>(cols)}));
+        rowVar.value = sub.getResult(); // subview result
+        emitPrintArray(rowVar);
+    }
+}
 void MLIRGen::emitPrintArray(const VarInfo &arrayVarInfo) {
     if (arrayVarInfo.type.baseType != BaseType::ARRAY) {
         throw std::runtime_error("emitPrintArray: non-array type");
@@ -232,8 +272,9 @@ void MLIRGen::visit(OutputStatNode* node) {
     node->expr->accept(*this);
     VarInfo exprVarInfo = popValue();
 
-
-    if (exprVarInfo.type.baseType == BaseType::ARRAY) {
+    if (exprVarInfo.type.baseType == BaseType::MATRIX || exprVarInfo.type.dims.size() == 2){
+        emitPrintMatrix(exprVarInfo);
+    }else if (exprVarInfo.type.baseType == BaseType::ARRAY) {
         emitPrintArray(exprVarInfo);
         return;
     } else if (exprVarInfo.type.baseType == BaseType::VECTOR) {

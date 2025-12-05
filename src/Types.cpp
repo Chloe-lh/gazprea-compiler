@@ -16,6 +16,7 @@ std::string toString(BaseType type) {
         case BaseType::ARRAY:      return "array";
         case BaseType::MATRIX:     return "matrix";
         case BaseType::UNRESOLVED: return "unresolved";
+        case BaseType::EMPTY:      return "empty";
     }
     throw std::runtime_error("toString: FATAL: No string representation found for type");
 }
@@ -113,6 +114,7 @@ BaseType promote(BaseType from, BaseType to)
                 case BaseType::MATRIX:     return BaseType::MATRIX;   // only valid if same len - special case with multiplication.
             }
             break;
+        case BaseType::EMPTY: return BaseType::EMPTY;
     }
     return BaseType::UNKNOWN;
 }
@@ -327,6 +329,7 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
         case BaseType::UNRESOLVED:
             throw std::runtime_error("Types::Promote: UNRESOLVED Type found");
             break;
+        case BaseType::EMPTY: return BaseType::EMPTY;
     }
     return CompleteType(BaseType::UNKNOWN);
 }

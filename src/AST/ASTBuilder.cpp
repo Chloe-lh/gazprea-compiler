@@ -95,7 +95,9 @@ std::any ASTBuilder::visitBuiltin_type(GazpreaParser::Builtin_typeContext *ctx) 
             dims.push_back(-1);
         }
     }
-
+    if(dims.size()==2){
+      CompleteType arr(BaseType::ARRAY);
+    }
     CompleteType arr(BaseType::ARRAY);
     arr.subTypes.push_back(elem);        // element type as single subtype
     arr.dims = std::move(dims);          // save dimensions

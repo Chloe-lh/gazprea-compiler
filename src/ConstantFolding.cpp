@@ -223,7 +223,10 @@ void ConstantFoldingVisitor::visit(ExprListNode *node) {
 void ConstantFoldingVisitor::visit(ArrayLiteralNode *node) {
     if (!node) return;
     if (!node->list || node->list->list.empty()) {
-        throw std::runtime_error("ConstantFolding::ArrayLiteralNode: null or empty list");
+        // Represent empty array literal as an ARRAY with UNKNOWN element
+        // subtype so it can act as a wildcard for later type promotion.
+        node->type = CompleteType(BaseType::ARRAY, CompleteType(BaseType::UNKNOWN), {0});
+        return;
     }
 
     std::vector<ConstantValue> elems;

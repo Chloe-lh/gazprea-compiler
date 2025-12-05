@@ -197,11 +197,9 @@ void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
         throw TypeError(node->line, "Semantic Analysis: index operator applied to non-array type.");
     }
 
-    // Check index is positive if known at compile-time
-    if (node->index <= 0 && !var->type.dims.empty() && var->type.dims[0] >= 0) {
-        IndexError(("Index " + std::to_string(node->index) + " out of range for array of length " +
-                    std::to_string(var->type.dims[0])).c_str());
-        return;
+    // ! INDEX CAN BE NEGATIVE
+    if (node->index > node->type.dims.size() || node->index < -1){
+        IndexError(("Index " + std::to_string(node->index) + " out of range for array/vector of len " + std::to_string(var->type.subTypes.size())).c_str());
     }
 
     if (baseType.subTypes.size() != 1) {
@@ -272,6 +270,14 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                     declaredType.dims[0] = static_cast<int>(litSize);
                     declared->type.dims = declaredType.dims;
                     node->type.dims = declaredType.dims;
+                }
+                // If the initializer is an empty array literal, it currently
+                // carries an EMPTY subtype and no element type information.
+                // Propagate the declared element subtype into the literal so
+                // subsequent promotion/type checks succeed (e.g. when the
+                // declared element type is numeric and the literal is empty).
+                if (litSize == 0) {
+                    lit->type = declaredType;
                 }
             }
         // Handle initializer as identifier
@@ -379,9 +385,10 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
 
 void SemanticAnalysisVisitor::visit(ArrayLiteralNode *node) {
     // std::cerr << "[DEBUG]: visiting ArrayLiteralNode" << std::endl;
-    // If no elements, set to special type EMPTY so it is assignable
+    // If no elements, represent as ARRAY with UNKNOWN element subtype
+    // so it can act as a wildcard for later type resolution/promotions.
     if (!node->list || node->list->list.empty()) {
-        node->type = CompleteType(BaseType::ARRAY, BaseType::EMPTY, {0});
+        node->type = CompleteType(BaseType::ARRAY, CompleteType(BaseType::UNKNOWN), {0});
         return;
     }
 
