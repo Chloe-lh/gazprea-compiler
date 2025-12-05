@@ -44,5 +44,5 @@ procedure main() returns integer {
     arr5 -> std_output;
     "\n" -> std_output;
 
-    return 1;
+    return 0;
 }
