@@ -1,0 +1,8 @@
+procedure main() returns integer{
+    integer i = 1;
+    integer[*] v = [1, 2, 3, 4, 5];
+    integer[*] res = v + i;
+
+    res -> std_output;
+}
+//CHECK_FILE:array_scalar.out

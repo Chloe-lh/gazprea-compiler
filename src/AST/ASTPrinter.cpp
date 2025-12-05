@@ -284,6 +284,20 @@ void ASTPrinter::visit(MultExpr *node) {
   indent--;
 }
 
+void ASTPrinter::visit(DotExpr *node) {
+  printTreeLine("DotExpr", "op: " + node->op);
+  indent++;
+  pushChildContext(false);
+  if (node->left) node->left->accept(*this);
+  else printTreeLine("<null left>");
+  popChildContext();
+  pushChildContext(true);
+  if (node->right) node->right->accept(*this);
+  else printTreeLine("<null right>");
+  popChildContext();
+  indent--;
+}
+
 void ASTPrinter::visit(AddExpr *node) {
   printTreeLine("AddExpr", "op: " + node->op);
   indent++;

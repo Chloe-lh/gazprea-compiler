@@ -1,0 +1,5 @@
+procedure main() returns integer{
+    real[*] v = []; /* Should create an empty array */
+    return 0;
+}
+//CHECK_FILE:array_empty.out

@@ -1,3 +1,4 @@
+#include "AST.h"
 #include "ConstantHelpers.h"
 #include  "GazpreaParser.h"
 #include "ASTBuilder.h"
@@ -245,5 +246,27 @@ namespace gazprea{
         }
         return expr_any(std::move(node));
         }
+    std::any ASTBuilder::visitDotExpr(GazpreaParser::DotExprContext *ctx) {
+        std::shared_ptr<ExprNode> left = nullptr;
+        std::shared_ptr<ExprNode> right = nullptr;
+
+        if (ctx->expr().size() >= 1) {
+            auto anyLeft = visit(ctx->expr(0));
+            if (anyLeft.has_value()) left = safe_any_cast_ptr<ExprNode>(anyLeft);
+        }
+        if (ctx->expr().size() >= 2) {
+            auto anyRight = visit(ctx->expr(1));
+            if (anyRight.has_value()) right = safe_any_cast_ptr<ExprNode>(anyRight);
+        }
+
+        std::string opText;
+        if (ctx->DOTPROD()) opText = ctx->DOTPROD()->getText();
+
+        auto node = std::make_shared<DotExpr>(opText, left, right);
+        setLocationFromCtx(node, ctx);
+        node->constant.reset();
+        // dot product constant folding is performed in the ConstantFolding pass
+        return expr_any(std::move(node));
+    }
 
 }
