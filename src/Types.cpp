@@ -123,16 +123,6 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
     validateSubtypes(from);
     validateSubtypes(to);
 
-    /* TODO pt2
-        Scalar to Composite
-        - Implement checks on scalar -> composite only when subtypes align
-        - Implement conversion from scalar -> composite where applicable
-
-        Composite to Composite
-        - Implement size checks (arr, vec, matrix)
-        - Handle matmul edge case
-        - Handle struct member-wise checks 
-    */
     switch(from.baseType) {
         case BaseType::UNKNOWN:
             return CompleteType(BaseType::UNKNOWN);
@@ -140,16 +130,41 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
             switch(to.baseType) {
                 case BaseType::BOOL:       return BaseType::BOOL;
 
-                // Implicit promotions
-                case BaseType::ARRAY:      return BaseType::ARRAY;
-                case BaseType::VECTOR:     return BaseType::VECTOR; 
-                case BaseType::MATRIX:     return BaseType::MATRIX;
+                // Implicit scalar -> array-like promotions
+                case BaseType::ARRAY: 
+                case BaseType::VECTOR:
+                case BaseType::MATRIX:
+                {
+
+                    // Need to be able to promote `from` type to array-like subtype
+                    CompleteType subType = promote(from, to.subTypes[0]);
+
+                    // Return UNKNOWN if subtype promotion failed
+                    if (subType != to.subTypes[0]) return CompleteType(BaseType::UNKNOWN);
+
+                    return to;
+                };
                 default: break;
             }
             break;
         case BaseType::CHARACTER:
             switch (to.baseType) {
                 case BaseType::CHARACTER:  return BaseType::CHARACTER; 
+
+                // Implicit scalar -> array-like promotions
+                case BaseType::ARRAY: 
+                case BaseType::VECTOR:
+                case BaseType::MATRIX:
+                {
+
+                    // Need to be able to promote `from` type to array-like subtype
+                    CompleteType subType = promote(from, to.subTypes[0]);
+
+                    // Return UNKNOWN if subtype promotion failed
+                    if (subType != to.subTypes[0]) return CompleteType(BaseType::UNKNOWN);
+
+                    return to;
+                };
                 default: break;
             }
             break;
@@ -158,10 +173,21 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                 case BaseType::INTEGER:    return BaseType::INTEGER; 
                 case BaseType::REAL:       return BaseType::REAL;
 
-                // Implicit promotions
-                case BaseType::ARRAY:      return BaseType::ARRAY;
-                case BaseType::VECTOR:     return BaseType::VECTOR; 
-                case BaseType::MATRIX:     return BaseType::MATRIX;
+                // Implicit scalar -> array-like promotions
+                case BaseType::ARRAY: 
+                case BaseType::VECTOR:
+                case BaseType::MATRIX:
+                {
+
+                    // Need to be able to promote `from` type to array-like subtype
+                    CompleteType subType = promote(from, to.subTypes[0]);
+
+                    // Return UNKNOWN if subtype promotion failed
+                    if (subType != to.subTypes[0]) return CompleteType(BaseType::UNKNOWN);
+
+                    return to;
+                };
+
                 default: break;
             }
             break;
@@ -169,10 +195,21 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
             switch (to.baseType) {
                 case BaseType::REAL:       return BaseType::REAL;
 
-                // Implicit promotions
-                case BaseType::ARRAY:      return BaseType::ARRAY;
-                case BaseType::VECTOR:     return BaseType::VECTOR; 
-                case BaseType::MATRIX:     return BaseType::MATRIX;
+                // Implicit scalar -> array-like promotions
+                case BaseType::ARRAY: 
+                case BaseType::VECTOR:
+                case BaseType::MATRIX:
+                {
+
+                    // Need to be able to promote `from` type to array-like subtype
+                    CompleteType subType = promote(from, to.subTypes[0]);
+
+                    // Return UNKNOWN if subtype promotion failed
+                    if (subType != to.subTypes[0]) return CompleteType(BaseType::UNKNOWN);
+
+                    return to;
+                };
+
                 default: break;
             }
             break;
@@ -198,7 +235,7 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                 default: break;
             }
             break;
-        case BaseType::STRING:
+        case BaseType::STRING: // TODO: handle comprehensive promotions for strings
             switch (to.baseType) {
                 case BaseType::STRING:     return BaseType::STRING;   // not the same as vector<char>.
                 default: break;
@@ -231,13 +268,9 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
             }
 
             switch (to.baseType) {
-                case BaseType::ARRAY: {
-                    if (to.subTypes.size() != 1) {
-                        throw std::runtime_error(
-                            "promote(): to array with subtype len " +
-                            std::to_string(to.subTypes.size()));
-                    }
-
+                case BaseType::ARRAY: 
+                case BaseType::VECTOR:
+                {
                     // ensure dimensions match
                     if (from.dims[0] != to.dims[0]) {
                         return CompleteType(BaseType::UNKNOWN);
@@ -247,35 +280,15 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                         return CompleteType(BaseType::UNKNOWN);
                     }
 
-                    CompleteType result(BaseType::ARRAY);
                     CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
 
-                    result.subTypes.push_back(subtypeResult);
-                    result.dims = to.dims;
-
-                    return result;
-                }
-
-                case BaseType::VECTOR: {
-
-                    if (to.subTypes.size() != 1) {
-                        throw std::runtime_error(
-                            "promote(): to vector with subtype len " +
-                            std::to_string(to.subTypes.size()));
+                    if (subtypeResult != to.subTypes[0]) {
+                        return CompleteType(BaseType::UNKNOWN);
                     }
 
-                    if (from.dims.empty() || to.dims.empty()) {
-                        throw std::runtime_error("Types::promote: Array -> vector promotion with nonexistent dimenion(s)");
-                    }
-
-                    CompleteType result(BaseType::VECTOR);
-                    CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
-
-                    result.subTypes.push_back(subtypeResult);
-                    result.dims = to.dims;
-
-                    return result;
+                    return to;
                 }
+
                 default: break;
             }
             break;
@@ -287,39 +300,30 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
             }
 
             switch (to.baseType) {
-                case BaseType::VECTOR: {
-                    if (to.subTypes.size() != 1) {
-                        throw std::runtime_error(
-                            "promote(): to vector with subtype len " +
-                            std::to_string(to.subTypes.size()));
+                case BaseType::ARRAY: 
+                case BaseType::VECTOR:
+                {
+                    // ensure dimensions match
+                    if (from.dims[0] != to.dims[0]) {
+                        return CompleteType(BaseType::UNKNOWN);
                     }
 
-                    CompleteType result(BaseType::VECTOR);
-                    CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
-
-                    result.subTypes.push_back(subtypeResult);
-                    result.dims = to.dims;
-
-                    return result;
-                }
-                case BaseType::ARRAY: {
-                    if (to.subTypes.size() != 1) {
-                        throw std::runtime_error(
-                            "promote(): to array with subtype len " +
-                            std::to_string(to.subTypes.size()));
+                    if (from.dims[0] != to.dims[0]) {
+                        return CompleteType(BaseType::UNKNOWN);
                     }
 
-                    CompleteType result(BaseType::ARRAY);
                     CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
 
-                    result.subTypes.push_back(subtypeResult);
-                    result.dims = to.dims;
+                    if (subtypeResult != to.subTypes[0]) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
 
-                    return result;
+                    return to;
                 }
                 default: break;
             }
             break;
+
         case BaseType::MATRIX:
             if (from.subTypes.size() != 1) {
                 throw std::runtime_error(
