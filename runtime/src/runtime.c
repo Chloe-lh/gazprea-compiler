@@ -106,3 +106,36 @@ void readBool(int8_t* out) {
 int32_t stream_state_runtime(int32_t dummy) {
     return g_stream_state;
 }
+
+// Slice struct for array slicing
+typedef struct {
+    int32_t* ptr;
+    size_t len;
+} gaz_slice_int;
+
+// Array slicing function with bounds checking
+// All parameters are 0-based (converted from 1-based in MLIR)
+// Returns a slice struct with pointer and length
+gaz_slice_int gaz_slice_int_checked(int32_t* base, size_t base_len, size_t start, size_t end) {
+    gaz_slice_int result;
+    
+    // If end <= start, return empty slice (no error)
+    if (end <= start) {
+        result.ptr = base;
+        result.len = 0;
+        return result;
+    }
+    
+    // Bounds checking: start and end must be within [0, base_len]
+    if (start >= base_len) {
+        IndexError("Slice start index out of bounds");
+    }
+    if (end > base_len) {
+        IndexError("Slice end index out of bounds");
+    }
+    
+    // Create slice: pointer to start position, length is end - start
+    result.ptr = base + start;
+    result.len = end - start;
+    return result;
+}

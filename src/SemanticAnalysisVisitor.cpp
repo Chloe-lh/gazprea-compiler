@@ -160,13 +160,16 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
         node->range->accept(*this);
     }
     // validate range against compile-time array size if available
+    // Note: We allow negative indices (they will be converted at runtime)
     VarInfo* varInfo = current_->resolveVar(node->id, node->line);
     if (node->range && varInfo && !varInfo->type.dims.empty() && varInfo->type.dims[0] >= 0) {
         auto sz = varInfo->type.dims[0];
-        // If start/end are integer literals, check bounds
+        // If start/end are integer literals, check bounds (but allow negative indices)
         if (node->range->start) {
             if (auto in = std::dynamic_pointer_cast<IntNode>(node->range->start)) {
-                if (in->value <= 0 || in->value > sz) {
+                // Only check bounds if index is positive and out of range
+                // Negative indices are allowed and will be converted at runtime
+                if (in->value > 0 && in->value > sz) {
                     IndexError((std::string("Index ") + std::to_string(in->value) + " out of range for array of len " + std::to_string(sz)).c_str());
                     return;
                 }
@@ -174,15 +177,19 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
         }
         if (node->range->end) {
             if (auto in = std::dynamic_pointer_cast<IntNode>(node->range->end)) {
-                if (in->value <= 0 || in->value > sz) {
+                // Only check bounds if index is positive and out of range
+                // Negative indices are allowed and will be converted at runtime
+                if (in->value > 0 && in->value > sz) {
                     IndexError((std::string("Index ") + std::to_string(in->value) + " out of range for array of len " + std::to_string(sz)).c_str());
                     return;
                 }
             }
         }
     }
-    // slicing yields an array of the same element type
+    // slicing yields an array of the same element type, but with dynamic dimensions
     node->type = baseType;
+    node->type.dims.clear();
+    node->type.dims.push_back(-1); // Dynamic dimension
 }
 
 void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {

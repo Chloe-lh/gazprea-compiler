@@ -122,18 +122,71 @@ namespace gazprea{
   std::any ASTBuilder::visitRangeExpr(gazprea::GazpreaParser::RangeExprContext *ctx){
     std::shared_ptr<ExprNode> start = nullptr;
     std::shared_ptr<ExprNode> end = nullptr;
-    auto startAny = visit(ctx->expr(0));
-    auto endAny = visit(ctx->expr(1));
-    if(startAny.has_value()){
-      try {
-        start = safe_any_cast_ptr<ExprNode>(startAny);
-      } catch (const std::bad_any_cast&) {
-        start = nullptr;
+    
+    // Check which alternative was matched:
+    // RANGE expr -> only end
+    // expr RANGE -> only start  
+    // expr RANGE expr -> both start and end
+    
+    if (ctx->RANGE()) {
+      // Check if RANGE comes first (RANGE expr) or second (expr RANGE or expr RANGE expr)
+      auto exprs = ctx->expr();
+      if (exprs.size() > 0) {
+        // Find which expression comes before/after RANGE
+        // For simplicity, check if we have 1 or 2 expressions
+        if (exprs.size() == 1) {
+          // Either RANGE expr or expr RANGE
+          // Check token positions to determine which
+          auto rangeToken = ctx->RANGE()->getSymbol();
+          auto exprNode = exprs[0];
+          // If expr comes after RANGE token, it's the end
+          // If expr comes before RANGE token, it's the start
+          // For now, use a simpler heuristic: if there's only one expr and RANGE exists,
+          // we need to check the actual token order. Let's use a different approach:
+          // Check if the first token of the rangeExpr is RANGE
+          if (ctx->getStart()->getType() == gazprea::GazpreaParser::RANGE) {
+            // RANGE expr -> end only
+            auto endAny = visit(exprs[0]);
+            if(endAny.has_value()){
+              try {
+                end = safe_any_cast_ptr<ExprNode>(endAny);
+              } catch (const std::bad_any_cast&) {
+                end = nullptr;
+              }
+            }
+          } else {
+            // expr RANGE -> start only
+            auto startAny = visit(exprs[0]);
+            if(startAny.has_value()){
+              try {
+                start = safe_any_cast_ptr<ExprNode>(startAny);
+              } catch (const std::bad_any_cast&) {
+                start = nullptr;
+              }
+            }
+          }
+        } else if (exprs.size() == 2) {
+          // expr RANGE expr -> both
+          auto startAny = visit(exprs[0]);
+          auto endAny = visit(exprs[1]);
+          if(startAny.has_value()){
+            try {
+              start = safe_any_cast_ptr<ExprNode>(startAny);
+            } catch (const std::bad_any_cast&) {
+              start = nullptr;
+            }
+          }
+          if(endAny.has_value()){
+            try {
+              end = safe_any_cast_ptr<ExprNode>(endAny);
+            } catch (const std::bad_any_cast&) {
+              end = nullptr;
+            }
+          }
+        }
       }
     }
-    if(endAny.has_value()){
-      end = safe_any_cast_ptr<ExprNode>(endAny);
-    }
+    
     auto node = std::make_shared<RangeExprNode>(start, end);
     setLocationFromCtx(node, ctx);
     return expr_any(std::move(node));

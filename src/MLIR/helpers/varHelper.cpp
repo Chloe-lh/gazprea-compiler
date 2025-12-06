@@ -157,7 +157,17 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
             // TODO: Implement int -> array
         }
         // Ensure literal storage exists first (needed to get size for dynamic arrays)
-        if (!literal->value) allocaVar(literal, line);
+        // But skip allocation for slice structs - they're already values, not memrefs
+        if (!literal->value) {
+            allocaVar(literal, line);
+        } else if (literal->value.getType().isa<mlir::LLVM::LLVMStructType>()) {
+            // Slice struct - no allocation needed, it's already a value
+        } else {
+            // Memref - ensure it's allocated (should already be, but check anyway)
+            if (!literal->value) {
+                allocaVar(literal, line);
+            }
+        }
 
         auto getLen = [](const CompleteType &t) -> std::optional<int64_t> {
             if (t.baseType != BaseType::ARRAY) return std::nullopt;
@@ -187,15 +197,28 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
                 loc_, static_cast<int64_t>(litLen.value()));
             variable->type.dims = literal->type.dims;
         } else {
-            // Both are dynamic - get size from source memref at runtime
-            if (!literal->value.getType().isa<mlir::MemRefType>()) {
+            // Both are dynamic - check if source is a slice struct or memref
+            if (literal->value.getType().isa<mlir::LLVM::LLVMStructType>()) {
+                // Source is a slice struct - extract length from struct
+                llvm::SmallVector<int64_t, 1> lenPos{1}; // Second field is length
+                mlir::Value sliceLen_i64 = builder_.create<mlir::LLVM::ExtractValueOp>(
+                    loc_, literal->value, lenPos
+                );
+                // Convert i64 to index
+                nVal = builder_.create<mlir::arith::IndexCastOp>(
+                    loc_, idxTy, sliceLen_i64
+                );
+                // Update variable type to match (dynamic size)
+                variable->type.dims = literal->type.dims;
+            } else if (literal->value.getType().isa<mlir::MemRefType>()) {
+                // Source is a memref - get size from memref at runtime
+                auto zeroIdx = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+                nVal = builder_.create<mlir::memref::DimOp>(loc_, literal->value, zeroIdx);
+                // Update variable type to match (dynamic size)
+                variable->type.dims = literal->type.dims;
+            } else {
                 throw AssignError(line, "cannot determine array length for assignment");
             }
-            auto zeroIdx = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
-            // Get the dynamic size from the memref (in current block)
-            nVal = builder_.create<mlir::memref::DimOp>(loc_, literal->value, zeroIdx);
-            // Update variable type to match (dynamic size)
-            variable->type.dims = literal->type.dims;
         }
         
         // Ensure destination is allocated (should already be done for dynamic arrays in visit(ArrayTypedDecNode*))
@@ -213,14 +236,40 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
         auto c0 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
         auto c1 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
         
+        // Check if source is a slice struct or memref
+        bool isSliceStruct = literal->value.getType().isa<mlir::LLVM::LLVMStructType>();
+        mlir::Value slicePtr;
+        
+        if (isSliceStruct) {
+            // Extract pointer from slice struct (first field)
+            llvm::SmallVector<int64_t, 1> ptrPos{0}; // First field is pointer
+            slicePtr = builder_.create<mlir::LLVM::ExtractValueOp>(
+                loc_, literal->value, ptrPos
+            );
+        }
+        
         builder_.create<mlir::scf::ForOp>(
             loc_, c0, nVal, c1, mlir::ValueRange{},
             [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value iv, mlir::ValueRange args) {
                 // Use loop index iv
                 mlir::Value idx = iv;
 
-                // load source element
-                mlir::Value srcElemVal = b.create<mlir::memref::LoadOp>(l, literal->value, mlir::ValueRange{idx});
+                // Load source element
+                mlir::Value srcElemVal;
+                if (isSliceStruct) {
+                    // Load from slice pointer using GEP and load
+                    auto i32Ty = b.getI32Type();
+                    auto i32PtrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+                    auto i64Ty = b.getI64Type();
+                    auto idx_i64 = b.create<mlir::arith::IndexCastOp>(l, i64Ty, idx);
+                    mlir::Value gep = b.create<mlir::LLVM::GEPOp>(
+                        l, i32PtrTy, i32Ty, slicePtr, mlir::ValueRange{idx_i64}
+                    );
+                    srcElemVal = b.create<mlir::LLVM::LoadOp>(l, i32Ty, gep);
+                } else {
+                    // Load from memref
+                    srcElemVal = b.create<mlir::memref::LoadOp>(l, literal->value, mlir::ValueRange{idx});
+                }
 
                 // build a temp VarInfo for the source element
                 if (literal->type.subTypes.size() != 1) {
@@ -312,7 +361,25 @@ mlir::Value MLIRGen::computeArraySize(VarInfo* source, int line) {
         return builder_.create<mlir::memref::DimOp>(loc_, source->value, zeroIdx);
     }
     
-    throw std::runtime_error("computeArraySize: source is not a memref or array type");
+    // Check if source is a slice struct (LLVM struct type)
+    if (source->value.getType().isa<mlir::LLVM::LLVMStructType>()) {
+        // Slice struct layout: { i32* ptr, i64 len }
+        // Extract length from second field (index 1)
+        // Note: This extraction happens in current block where slice struct exists
+        // The returned size value can be used in entry block as long as current block
+        // is reachable from entry block (which it should be for variable declarations)
+        llvm::SmallVector<int64_t, 1> lenPos{1};
+        mlir::Value sliceLen_i64 = builder_.create<mlir::LLVM::ExtractValueOp>(
+            loc_, source->value, lenPos
+        );
+        // Convert i64 to index
+        auto idxTy = builder_.getIndexType();
+        return builder_.create<mlir::arith::IndexCastOp>(
+            loc_, idxTy, sliceLen_i64
+        );
+    }
+    
+    throw std::runtime_error("computeArraySize: source is not a memref, slice struct, or array type");
 }
 
 void MLIRGen::allocaLiteral(VarInfo* varInfo, int line) {
@@ -405,9 +472,13 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
         throw std::runtime_error("allocaVar: could not find parent function for allocation");
     }
 
-    // Always allocate at the beginning of the entry block
+    // For static allocations, always allocate at the beginning of the entry block
+    // For dynamic allocations (with sizeValue), allocate in current block to ensure sizeValue dominates
     mlir::Block &entry = funcOp.front();
     mlir::OpBuilder entryBuilder(&entry, entry.begin());
+    
+    // Determine if we should allocate in entry block or current block
+    bool allocateInEntry = !sizeValue; // Static allocations go in entry block
 
     switch (varInfo->type.baseType) {
         case BaseType::BOOL:
@@ -454,8 +525,11 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
                     throw std::runtime_error("allocaVar: dynamic array requires sizeValue parameter for variable '" +
                                              (varInfo->identifier.empty() ? std::string("<temporary>") : varInfo->identifier) + "'");
                 }
+                // For dynamic arrays, allocate in current block (not entry block) because
+                // sizeValue is computed in current block and must dominate the allocation
+                // This is safe for variable declarations which happen early in function body
                 auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, elemTy);
-                varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
+                varInfo->value = builder_.create<mlir::memref::AllocaOp>(
                     loc_,
                     memTy,
                     mlir::ValueRange{sizeValue}, // dynamic size operand
