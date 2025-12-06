@@ -184,8 +184,10 @@ class ArrayAccessNode : public ExprNode {
 public:
   std::string id;
   int index;
+  int index2D;
   VarInfo *binding = nullptr;
   ArrayAccessNode(const std::string &id, int index) : id(id), index(index) {}
+  ArrayAccessNode(const std::string &id, int i1, int i2) : id(id), index(i1), index2D(i2) {}
   void accept(ASTVisitor &visitor) override;
 };
 class ArrayLiteralNode;

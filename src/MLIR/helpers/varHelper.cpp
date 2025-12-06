@@ -84,6 +84,56 @@ VarInfo MLIRGen::createLiteralFromConstant(const ConstantValue &cv, const Comple
             builder_.create<mlir::memref::StoreOp>(loc_, c, lit.value, mlir::ValueRange{});
             break;
         }
+        case BaseType::MATRIX: {
+            // Matrix constant is a vector<ConstantValue> where each element is a row (ARRAY of scalars)
+            if (!std::holds_alternative<std::vector<ConstantValue>>(cv.value)) {
+                throw std::runtime_error("createLiteralFromConstant: MATRIX constant has invalid structure");
+            }
+            
+            const auto &rows = std::get<std::vector<ConstantValue>>(cv.value);
+            if (rows.empty()) {
+                throw std::runtime_error("createLiteralFromConstant: empty matrix constant");
+            }
+            
+            // Allocate 2D memref
+            if (!lit.value) {
+                allocaLiteral(&lit, line);
+            }
+            
+            // Store each element: matrix[i][j] = rows[i].elements[j]
+            auto idxTy = builder_.getIndexType();
+            for (size_t i = 0; i < rows.size(); ++i) {
+                if (!std::holds_alternative<std::vector<ConstantValue>>(rows[i].value)) {
+                    throw std::runtime_error("createLiteralFromConstant: matrix row is not a vector");
+                }
+                const auto &row = std::get<std::vector<ConstantValue>>(rows[i].value);
+                
+                for (size_t j = 0; j < row.size(); ++j) {
+                    const auto &elem = row[j];
+                    mlir::Value elemVal;
+                    
+                    if (elem.type.baseType == BaseType::INTEGER) {
+                        auto i32 = builder_.getI32Type();
+                        int64_t v = std::get<int64_t>(elem.value);
+                        elemVal = builder_.create<mlir::arith::ConstantOp>(loc_, i32, builder_.getIntegerAttr(i32, v));
+                    } else if (elem.type.baseType == BaseType::REAL) {
+                        auto f32 = builder_.getF32Type();
+                        double dv = std::get<double>(elem.value);
+                        elemVal = builder_.create<mlir::arith::ConstantOp>(loc_, f32, builder_.getFloatAttr(f32, static_cast<float>(dv)));
+                    } else {
+                        throw std::runtime_error("createLiteralFromConstant: unsupported matrix element type");
+                    }
+                    
+                    mlir::Value idxI = builder_.create<mlir::arith::ConstantOp>(
+                        loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(i)));
+                    mlir::Value idxJ = builder_.create<mlir::arith::ConstantOp>(
+                        loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(j)));
+                    
+                    builder_.create<mlir::memref::StoreOp>(loc_, elemVal, lit.value, mlir::ValueRange{idxI, idxJ});
+                }
+            }
+            break;
+        }
         default:
             throw std::runtime_error("createLiteralFromConstant: unsupported constant type");
     }
@@ -173,6 +223,11 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
             builder_.create<mlir::LLVM::LoadOp>(loc_, structTy, literal->value);
         builder_.create<mlir::LLVM::StoreOp>(loc_, srcStruct, variable->value);
         return;
+    } else if ((variable->type.baseType == BaseType::ARRAY || variable->type.baseType == BaseType::MATRIX) &&
+               (literal->type.baseType == BaseType::ARRAY || literal->type.baseType == BaseType::MATRIX)) {
+        // Array/Matrix assignment
+        assignToArray(literal, variable, line);
+        return;
     } else if (isScalarType(variable->type.baseType) && isScalarType(literal->type.baseType)) {
 
         // Scalar assignment
@@ -196,19 +251,49 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
 }
 
 void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
-    if (rhs->type.baseType != BaseType::ARRAY && rhs->type.baseType != BaseType::VECTOR) {
-        throw AssignError(line, "Cannot assign type" + toString(rhs->type) + " to array lhs");
-        // TODO: Implement int -> array
+    if ((rhs->type.baseType != BaseType::ARRAY && rhs->type.baseType != BaseType::VECTOR && rhs->type.baseType != BaseType::MATRIX) ||
+        (lhs->type.baseType != BaseType::ARRAY && lhs->type.baseType != BaseType::VECTOR && lhs->type.baseType != BaseType::MATRIX)) {
+        throw AssignError(line, "Cannot assign type " + toString(rhs->type) + " to " + toString(lhs->type));
     }
+    
     // Ensure both storages exist
     if (!lhs->value) allocaVar(lhs, line);
     if (!rhs->value) allocaVar(rhs, line);
 
-    // Ensure name dimension count, e.g. to prevent matrix assignment to array
+    // Ensure same dimension count
     if (lhs->type.dims.size() != rhs->type.dims.size()) {
-        throw SizeError(line, "Mismatched lhs (array) and rhs dimensions of " + std::to_string(lhs->type.dims.size()) + " and " + std::to_string(rhs->type.dims.size()));
+        throw SizeError(line, "Mismatched lhs and rhs dimensions of " + std::to_string(lhs->type.dims.size()) + " and " + std::to_string(rhs->type.dims.size()));
     }
 
+    // Handle 2D array/matrix assignment
+    if (lhs->type.dims.size() == 2) {
+        int lhsRows = lhs->type.dims[0];
+        int lhsCols = lhs->type.dims[1];
+        int rhsRows = rhs->type.dims[0];
+        int rhsCols = rhs->type.dims[1];
+        
+        if (lhsRows != rhsRows || lhsCols != rhsCols) {
+            throw SizeError(line, "Mismatched matrix dimensions");
+        }
+        
+        auto idxTy = builder_.getIndexType();
+        for (int i = 0; i < lhsRows; ++i) {
+            for (int j = 0; j < lhsCols; ++j) {
+                mlir::Value idxI = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, idxTy, builder_.getIntegerAttr(idxTy, i));
+                mlir::Value idxJ = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, idxTy, builder_.getIntegerAttr(idxTy, j));
+                
+                mlir::Value srcVal = builder_.create<mlir::memref::LoadOp>(
+                    loc_, rhs->value, mlir::ValueRange{idxI, idxJ});
+                builder_.create<mlir::memref::StoreOp>(
+                    loc_, srcVal, lhs->value, mlir::ValueRange{idxI, idxJ});
+            }
+        }
+        return;
+    }
+
+    // Handle 1D array/vector assignment
     int lhsLen = lhs->type.dims[0] == -1 ? lhs->runtimeLen : lhs->type.dims[0];
     int rhsLen = rhs->type.dims[0] == -1 ? rhs->runtimeLen : rhs->type.dims[0];
 
@@ -217,8 +302,6 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
     if (lhsLen != rhsLen && rhs->type.baseType != BaseType::VECTOR) {
         throw SizeError(line, "Mismatched lhs (array) and rhs lengths of " + std::to_string(lhs->type.dims[0]) + " and " + std::to_string(rhs->type.dims[0]));
     }
-
-    if (lhsLen <= 0) throw std::runtime_error("MLIRGen::assignToArray: Runtime len of " + std::to_string(lhsLen) + " is invalid");
 
     size_t n = lhsLen;
     auto idxTy = builder_.getIndexType();
@@ -456,10 +539,43 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
                 int64_t n = varInfo->type.dims[0];
                 auto memTy = mlir::MemRefType::get({n}, elemTy);
                 varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
+            } else if (varInfo->type.dims.size() == 2 && varInfo->type.dims[0] >= 0 && varInfo->type.dims[1] >= 0) {
+                // 2D array (matrix)
+                int64_t rows = varInfo->type.dims[0];
+                int64_t cols = varInfo->type.dims[1];
+                auto memTy = mlir::MemRefType::get({rows, cols}, elemTy);
+                varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
             } else {
                 throw std::runtime_error("allocaVar: unsupported array shape with dimension " + std::to_string(varInfo->type.dims.size()) + " for variable '" +
                                          (varInfo->identifier.empty() ? std::string("<unknown>") : varInfo->identifier) + "'");
             }
+            break;
+        }
+
+        case BaseType::MATRIX: {
+            // Matrix is represented as 2D memref
+            if (varInfo->type.subTypes.empty()) {
+                throw std::runtime_error("allocaVar: MATRIX type has no element subtype for variable '" +
+                                         (varInfo->identifier.empty() ? std::string("<unknown>") : varInfo->identifier) + "'");
+            }
+            mlir::Type elemTy = getLLVMType(varInfo->type.subTypes[0]);
+            std::cerr << "DEBUG: dims: " << varInfo->type.dims[0] << varInfo->type.dims[1];
+            if (varInfo->type.dims.size() != 2) {
+                throw std::runtime_error("allocaVar: MATRIX requires 2 dimensions but got " + 
+                                         std::to_string(varInfo->type.dims.size()) + " for variable '" +
+                                         (varInfo->identifier.empty() ? std::string("<unknown>") : varInfo->identifier) + "'");
+            }
+            if (varInfo->type.dims[0] < 0 || varInfo->type.dims[1] < 0) {
+                throw std::runtime_error("allocaVar: MATRIX dimensions cannot be inferred (dims: " + 
+                                         std::to_string(varInfo->type.dims[0]) + "," + std::to_string(varInfo->type.dims[1]) + 
+                                         ") for variable '" +
+                                         (varInfo->identifier.empty() ? std::string("<unknown>") : varInfo->identifier) + "'");
+            }
+            
+            int64_t rows = varInfo->type.dims[0];
+            int64_t cols = varInfo->type.dims[1];
+            auto memTy = mlir::MemRefType::get({rows, cols}, elemTy);
+            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
             break;
         }
 
