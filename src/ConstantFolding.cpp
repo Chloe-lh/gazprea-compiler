@@ -223,7 +223,10 @@ void ConstantFoldingVisitor::visit(ExprListNode *node) {
 void ConstantFoldingVisitor::visit(ArrayLiteralNode *node) {
     if (!node) return;
     if (!node->list || node->list->list.empty()) {
-        throw std::runtime_error("ConstantFolding::ArrayLiteralNode: null or empty list");
+        // Represent empty array literal as an ARRAY with UNKNOWN element
+        // subtype so it can act as a wildcard for later type promotion.
+        node->type = CompleteType(BaseType::ARRAY, CompleteType(BaseType::UNKNOWN), {0});
+        return;
     }
 
     std::vector<ConstantValue> elems;
@@ -253,7 +256,10 @@ void ConstantFoldingVisitor::visit(ArrayLiteralNode *node) {
         node->type = cv.type; // keep AST type consistent
         // Record concrete dimension for this array literal so downstream
         // lowering can allocate fixed-size memrefs when emitting literals.
-        node->type.dims = { static_cast<int>(elems.size()) };
+        // Don't overwrite dims if semantic analysis already set them (e.g., for 2D arrays)
+        if (node->type.dims.empty()) {
+            node->type.dims = { static_cast<int>(elems.size()) };
+        }
     }
 }
 void ConstantFoldingVisitor::visit(RangeExprNode *node) {}
@@ -538,7 +544,7 @@ void ConstantFoldingVisitor::visit(DotExpr *node) {
     if (node->left)  node->left->accept(*this);
     if (node->right) node->right->accept(*this);
 
-    std::cerr << "[CF] visit DotExpr line " << node->line << " op='" << node->op << "'\n";
+    // std::cerr << "[CF] visit DotExpr line " << node->line << " op='" << node->op << "'\n";
 
     if (!node->left || !node->right) {
         std::cerr << "[CF]  children missing\n";
@@ -546,7 +552,7 @@ void ConstantFoldingVisitor::visit(DotExpr *node) {
     }
     bool lHas = node->left->constant.has_value();
     bool rHas = node->right->constant.has_value();
-    std::cerr << "[CF]  left_const=" << lHas << " right_const=" << rHas << "\n";
+    // std::cerr << "[CF]  left_const=" << lHas << " right_const=" << rHas << "\n";
     if (!lHas || !rHas) {
         std::cerr << "[CF]  skipping fold: one or more children not constant\n";
         return;
@@ -601,7 +607,7 @@ void ConstantFoldingVisitor::visit(DotExpr *node) {
     }
 
     // --- Matrix / matmul case: result is an array-of-rows (matrix) ---
-    if (node->type.baseType == BaseType::ARRAY || node->type.baseType == BaseType::VECTOR) {
+    if (node->type.baseType == BaseType::ARRAY || node->type.baseType == BaseType::VECTOR || node->type.baseType == BaseType::MATRIX) {
         bool lHasReal = false, rHasReal = false;
         auto lMatOpt = extractMatrixFromConst(Lcv, lHasReal);
         auto rMatOpt = extractMatrixFromConst(Rcv, rHasReal);
@@ -654,8 +660,17 @@ void ConstantFoldingVisitor::visit(DotExpr *node) {
         }
 
         ConstantValue outCv;
-        if (node->type.baseType == BaseType::ARRAY) outCv.type = node->type;
-        else {
+        if (node->type.baseType == BaseType::ARRAY) {
+            outCv.type = node->type;
+        } else if (node->type.baseType == BaseType::MATRIX) {
+            // For MATRIX result, preserve the node type and its dims
+            // The element type should be the scalar type from node->type.subTypes[0]
+            CompleteType elemCT = (node->type.subTypes.empty() || node->type.subTypes[0].baseType == BaseType::UNKNOWN)
+                                   ? (anyReal ? CompleteType(BaseType::REAL) : CompleteType(BaseType::INTEGER))
+                                   : node->type.subTypes[0];
+            std::cerr << "DEBUG: type:" << toString(elemCT.baseType);
+            outCv.type = CompleteType(BaseType::MATRIX, elemCT, node->type.dims);
+        } else {
             CompleteType elemCT = anyReal ? CompleteType(BaseType::REAL) : CompleteType(BaseType::INTEGER);
             CompleteType rowCT = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{elemCT});
             outCv.type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{rowCT});
@@ -687,17 +702,6 @@ void ConstantFoldingVisitor::visit(AddExpr *node){
     // Visit children first so their constants are computed
     if (node->left) node->left->accept(*this);
     if (node->right) node->right->accept(*this);
-
-    //DEBUGGING
-    // std::cout << "Visiting AddExpr at " << node 
-    //           << ", left node at " << node->left.get() 
-    //           << ", right node at " << node->right.get() << std::endl;
-
-    // Now check their constants
-    // if (!node->left->constant.has_value()) 
-    //     std::cout << "Left child constant is NONE" << std::endl;
-    // if (!node->right->constant.has_value()) 
-    //     std::cout << "Right child constant is NONE" << std::endl;
 
       // Both sides must be constant to fold
     if (!node->left || !node->right) return;

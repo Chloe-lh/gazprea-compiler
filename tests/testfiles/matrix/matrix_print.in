@@ -1,0 +1,6 @@
+procedure main() returns integer{
+    integer[3][2] A = [[1, 2], [4, 5], [7, 8]];
+    A -> std_output;
+    return 0;
+}
+//CHECK_FILE:matrix_print.out
