@@ -1,0 +1,14 @@
+procedure main() returns integer {
+    integer[2][2] m1 = [[1, 2], [3, 4]];
+    integer[2][2] m2 = [[5, 6], [7, 8]];
+    
+    integer[2][2] sum = m1 + m2;
+    sum -> std_output;
+    "\n" -> std_output;
+    
+    integer[2][2] scaled = m1 * 2;
+    scaled -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}

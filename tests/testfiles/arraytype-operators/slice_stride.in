@@ -1,0 +1,12 @@
+procedure main() returns integer {
+    integer[5] arr = [1, 2, 3, 4, 5];
+    integer[2] slice = arr[2..4];
+    slice -> std_output;
+    "\n" -> std_output;
+
+    integer[*] stride = arr by 2;
+    stride -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
