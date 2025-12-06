@@ -3,10 +3,12 @@
 #include "CompileTimeExceptions.h"
 #include "Types.h"
 #include <algorithm>
+#include <cstddef>
 #include <cstdio>
 #include <iostream>
 #include <cmath>
 #include <optional>
+#include <variant>
 
 static ConstantValue getIntConst(int64_t data) {
     return ConstantValue(CompleteType(BaseType::INTEGER), static_cast<int64_t>(data));
@@ -22,6 +24,44 @@ static ConstantValue getCharConst(char data) {
 }
 static ConstantValue getStringConst(const std::string &s) {
     return ConstantValue(CompleteType(BaseType::STRING), s);
+}
+std::optional<std::vector<long double>> extractVectorFromConst(const ConstantValue &cv, bool &hasReal) {
+    if (!std::holds_alternative<std::vector<ConstantValue>>(cv.value)) return std::nullopt;
+    const auto &elems = std::get<std::vector<ConstantValue>>(cv.value);
+    std::vector<long double> out;
+    out.reserve(elems.size());
+    hasReal = false;
+    for (const auto &e : elems) {
+        if (e.type.baseType == BaseType::INTEGER) {
+            out.push_back(static_cast<long double>(std::get<int64_t>(e.value)));
+        } else if (e.type.baseType == BaseType::REAL) {
+            out.push_back(static_cast<long double>(std::get<double>(e.value)));
+            hasReal = true;
+        } else {
+            return std::nullopt; // not a numeric literal -> cannot fold
+        }
+    }
+    return out;
+}
+std::optional<std::vector<std::vector<long double>>> extractMatrixFromConst(const ConstantValue &cv, bool &hasReal) {
+    if (!std::holds_alternative<std::vector<ConstantValue>>(cv.value)) return std::nullopt;
+    const auto &rows = std::get<std::vector<ConstantValue>>(cv.value);
+    std::vector<std::vector<long double>> out;
+    out.reserve(rows.size());
+    hasReal = false;
+    for (const auto &rowCv : rows) {
+        bool rowHasReal = false;
+        auto rowOpt = extractVectorFromConst(rowCv, rowHasReal);
+        if (!rowOpt) return std::nullopt;
+        if (rowHasReal) hasReal = true;
+        out.push_back(std::move(*rowOpt));
+    }
+    // optional: check rectangular shape (all rows same length)
+    if (!out.empty()) {
+        size_t c = out[0].size();
+        for (auto &r : out) if (r.size() != c) return std::nullopt;
+    }
+    return out;
 }
 
 void ConstantFoldingVisitor::debugPrintScopes() const {
@@ -160,26 +200,17 @@ void ConstantFoldingVisitor::visit(ArrayStrideExpr *node) {}
 void ConstantFoldingVisitor::visit(ArraySliceExpr *node) {}
 void ConstantFoldingVisitor::visit(ArrayAccessNode *node) {} // not needed
 
-void ConstantFoldingVisitor::visit(ArrayTypedDecNode *node) { // resolve size from init if available
-    // Type node stores resolved size (declared size)
-    // if (node->arrayType) node->arrayType->accept(*this);
-
-    // If we have an initializer literal, derive its length and compare to any
-    // already-resolved declared size. If they differ, report a compile-time
-    // SizeError so the user gets a clear diagnostic during folding.
-    // if (node->init && node->init->lit) {
-    //     auto lit = node->init->lit;
-    //     if (lit->list) {
-    //         int64_t len = static_cast<int64_t>(lit->list->list.size());
-    //         if (node->arrayType && node->arrayType->resolvedSize.has_value()) {
-    //             if (node->arrayType->resolvedSize.value() != len) {
-    //                 throw SizeError(node->line, "Semantic Analysis: declared array size does not match initializer length.");
-    //             }
-    //         } else {
-    //             if (node->arrayType) node->arrayType->resolvedSize = len;
-    //         }
-    //     }
-    // }
+void ConstantFoldingVisitor::visit(ArrayTypedDecNode *node) {
+    // Visit the initializer so its constant (if any) is computed. If this
+    // declaration is not a `var` and the initializer folded to a compile-time
+    // ConstantValue, record it in the current scope under the declared id
+    // so later Id lookups will find the constant.
+    if (node->init) node->init->accept(*this);
+    if (node->qualifier != "var") {
+        if (node->init && node->init->constant.has_value()) {
+            setConstInCurrentScope(node->id, node->init->constant.value());
+        }
+    }
 }
 void ConstantFoldingVisitor::visit(ExprListNode *node) {
     if(!node) return;
@@ -192,9 +223,7 @@ void ConstantFoldingVisitor::visit(ExprListNode *node) {
 void ConstantFoldingVisitor::visit(ArrayLiteralNode *node) {
     if (!node) return;
     if (!node->list || node->list->list.empty()) {
-        node->type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{CompleteType(BaseType::UNKNOWN)});
-        // optionally set node->constant to an empty-array ConstantValue
-        return;
+        throw std::runtime_error("ConstantFolding::ArrayLiteralNode: null or empty list");
     }
 
     std::vector<ConstantValue> elems;
@@ -218,13 +247,13 @@ void ConstantFoldingVisitor::visit(ArrayLiteralNode *node) {
             common = promoted;
         }
         ConstantValue cv;
-        cv.type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{common});
+        cv.type = node->type;
         cv.value = elems;
         node->constant = cv;
         node->type = cv.type; // keep AST type consistent
-    } else {
-        // still set node->type via semantic later; optionally set array<UNKNOWN>
-        node->type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{CompleteType(BaseType::UNKNOWN)});
+        // Record concrete dimension for this array literal so downstream
+        // lowering can allocate fixed-size memrefs when emitting literals.
+        node->type.dims = { static_cast<int>(elems.size()) };
     }
 }
 void ConstantFoldingVisitor::visit(RangeExprNode *node) {}
@@ -415,8 +444,6 @@ void ConstantFoldingVisitor::visit(FuncCallExprOrStructLiteral *node) {
     argVals.push_back(a->constant.value());
   }
   if (!allConst) return;
-
-  // 3) whitelist foldable intrinsics (example)
     if (node->funcName == "len" && argVals.size() == 1
             && argVals[0].type.baseType == BaseType::STRING) {
         const auto &s = std::get<std::string>(argVals[0].value);
@@ -504,6 +531,141 @@ void ConstantFoldingVisitor::visit(ExpExpr *node) {
     }
     // otherwise: unsupported types -> don't fold
 }
+/*
+compile time constants are stored in the constant field as a Constant Value, arrays will have a std::vector<ConstantValue>
+*/
+void ConstantFoldingVisitor::visit(DotExpr *node) {
+    if (node->left)  node->left->accept(*this);
+    if (node->right) node->right->accept(*this);
+
+    std::cerr << "[CF] visit DotExpr line " << node->line << " op='" << node->op << "'\n";
+
+    if (!node->left || !node->right) {
+        std::cerr << "[CF]  children missing\n";
+        return;
+    }
+    bool lHas = node->left->constant.has_value();
+    bool rHas = node->right->constant.has_value();
+    std::cerr << "[CF]  left_const=" << lHas << " right_const=" << rHas << "\n";
+    if (!lHas || !rHas) {
+        std::cerr << "[CF]  skipping fold: one or more children not constant\n";
+        return;
+    }
+
+    const ConstantValue &Lcv = node->left->constant.value();
+    const ConstantValue &Rcv = node->right->constant.value();
+
+    // --- Vector dot product (scalar result) ---
+    if (node->type.baseType == BaseType::INTEGER) {
+        bool lHasReal = false, rHasReal = false;
+        auto lVecOpt = extractVectorFromConst(Lcv, lHasReal);
+        auto rVecOpt = extractVectorFromConst(Rcv, rHasReal);
+        if (!lVecOpt || !rVecOpt) return;
+        const auto &lVec = *lVecOpt;
+        const auto &rVec = *rVecOpt;
+        if (lVec.size() != rVec.size()) {
+            std::cerr << "[CF]  vector sizes mismatch: " << lVec.size() << " vs " << rVec.size() << "\n";
+            return;
+        }
+
+        std::cerr << "[CF]  folding vector->int of length=" << lVec.size() << "\n";
+        long double acc = 0.0L;
+        for (size_t i = 0; i < lVec.size(); ++i) acc += lVec[i] * rVec[i];
+
+        int64_t outv = static_cast<int64_t>(std::llround(acc));
+        node->constant = getIntConst(outv);
+        std::cerr << "[CF]  folded int result=" << outv << "\n";
+        return;
+    }
+
+    if (node->type.baseType == BaseType::REAL) {
+        bool lHasReal = false, rHasReal = false;
+        auto lVecOpt = extractVectorFromConst(Lcv, lHasReal);
+        auto rVecOpt = extractVectorFromConst(Rcv, rHasReal);
+        if (!lVecOpt || !rVecOpt) return;
+        const auto &lVec = *lVecOpt;
+        const auto &rVec = *rVecOpt;
+        if (lVec.size() != rVec.size()) {
+            std::cerr << "[CF]  vector sizes mismatch: " << lVec.size() << " vs " << rVec.size() << "\n";
+            return;
+        }
+
+        std::cerr << "[CF]  folding vector->real of length=" << lVec.size() << "\n";
+        long double acc = 0.0L;
+        for (size_t i = 0; i < lVec.size(); ++i) acc += lVec[i] * rVec[i];
+
+        double outv = static_cast<double>(acc);
+        node->constant = getRealConst(outv);
+        std::cerr << "[CF]  folded real result=" << outv << "\n";
+        return;
+    }
+
+    // --- Matrix / matmul case: result is an array-of-rows (matrix) ---
+    if (node->type.baseType == BaseType::ARRAY || node->type.baseType == BaseType::VECTOR) {
+        bool lHasReal = false, rHasReal = false;
+        auto lMatOpt = extractMatrixFromConst(Lcv, lHasReal);
+        auto rMatOpt = extractMatrixFromConst(Rcv, rHasReal);
+        if (!lMatOpt || !rMatOpt) return;
+        const auto &lMat = *lMatOpt;
+        const auto &rMat = *rMatOpt;
+        if (lMat.empty() || rMat.empty()) return;
+        size_t M = lMat.size();
+        size_t N = lMat[0].size();
+        if (N != rMat.size()) return; // inner dim mismatch
+        size_t P = rMat[0].size();
+
+        std::cerr << "[CF]  folding matrix matmul M=" << M << " N=" << N << " P=" << P << "\n";
+
+        // compute numeric result matrix
+        std::vector<std::vector<long double>> numericRes(M, std::vector<long double>(P, 0.0L));
+        for (size_t i = 0; i < M; ++i) {
+            if (lMat[i].size() != N) return; // sanity: non-rectangular
+            for (size_t j = 0; j < P; ++j) {
+                long double sum = 0.0L;
+                for (size_t k = 0; k < N; ++k) sum += lMat[i][k] * rMat[k][j];
+                numericRes[i][j] = sum;
+            }
+        }
+
+        // Decide element type: prefer semantic subtype if present, otherwise fallback to any-real-from-extraction
+        bool semanticReal = false;
+        if (!node->type.subTypes.empty()) {
+            CompleteType st = node->type.subTypes[0];
+            if (st.baseType == BaseType::ARRAY && !st.subTypes.empty()) st = st.subTypes[0];
+            semanticReal = (st.baseType == BaseType::REAL);
+        }
+        bool anyReal = semanticReal || lHasReal || rHasReal;
+
+        // Build nested ConstantValue representation: vector<ConstantValue(rows)> where each row is ConstantValue(ARRAY of scalars)
+        std::vector<ConstantValue> rowsCv;
+        rowsCv.reserve(M);
+        for (size_t i = 0; i < M; ++i) {
+            std::vector<ConstantValue> rowElems;
+            rowElems.reserve(P);
+            for (size_t j = 0; j < P; ++j) {
+                if (anyReal) rowElems.push_back(getRealConst(static_cast<double>(numericRes[i][j])));
+                else rowElems.push_back(getIntConst(static_cast<int64_t>(std::llround(numericRes[i][j]))));
+            }
+            ConstantValue rowCv;
+            CompleteType elemCT = anyReal ? CompleteType(BaseType::REAL) : CompleteType(BaseType::INTEGER);
+            rowCv.type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{elemCT});
+            rowCv.value = rowElems;
+            rowsCv.push_back(rowCv);
+        }
+
+        ConstantValue outCv;
+        if (node->type.baseType == BaseType::ARRAY) outCv.type = node->type;
+        else {
+            CompleteType elemCT = anyReal ? CompleteType(BaseType::REAL) : CompleteType(BaseType::INTEGER);
+            CompleteType rowCT = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{elemCT});
+            outCv.type = CompleteType(BaseType::ARRAY, std::vector<CompleteType>{rowCT});
+        }
+        outCv.value = rowsCv;
+        node->constant = outCv;
+        return;
+    }
+}
+
 
   void ConstantFoldingVisitor::visit(MultExpr *node){ 
     // Visit children first so their constants are computed
@@ -699,7 +861,6 @@ void ConstantFoldingVisitor::visit(OrExpr *node){
 void ConstantFoldingVisitor::visit(StructAccessNode *node) {
     // Do nothing
 }
-
   void ConstantFoldingVisitor::visit(TupleLiteralNode *node){ 
     for(auto &e: node->elements){
     if(e) e->accept(*this);} //this is will set each elements .constant

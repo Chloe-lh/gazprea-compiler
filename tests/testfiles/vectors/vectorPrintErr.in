@@ -1,0 +1,9 @@
+//CHECK_FILE:vectorPrintErr.out
+
+procedure main() returns integer {
+    vector<character> vec1 = ['a', 'b'];
+
+    vec1 -> std_output;
+
+    return 1;
+}

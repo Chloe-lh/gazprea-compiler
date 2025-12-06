@@ -49,6 +49,7 @@ public:
     visit(static_cast<FuncCallExprOrStructLiteral *>(node));
   }
   virtual void visit(UnaryExpr *node) = 0;
+  virtual void visit(DotExpr *node) = 0;
   virtual void visit(ExpExpr *node) = 0;
   virtual void visit(MultExpr *node) = 0;
   virtual void visit(AddExpr *node) = 0;

@@ -250,9 +250,9 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
 
     // Resolve any aliases inside the declared type.
     CompleteType declaredType = resolveUnresolvedType(current_, node->type, node->line);
-    if (!(declaredType.baseType == BaseType::ARRAY)) {
+    if (declaredType.baseType != BaseType::ARRAY && declaredType.baseType != BaseType::VECTOR) {
         throw TypeError(node->line,
-            "ArrayTypedDecNode used with non-array type for '" + node->id + "'");
+            "ArrayTypedDecNode cannot be used for type '" + toString(declaredType) + "', at declaration '" + node->name + "'.");
     }
 
     node->type = declaredType;
@@ -277,44 +277,129 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
         CompleteType initType = resolveUnresolvedType(current_, node->init->type, node->line);
         // std::cerr << "[DEBUG] Initializer type: " << toString(initType) << "\n";
 
-        // Array literal initializer
+        // 1. Handle array literals as initializer
         if (auto lit = std::dynamic_pointer_cast<ArrayLiteralNode>(node->init)) {
             int64_t litSize = lit->list ? lit->list->list.size() : 0;
-            if (!declaredType.dims.empty() && declaredType.dims[0] >= 0 &&
-                declaredType.dims[0] != litSize) {
-                throw TypeError(node->line,
-                    "Array initializer length (" + std::to_string(litSize) + 
-                    ") does not match declared size (" + std::to_string(declaredType.dims[0]) + ")");
+
+            if (declaredType.dims.empty()) throw std::runtime_error("SemanticAnalysis::ArrayTypedDecNode: empty dims field");
+
+            // If `lhs` is array, then ensure its dims match + determine any inferred dimensions 
+            if (declaredType.baseType == BaseType::ARRAY) {
+                if (declaredType.dims[0] >= 0 && declaredType.dims[0] != litSize) {
+                    throw TypeError(node->line,
+                        "Array initializer length (" + std::to_string(litSize) + 
+                        ") does not match declared size (" + std::to_string(declaredType.dims[0]) + ")");
+                }
+
+                // If `lhs` is array, update any inferred sizes to literal length
+                if ( declaredType.dims[0] < 0) {
+                    declaredType.dims[0] = static_cast<int>(litSize);
+                    declared->type.dims = declaredType.dims;
+                    node->type.dims = declaredType.dims;
+                }
             }
-            // If size was inferred (e.g., '*'), fix it to the literal length.
-            if (!declaredType.dims.empty() && declaredType.dims[0] < 0) {
-                declaredType.dims[0] = static_cast<int>(litSize);
-                declared->type.dims = declaredType.dims;
-                node->type.dims = declaredType.dims;
+        // Handle initializer as identifier
+        } else if (auto rhsId = std::dynamic_pointer_cast<IdNode>(node->init)) {
+            // 1b. Identifier initializer: permit only array/vector on RHS 
+            // TODO: Implement scalar initializer support
+            if (initType.baseType != BaseType::ARRAY &&
+                initType.baseType != BaseType::VECTOR) {
+                throw std::runtime_error(
+                    "SemanticAnalysis::ArrayTypedDecNode: Unsupported identifier initializer type '" +
+                    toString(initType) + "' for '" + node->id + "'.");
             }
+        } else {
+            throw std::runtime_error("SemanticAnalysis::ArrayTypedDecNode: Unknown initializer for array '" + node->id + "'.");
         }
 
 
-        {
-            CompleteType resolvedInit = resolveUnresolvedType(current_, initType, node->line);
-            CompleteType promoted = promote(resolvedInit, declaredType);
-            handleAssignError(node->id, declaredType, promoted, node->line);
-        }
-    } else if (!declaredType.dims.empty() && declaredType.dims[0] == -1) {
+        handleGlobalErrors(node);
+
+        // 2. Resolve vectors
+        CompleteType resolvedInit = resolveUnresolvedType(current_, initType, node->line);
+        CompleteType promoted = promote(resolvedInit, declaredType);
+        node->type = promoted;
+        handleAssignError(node->id, declaredType, promoted, node->line);
+    } else if (declaredType.dims.empty()) {
+        throw std::runtime_error("SemanticAnalysis::ArrayTypedDecNode: Empty dims for '" + node->id + "'.");
+    } else if (declaredType.dims[0] == -1 && node->type.baseType == BaseType::ARRAY) {
+        // Vectors are allowed to have dims=-1 because it represents dynamic sizing.
         throw StatementError(node->line, "Cannot have inferred type array without initializer");
     }
 
     // std::cerr << "[DEBUG] Finished ArrayTypedDecNode: " << node->id << "\n";
 }
 
-
-
-
 void SemanticAnalysisVisitor::visit(ExprListNode *node) {
     // std::cout << "[DEUBG] semantic analysis: visiting ExprListNode\n";
     for (auto &e : node->list) {
         if (e) e->accept(*this);
     }
+}
+void SemanticAnalysisVisitor::visit(DotExpr *node){ 
+    // expressions must be resolved to a vector/matrix/array
+    if(node->left) node->left->accept(*this);
+    if(node->right) node->right->accept(*this);
+    CompleteType leftType = resolveUnresolvedType(current_, node->left->type, node->line);
+    CompleteType rightType = resolveUnresolvedType(current_, node->right->type, node->line);
+    // left and right operands must be a vector/matrix/array
+    if(!(leftType.baseType == BaseType::ARRAY || leftType.baseType == BaseType::VECTOR || leftType.baseType == BaseType::MATRIX)){
+        throw TypeError(node->line, "Semantic Analysis: left expression in dot product must be a array/vector/matrix type");
+    }
+    if(!(node->right->type.baseType!= BaseType::ARRAY || node->right->type.baseType != BaseType::VECTOR || node->left->type.baseType!= BaseType::MATRIX)){
+        throw TypeError(node->line, "Semantic Analysis: right expression in dot product must be a array/vector/matrix type");
+    }
+    auto is1D = [](const CompleteType &t){
+        return t.baseType == BaseType::ARRAY || t.baseType == BaseType::VECTOR;
+    };
+    auto isMatrix=[](const CompleteType &t){
+        return t.baseType == BaseType::MATRIX;
+    };
+    // extract element types
+    CompleteType leftElem = leftType.subTypes.empty() ? CompleteType(BaseType::UNKNOWN) : leftType.subTypes[0];
+    CompleteType rightElem = rightType.subTypes.empty() ? CompleteType(BaseType::UNKNOWN) : rightType.subTypes[0];
+    // ensure element types are numeric
+    CompleteType promoted = promote(leftElem, rightElem);
+    if(promoted.baseType == BaseType::UNKNOWN) promoted = promote(rightElem, leftElem);
+    if(promoted.baseType == BaseType::UNKNOWN) throw TypeError(node->line, "Semantic Analysis: element types must be numeric for dot product");
+
+    auto getDim = [](const std::vector<int> &d, size_t i) -> int {
+        if (i < d.size()) return d[i];
+        return -1;
+    };
+
+    bool L1 = is1D(leftType);
+    bool R1 = is1D(rightType);
+    bool LM = isMatrix(leftType);
+    bool RM = isMatrix(rightType);
+
+    // check dimensions
+    if(L1 && R1){ // vector ** vector = scalar
+        int Llen = getDim(leftType.dims, 0);
+        int Rlen = getDim(rightType.dims, 0);
+        if(Llen < 0 || Rlen < 0) SizeError("Semantic Analysis: invalid vector/array dimensions");
+        if(Llen != Rlen) SizeError("Semantic Analysis: vectors/arrays must have the same dimensions in order to calculate dot product");
+        node->type = promoted;
+        return;
+    }else if(LM && RM){ // matrix ** matrix = vector
+         /*
+        the number of columns of the first operand must equal the number of rows of the second operand, e.g. an 
+        mxn matrix multiplied by an nxp matrix will produce an mxp matrix. If the dimensions are not correct a 
+        SizeError should be raised.
+        */
+        int Lrow = getDim(leftType.dims, 0);
+        int Lcol = getDim(leftType.dims, 1);
+        int Rrow = getDim(rightType.dims, 0);
+        int Rcol = getDim(rightType.dims, 1);
+        if(Lrow<0||Lcol<0||Rrow<0||Rcol<0) SizeError("Semantic Analysis: invalid matrix dimensions");
+        if(Lrow!=Rcol || Lcol!=Rrow) SizeError("Semantic Analysis: invalid matrix dimensions for dot product");
+        int outRows = Lrow;
+        int outCols = Rcol;
+        node->type = CompleteType(BaseType::VECTOR, promoted, {outRows, outCols});
+        return;
+    }
+    // maybe vector and matrix
+    node->type = CompleteType(BaseType::UNKNOWN);
 }
 
 void SemanticAnalysisVisitor::visit(ArrayLiteralNode *node) {
@@ -437,12 +522,13 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
 
     bool isConst = true;
     if (node->qualifier == "var") {
-        if (current_->isInGlobal()) { throw GlobalError(node->line, "Cannot use var in global"); }
         isConst = false;
     } else if (node->qualifier == "const") {
     } else {
         throw std::runtime_error("Semantic Analysis: Invalid qualifier provided for typed declaration '" + node->qualifier + "'.");
     }
+
+    handleGlobalErrors(node);
 
     // Declared type is carried as a CompleteType on the alias node
     // TypeAliasNode::visit() already resolves the alias and subtypes
@@ -663,9 +749,11 @@ void SemanticAnalysisVisitor::visit(ProcedureBlockNode* node) {
 
 void SemanticAnalysisVisitor::visit(InferredDecNode* node) {
     if (!current_->isDeclarationAllowed()) {
-        throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block."); // FIXME: placeholder error
+        throw DefinitionError(node->line, "Semantic Analysis: Declarations must appear at the top of a block."); 
     }
     node->init->accept(*this);
+
+    handleGlobalErrors(node);
 
     bool isConst = true;
     if (node->qualifier == "var") {
@@ -705,6 +793,8 @@ void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
             "Semantic Analysis: Invalid qualifier provided for tuple declaration '" +
             node->qualifier + "'.");
     }
+
+    handleGlobalErrors(node);
 
     // Ensure not already declared in scope
     current_->declareVar(node->name, varType, isConst, node->line);
@@ -750,8 +840,12 @@ void SemanticAnalysisVisitor::visit(StructTypedDecNode* node) {
         node->init->accept(*this);
     }
 
+
     // Optional: declare a variable of this struct type if a name was provided
     if (!node->name.empty()) {
+
+        // Allow global struct TYPE declrs, but disallow global struct vars
+        handleGlobalErrors(node);
         // Ensure not already declared in this scope
         current_->declareVar(node->name, structType, isConst, node->line);
 
@@ -1747,4 +1841,14 @@ bool SemanticAnalysisVisitor::guaranteesReturn(const BlockNode* block) const {
 
 const std::unordered_map<const ASTNode*, Scope*>& SemanticAnalysisVisitor::getScopeMap() const {
     return scopeByCtx_;
+}
+
+void SemanticAnalysisVisitor::handleGlobalErrors(DecNode *node) {
+    if (!current_->isInGlobal()) {
+        return;
+    }
+
+    if (!node->init) throw GlobalError(node->line, "Uninitialized global");
+    if (!isScalarType(node->init->type.baseType)) throw GlobalError(node->line, "Non-scalar global variables are illegal");
+    if (node->qualifier == "var") throw GlobalError(node->line, "'var' qualifier in global scope");
 }

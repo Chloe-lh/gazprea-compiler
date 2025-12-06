@@ -42,16 +42,11 @@ stat
     | loop_stat                           #LoopStat
     ;
 
-type //this should include basic types
-    : BOOLEAN 
-    | CHARACTER 
-    | INTEGER 
-    | REAL 
-    | STRING
+type 
+    : builtin_type
     | tuple_dec
     | struct_dec
-    | VECTOR '<' type '>'  
-    | ID
+    | ID                        // type aliasing
     ;
 
 // Built-in scalar types (used to disambiguate declarations)
@@ -87,6 +82,7 @@ expr
     | <assoc=right>NOT expr                             #NotExpr
     | <assoc=right> (ADD|MINUS) expr                    #UnaryExpr
     | <assoc=right> expr EXP expr                       #ExpExpr
+    | expr DOTPROD expr                                 #DotExpr
     | expr op=(MULT|DIV|REM) expr                       #MultExpr
     | expr op=(ADD|MINUS) expr                          #AddExpr
     | expr op=(LT|GT|LTE|GTE) expr                      #CompExpr
@@ -177,6 +173,7 @@ END: ';';
 
 ADD: '+';
 MINUS: '-';
+DOTPROD: '**';
 MULT: '*';
 DIV: '/';
 REM: '%';

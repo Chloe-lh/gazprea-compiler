@@ -1,6 +1,7 @@
 #pragma once
 #include "ASTVisitor.h"
 #include "AST.h"
+#include <memory>
 #include <unordered_map>
 #include <vector>
 #include <optional>
@@ -48,6 +49,7 @@ public:
   void visit(FuncCallExprOrStructLiteral *node) override;
   void visit(UnaryExpr *node) override;
   void visit(ExpExpr *node) override;
+  void visit(DotExpr *node) override;
   void visit(MultExpr *node) override;
   void visit(AddExpr *node) override;
   void visit(CompExpr *node) override;
@@ -85,6 +87,8 @@ private:
   std::optional<ConstantValue> lookup(const std::string &ident) const;
   void setConstInCurrentScope(const std::string &ident, const ConstantValue &cv);
   void removeConst(const std::string &ident);
+  static std::optional<std::vector<long double>> extract1D(const ArrayLiteralNode *arr); // convert array of nodes into array of numeric
+  static std::optional<std::vector<std::vector<long double>>> extract2D(const ArrayLiteralNode *arr); //convert matric of nodes into matrix of numeric
   // Debug helper: print current scopes to stdout (used during development)
   void debugPrintScopes() const;
  

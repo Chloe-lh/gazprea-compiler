@@ -237,8 +237,7 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                     }
 
                     // ensure dimensions match
-                    if (!from.dims.empty() && !to.dims.empty() &&
-                        from.dims[0] != to.dims[0]) {
+                    if (from.dims[0] != to.dims[0]) {
                         return CompleteType(BaseType::UNKNOWN);
                     }
 
@@ -263,13 +262,8 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                             std::to_string(to.subTypes.size()));
                     }
 
-                    if (!from.dims.empty() && !to.dims.empty() &&
-                        from.dims[0] != to.dims[0]) {
-                        return CompleteType(BaseType::UNKNOWN);
-                    }
-
-                    if (from.dims[0] != to.dims[0]) {
-                        return CompleteType(BaseType::UNKNOWN);
+                    if (from.dims.empty() || to.dims.empty()) {
+                        throw std::runtime_error("Types::promote: Array -> vector promotion with nonexistent dimenion(s)");
                     }
 
                     CompleteType result(BaseType::VECTOR);

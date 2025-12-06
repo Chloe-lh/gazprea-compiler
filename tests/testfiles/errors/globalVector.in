@@ -1,3 +1,8 @@
+// keep this whitespace
+
+// keep this whitespace
+vector<character> globalVec = ['a'];
+
 procedure main() returns integer {
     vector<character> emptyVec;
     vector<boolean> boolVec;
@@ -6,4 +11,4 @@ procedure main() returns integer {
     return 0;
 }
 
-//CHECK_FILE:simpleVectorDec.out
+//CHECK_FILE:globalVector.out

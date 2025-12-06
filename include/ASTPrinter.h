@@ -55,6 +55,7 @@ public:
   void visit(ParenExpr *node) override;
   void visit(FuncCallExprOrStructLiteral *node) override;
   void visit(UnaryExpr *node) override;
+  void visit(DotExpr *node) override;
   void visit(ExpExpr *node) override;
   void visit(MultExpr *node) override;
   void visit(AddExpr *node) override;

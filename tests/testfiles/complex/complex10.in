@@ -3,9 +3,8 @@
 // functions yet (function-call codegen is not implemented), but their
 // presence exercises tuple handling in function definitions.
 
-const tuple(integer, character, real) GLOB = (5, 'q', 1.5);
-
 function firstPlus(integer x) returns integer {
+    const tuple(integer, character, real) GLOB = (5, 'q', 1.5);
     integer s = GLOB.1 + x;
     return s;
 }

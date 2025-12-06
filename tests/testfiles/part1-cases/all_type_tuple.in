@@ -1,6 +1,5 @@
-const a = ('a', 2, 3.1, true);
-
 procedure main() returns integer {
+    const a = ('a', 2, 3.1, true);
     a.1 -> std_output;
     a.2 -> std_output;
     a.3 -> std_output;

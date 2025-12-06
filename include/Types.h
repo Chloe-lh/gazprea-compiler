@@ -45,7 +45,7 @@ struct CompleteType {
     std::vector<CompleteType> subTypes; // used for composite types (tuple, struct, array, vector, matrix)
     std::string aliasName = "";
     std::vector<std::string> fieldNames; //stores field names for structs only
-    std::vector<int> dims; // Dimension metadata for arrays / vectors / matrices.
+    std::vector<int> dims; // Dimension metadata for arrays / vectors / matrices. Resolved in semantic pass
 
     CompleteType(): baseType(BaseType::UNKNOWN) {}
     CompleteType(BaseType baseType) : baseType(baseType) {}

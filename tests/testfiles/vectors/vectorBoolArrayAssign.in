@@ -1,0 +1,20 @@
+procedure main() returns integer {
+    var vector<boolean> vb;
+
+    var boolean[4] b4;
+    var boolean[2] b2;
+
+    vb = [true, false];
+
+    b4 = vb;    // [T F F F]
+    b2 = vb;    // [T F]
+
+    b4 -> std_output;
+    "\n" -> std_output;
+    b2 -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+
+//CHECK_FILE:vectorBoolArrayAssign.out

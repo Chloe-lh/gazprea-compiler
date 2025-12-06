@@ -1,16 +1,14 @@
 
 // Tuple equality, inequality, and tuple-to-tuple casts combined with scalars.
-
-const tuple(integer, character, real) BASE = (1, 'a', 1.25);
-
 procedure main() returns integer {
+    const tuple(integer, character, real) BASE = (1, 'a', 1.25);
     var tuple(integer, character, real) t1;
     var tuple(integer, character, real) t2;
     var tuple(real, character, real) t3;
 
     "tuple eq\n---------\n" -> std_output;
 
-    // Assign from global and literal; these should be equal.
+    // Assign from shared constant and literal; these should be equal.
     t1 = BASE;
     t2 = (1, 'a', 1.25);
 

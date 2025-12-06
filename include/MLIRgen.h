@@ -68,6 +68,7 @@ public:
     void visit(EqExpr* node) override;      // ==, !=
     void visit(AndExpr* node) override;     // and
     void visit(OrExpr* node) override;      // or, xor
+    void visit(DotExpr* node) override;
     void visit (StructAccessNode* node) override;
     void visit(TupleAccessNode* node) override;
     void visit(TypeCastNode* node) override;
@@ -96,9 +97,12 @@ public:
 
     // helpers
     void assignTo(VarInfo* literal, VarInfo* variable, int line);
+    void assignToArray(VarInfo* literal, VarInfo* variable, int line);
+    void assignToVector(VarInfo* literal, VarInfo* variable, int line);
     void allocaLiteral(VarInfo* varInfo, int line);
     void allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue = nullptr);
     mlir::Value computeArraySize(VarInfo* source, int line);
+    mlir::Value allocaVector(int len, VarInfo *varInfo);
     void zeroInitializeVar(VarInfo* varInfo);
     VarInfo castType(VarInfo* from, CompleteType* to, int line);
     VarInfo promoteType(VarInfo* from, CompleteType* to, int line);
@@ -142,6 +146,9 @@ public:
     mlir::Value lowerSizeExpr(std::shared_ptr<ExprNode> size);
 
 private:
+    // Helper to find the enclosing function and its entry block for allocas
+    mlir::func::FuncOp getCurrentEnclosingFunction();
+
     VarInfo popValue();
     void pushValue(VarInfo& value);
     void emitPrintScalar(const CompleteType &type, mlir::Value value);
