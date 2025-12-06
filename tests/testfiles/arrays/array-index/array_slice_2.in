@@ -5,4 +5,4 @@ procedure main() {
     integer z = a[..-1]; /* x == [0, 2, 4, 6, 8] */
     return 0; 
 }
-//CHECK_FILE:array_gen.out
+//CHECK_FILE:array_slice_2.out

@@ -193,6 +193,15 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
 }
 
 void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
+    // Visit the index expression first to determine its type
+    if (!node->indexExpr) {
+        throw std::runtime_error("Semantic Analysis: ArrayAccessNode has no index expression.");
+    }
+    node->indexExpr->accept(*this);
+    if (node->indexExpr->type.baseType != BaseType::INTEGER) {
+        throw TypeError(node->line, "Semantic Analysis: array index must be an integer expression.");
+    }
+
     // Resolve array variable
     VarInfo* var = current_->resolveVar(node->id, node->line);
     if (!var) {
@@ -204,11 +213,19 @@ void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
         throw TypeError(node->line, "Semantic Analysis: index operator applied to non-array type.");
     }
 
-    // Check index is positive if known at compile-time
-    if (node->index <= 0 && !var->type.dims.empty() && var->type.dims[0] >= 0) {
-        IndexError(("Index " + std::to_string(node->index) + " out of range for array of length " +
-                    std::to_string(var->type.dims[0])).c_str());
-        return;
+    //  Perform compile-time bounds check if possible
+    if (auto intLiteral = std::dynamic_pointer_cast<IntNode>(node->indexExpr)) {
+        if (!var->type.dims.empty() && var->type.dims[0] >= 0) {
+            int indexValue = intLiteral->value;
+            int arraySize = var->type.dims[0];
+            // Assuming 1-based indexing for this check based on previous code.
+            // If the language is 0-based, this check should be `indexValue >= arraySize`.
+            if (indexValue <= 0 || indexValue > arraySize) {
+                 IndexError(("Index " + std::to_string(indexValue) + " out of range for array of length " +
+                    std::to_string(arraySize)).c_str());
+                 return;
+            }
+        }
     }
 
     if (baseType.subTypes.size() != 1) {
@@ -971,6 +988,38 @@ void SemanticAnalysisVisitor::visit(StructAccessAssignStatNode *node) {
     node->type = CompleteType(BaseType::UNKNOWN);
 }
 
+void SemanticAnalysisVisitor::visit(ArrayAccessAssignStatNode* node) {
+    if (!node->target || !node->expr) {
+        throw std::runtime_error("ArrayAccessAssignStat node: missing target or expression");
+    }
+
+    // 1. Visit the target to set its binding and determine its type
+    node->target->accept(*this);
+
+    if (!node->target->binding) {
+        // This check is good practice, though accept() should have set it or thrown.
+        throw std::runtime_error("Semantic Analysis: FATAL: ArrayAccessNode missing binding in assignment.");
+    }
+    
+    // 2. Check for assignment to const array
+    VarInfo* arrayVar = node->target->binding;
+    if (arrayVar->isConst) {
+        throw AssignError(node->line, "Semantic Analysis: cannot assign to element of const array '" +
+                                 node->target->id + "'.");
+    }
+
+    // 3. Visit the expression on the RHS
+    node->expr->accept(*this);
+
+    // 4. Type check the assignment
+    CompleteType elemType = resolveUnresolvedType(current_, node->target->type, node->line);
+    CompleteType exprType = resolveUnresolvedType(current_, node->expr->type, node->line);
+    
+    handleAssignError(node->target->id, elemType, exprType, node->line);
+
+    node->type = CompleteType(BaseType::UNKNOWN);
+}
+
 void SemanticAnalysisVisitor::visit(FuncCallExprOrStructLiteral* node) {
     // Evaluate argument expressions and build a signature to resolve the callee
     std::vector<VarInfo> args;
@@ -1079,22 +1128,6 @@ void SemanticAnalysisVisitor::visit(IfNode* node) {
 void SemanticAnalysisVisitor::visit(BlockNode* node) {
     // New lexical scope; inherit loop/return context
     enterScopeFor(node, current_->isInLoop(), current_->getReturnType());
-
-    // Enforce declrs before stats by checking: any declaration with a line greater than the first statement line is illegal.
-    int firstStatLine = std::numeric_limits<int>::max();
-    for (const auto& s : node->stats) {
-        if (s) {
-            firstStatLine = std::min(firstStatLine, s->line);
-        }
-    }
-    if (firstStatLine != std::numeric_limits<int>::max()) {
-        for (const auto& d : node->decs) {
-            if (d && d->line > firstStatLine) {
-                throw SymbolError(d->line,
-                    "Semantic Analysis: Declarations must appear at the top of a block.");
-            }
-        }
-    }
 
     // Visit declarations, then statements
     for (const auto& d : node->decs) {

@@ -212,10 +212,6 @@ void MLIRGen::visit(ArrayAccessAssignStatNode *node) {
     if (!arrayVar->value) allocaVar(arrayVar, node->line);
     if (!arrayVar->value) throw std::runtime_error("ArrayAccessAssignStat node: array has no storage");
 
-    // convert 1-based -> 0-based
-    if (target->index <= 0) throw std::runtime_error("ArrayAccessAssignStat: invalid index (must be >= 1)");
-    size_t idx0 = static_cast<size_t>(target->index - 1);
-
     // --- element type ---
     if (arrayVar->type.subTypes.size() != 1) {
         throw std::runtime_error("ArrayAccessAssignStat node: array type must have exactly one element subtype");
@@ -226,14 +222,20 @@ void MLIRGen::visit(ArrayAccessAssignStatNode *node) {
     VarInfo promoted = promoteType(&from, &elemType, node->line);
     mlir::Value val = getSSAValue(promoted);
 
-    // Build index and store
-    auto idxTy = builder_.getIndexType();
-    auto idxConst = builder_.create<mlir::arith::ConstantOp>(
-        loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(idx0))
-    );
+    // Visit index expression
+    target->indexExpr->accept(*this);
+    VarInfo indexVarInfo = popValue();
+    mlir::Value indexVal = getSSAValue(indexVarInfo);
 
+    // Convert to index type and adjust for 0-based indexing
+    auto idxTy = builder_.getIndexType();
+    mlir::Value indexValAsIndex = builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, indexVal);
+    auto one = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
+    mlir::Value zeroBasedIndex = builder_.create<mlir::arith::SubIOp>(loc_, indexValAsIndex, one);
+
+    // Build index and store
     builder_.create<mlir::memref::StoreOp>(
-        loc_, val, arrayVar->value, mlir::ValueRange{idxConst}
+        loc_, val, arrayVar->value, mlir::ValueRange{zeroBasedIndex}
     );
 }
 
@@ -254,14 +256,19 @@ void MLIRGen::visit(ArrayAccessNode *node) {
     }
     if (!arrVarInfo->value) throw std::runtime_error("ArrayAccessNode: array has no storage");
 
-    if (node->index <= 0) throw std::runtime_error("ArrayAccessNode: invalid index (must be >= 1)");
-    size_t idx0 = static_cast<size_t>(node->index - 1);
-    // compute index value (1-based)
+    // Visit index expression
+    node->indexExpr->accept(*this);
+    VarInfo indexVarInfo = popValue();
+    mlir::Value indexVal = getSSAValue(indexVarInfo);
+
+    // Convert to index type and adjust for 0-based indexing
     auto idxTy = builder_.getIndexType();
-    auto idxConst = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(idx0)));
+    mlir::Value indexValAsIndex = builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, indexVal);
+    auto one = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
+    mlir::Value zeroBasedIndex = builder_.create<mlir::arith::SubIOp>(loc_, indexValAsIndex, one);
 
     // memref.load element
-    mlir::Value elemVal = builder_.create<mlir::memref::LoadOp>(loc_, arrVarInfo->value, mlir::ValueRange{idxConst});
+    mlir::Value elemVal = builder_.create<mlir::memref::LoadOp>(loc_, arrVarInfo->value, mlir::ValueRange{zeroBasedIndex});
 
     // Create scalar VarInfo with element's CompleteType.
     // For homogeneous arrays, element type is the single subtype.

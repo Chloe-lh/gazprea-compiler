@@ -181,9 +181,9 @@ public:
 class ArrayAccessNode : public ExprNode {
 public:
   std::string id;
-  int index;
+  std::shared_ptr<ExprNode> indexExpr;
   VarInfo *binding = nullptr;
-  ArrayAccessNode(const std::string &id, int index) : id(id), index(index) {}
+  ArrayAccessNode(const std::string &id, std::shared_ptr<ExprNode> indexExpr) : id(id), indexExpr(std::move(indexExpr)) {}
   void accept(ASTVisitor &visitor) override;
 };
 class ArrayLiteralNode;

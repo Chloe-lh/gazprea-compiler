@@ -14,19 +14,16 @@ namespace gazprea{
     if(!ctx || !ctx->array_access() || !ctx->expr()) throw std::runtime_error("visitArrayAccessAssignStat: invalid context");
     GazpreaParser::Array_accessContext *ac = ctx->array_access();
     std::string id;
-    int index;
+    std::shared_ptr<ExprNode> indexExpr = nullptr;
     if(ac){
       if(ac->ID()) id = ac->ID()->getText();
       if(ac->expr()){
-        try{
-          index = std::stoi(ac->expr()->getText());
-        }catch(const std::exception &){
-          index = 0;
-        }
+        auto indexAny = visit(ac->expr());
+        indexExpr = safe_any_cast_ptr<ExprNode>(indexAny);
       }
     }
     
-    auto lhs = std::make_shared<ArrayAccessNode>(id, index);
+    auto lhs = std::make_shared<ArrayAccessNode>(id, indexExpr);
     auto rhsAny = visit(ctx->expr());
     auto rhs = safe_any_cast_ptr<ExprNode>(rhsAny);
     auto node = std::make_shared<ArrayAccessAssignStatNode>(std::move(lhs), std::move(rhs));
@@ -38,19 +35,16 @@ namespace gazprea{
   }
   std::any ASTBuilder::visitArrayAccessExpr(GazpreaParser::ArrayAccessExprContext *ctx){
     std::string id="";
-    int index;
+    std::shared_ptr<ExprNode> indexExpr = nullptr;
     auto aa = ctx->array_access();
     if(aa->ID()){
       id =aa->ID()->getText();
     }
     if (aa->expr()) {
-      try{
-        index = std::stoi(aa->expr()->getText());
-      }catch(const std::exception &){
-        index = 0;
-      }
+      auto indexAny = visit(aa->expr());
+      indexExpr = safe_any_cast_ptr<ExprNode>(indexAny);
     }
-    auto node = std::make_shared<ArrayAccessNode>(id, index);
+    auto node = std::make_shared<ArrayAccessNode>(id, indexExpr);
     node->type = CompleteType(BaseType::ARRAY);
     setLocationFromCtx(node, ctx);
     return expr_any(std::move(node));
