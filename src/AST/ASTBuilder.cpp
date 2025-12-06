@@ -56,7 +56,7 @@ std::any ASTBuilder::visitFile(GazpreaParser::FileContext *ctx) {
   return node_any(std::move(node));
 }
 std::any ASTBuilder::visitBuiltin_type(GazpreaParser::Builtin_typeContext *ctx) {
-    // 1. Base scalar type 
+    //  Base scalar type 
     CompleteType elem(BaseType::UNKNOWN);
 
     if (ctx->BOOLEAN())   elem = CompleteType(BaseType::BOOL);
@@ -65,48 +65,58 @@ std::any ASTBuilder::visitBuiltin_type(GazpreaParser::Builtin_typeContext *ctx) 
     if (ctx->REAL())      elem = CompleteType(BaseType::REAL);
     if (ctx->CHARACTER()) elem = CompleteType(BaseType::CHARACTER);
 
-    // 2. Vector<T> case: VECTOR '<' type '>'
+    // Vector<T> case: VECTOR '<' type '>'
     if (ctx->VECTOR()) {
       auto type = visit(ctx->type());
       CompleteType elem = std::any_cast<CompleteType>(type);
       return CompleteType(BaseType::VECTOR, elem, {-1});
     }
 
-    // 3. Scalar type (no array size)
+    // Scalar type (no array size)
     if (!ctx->size()) {
         // Return the scalar CompleteType (elem) wrapped in std::any.
         return elem;
     }
 
-    // 4. Array dimensions encoded directly into CompleteType::dims
+    //  Array dimensions encoded directly into CompleteType::dims
     // Grammar: size : '[' (INT|MULT) ']' ('[' (INT|MULT) ']')?
     auto *sizectx = ctx->size();
     std::vector<int> dims;
-    bool isMat = false;
-    for (auto child : sizectx->children) {
-        auto *t = dynamic_cast<antlr4::tree::TerminalNode*>(child);
-        if (!t) continue;
-        if (sizectx->children.size() == 2)  isMat = true;
-        int token = t->getSymbol()->getType();
-        if (token == GazpreaParser::INT) {
-            int64_t val = std::stoll(t->getText());
-            dims.push_back(static_cast<int>(val));
-        } else if (token == GazpreaParser::MULT) {
-            // '*' inferred size, represent with -1
-            dims.push_back(-1);
-        }
+    
+    // Parse dimensions from tokens in order: '[' <tok1> ']' ('[' <tok2> ']')?
+    auto getDimFromToken = [](antlr4::tree::ParseTree *tok) -> int {
+      if (!tok) return -1;
+      std::string t = tok->getText();
+      if (t == "*") return -1; // wildcard
+      return std::stoi(t);
+    };
+
+    // First dimension token is child index 1
+    if (sizectx->children.size() >= 2) {
+      dims.push_back(getDimFromToken(sizectx->children[1]));
     }
-    if(isMat){ 
+
+    int numDim = 1;
+    // Second dimension token, if present, is child index 4
+    if (sizectx->children.size() > 4) {
+      numDim = 2;
+      dims.push_back(getDimFromToken(sizectx->children[4]));
+    }
+    
+    if (numDim == 2) { 
       CompleteType arr(BaseType::MATRIX);
-      arr.subTypes.push_back(elem);        // element type as single subtype
-      arr.dims = std::move(dims);          // save dimensions
+      arr.subTypes.push_back(elem);
+      arr.dims = std::move(dims);
       return arr;
-    }else{
+    } else if (numDim == 1) {
       CompleteType arr(BaseType::ARRAY);
-      arr.subTypes.push_back(elem);        // element type as single subtype
-      arr.dims = std::move(dims);          // save dimensions
+      arr.subTypes.push_back(elem);
+      arr.dims = std::move(dims);
       return arr;
+    } else {
+      throw SymbolError(1, "Unable to set dimensions for array/matrix");
     }
+
 }
 
 std::any ASTBuilder::visitBlock(GazpreaParser::BlockContext *ctx) {

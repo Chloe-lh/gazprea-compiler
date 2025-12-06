@@ -321,8 +321,39 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
             }
             break;
         case BaseType::MATRIX:
+            if (from.subTypes.size() != 1) {
+                throw std::runtime_error(
+                    "promote(): from matrix with subtype len " +
+                    std::to_string(from.subTypes.size()));
+            }
+
             switch (to.baseType) {
-                case BaseType::MATRIX:     return BaseType::MATRIX;   // only valid if same len - special case with multiplication.
+                case BaseType::MATRIX: {
+                    if (to.subTypes.size() != 1) {
+                        throw std::runtime_error(
+                            "promote(): to matrix with subtype len " +
+                            std::to_string(to.subTypes.size()));
+                    }
+
+                    // ensure dimensions match
+                    if (from.dims.size() != 2 || to.dims.size() != 2) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+                    if (from.dims[0] != to.dims[0] || from.dims[1] != to.dims[1]) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+
+                    CompleteType result(BaseType::MATRIX);
+                    CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
+                    if (subtypeResult.baseType == BaseType::UNKNOWN) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+
+                    result.subTypes.push_back(subtypeResult);
+                    result.dims = to.dims;
+
+                    return result;
+                }
                 default: break;
             }
             break;
