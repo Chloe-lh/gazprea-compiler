@@ -1,6 +1,7 @@
 #include "MLIRgen.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
-#include "Types.h" 
+#include "Types.h"
+#include <iostream> 
 
 
 mlir::func::FuncOp MLIRGen::beginFunctionDefinitionWithConstants(

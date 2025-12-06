@@ -243,8 +243,8 @@ void MLIRGen::visit(ArrayAccessNode *node) {
     if (!currScope_) throw std::runtime_error("ArrayAccessNode: no current scope");
     VarInfo* arrVarInfo = node->binding;
     if (!arrVarInfo) throw std::runtime_error("ArrayAccessNode: unresolved array '"+node->id+"'");
-    if (arrVarInfo->type.baseType != BaseType::ARRAY)
-        throw std::runtime_error("ArrayAccessNode: Variable '" + node->id + "' is not an array.");
+    if (arrVarInfo->type.baseType != BaseType::ARRAY && arrVarInfo->type.baseType != BaseType::VECTOR)
+        throw std::runtime_error("ArrayAccessNode: Variable '" + node->id + "' is not an array or vector.");
 
     if (!arrVarInfo->value) {
         auto globalOp = module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->id);
@@ -282,7 +282,6 @@ void MLIRGen::visit(ArrayAccessNode *node) {
     pushValue(out);
 }
 void MLIRGen::visit(ArrayTypedDecNode *node) {
-    // std::cerr << "[DEUBG] MLIR: visiting ArrayTypedDecNode\n";
     //Resolve declared variable
     VarInfo* declaredVar = currScope_->resolveVar(node->id, node->line);
     if (!declaredVar) {
@@ -293,6 +292,23 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
     bool isDynamic = !declaredVar->type.dims.empty() && declaredVar->type.dims[0] < 0;
 
     if (node->init) {
+        // Vectors are handled separately - they're always allocated with zero length
+        // and then resized during assignment
+        if (declaredVar->type.baseType == BaseType::VECTOR) {
+            // Allocate vector with zero length (will be resized during assignment)
+            if (!declaredVar->value) {
+                allocaVar(declaredVar, node->line);
+            }
+            
+            // Visit initializer and assign (assignment will resize the vector)
+            node->init->accept(*this);
+            VarInfo literal = popValue();
+
+            assignTo(&literal, declaredVar, node->line);
+            return;
+        }
+        
+        
         // For dynamic arrays compute size from initializer first
         if (isDynamic) {
             // Visit initializer to get source VarInfo
@@ -314,21 +330,6 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
             return;
         } else {
             // Static array - allocate, then assign
-            // Compute total number of elements for static arrays from CompleteType::dims
-            size_t totalElems = 1;
-            bool allStatic = true;
-            if (!declaredVar->type.dims.empty()) {
-                for (int d : declaredVar->type.dims) {
-                    if (d < 0) {
-                        allStatic = false;
-                        break;
-                    }
-                    totalElems *= static_cast<size_t>(d);
-                }
-            } else {
-                allStatic = false;
-            }
-
             // Allocate storage if not already done
             if (!declaredVar->value) {
                 allocaVar(declaredVar, node->line);
@@ -339,6 +340,14 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
             assignTo(&literal, declaredVar, node->line);
             return;
         }
+    }
+
+    // Handle vectors without initializers - just allocate with zero length
+    if (!node->init && declaredVar->type.baseType == BaseType::VECTOR) {
+        if (!declaredVar->value) {
+            allocaVar(declaredVar, node->line);
+        }
+        return;
     }
 
     // --- Zero-initialize array if no initializer and static size known ---
@@ -358,6 +367,10 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
     }
     
     if (allStatic) {
+        if (!declaredVar->value) {
+            allocaVar(declaredVar, node->line);
+        }
+        
         size_t n = totalElems;
         if (declaredVar->type.subTypes.size() != 1) {
             throw std::runtime_error("ArrayTypedDecNode: array type must have exactly one element subtype");
@@ -421,8 +434,15 @@ void MLIRGen::visit(ExprListNode *node){
     }
 }
 void MLIRGen::visit(ArrayLiteralNode *node){
-
     VarInfo arrVarInfo(node->type);
+    
+    // Validate array literal type has dimensions set
+    if (arrVarInfo.type.dims.empty() || arrVarInfo.type.dims[0] < 0) {
+        throw std::runtime_error("ArrayLiteralNode: array literal type must have static dimensions set. dims.size()=" + 
+                                 std::to_string(arrVarInfo.type.dims.size()) + 
+                                 (arrVarInfo.type.dims.empty() ? "" : ", dims[0]=" + std::to_string(arrVarInfo.type.dims[0])));
+    }
+    
     allocaLiteral(&arrVarInfo, node->line);
 
     if (!arrVarInfo.value) {
@@ -432,13 +452,29 @@ void MLIRGen::visit(ArrayLiteralNode *node){
     for (size_t i = 0; i < node->list->list.size(); ++i) {
         node->list->list[i]->accept(*this);
         VarInfo elem = popValue();
+        
         mlir::Value val = getSSAValue(elem);
+        
+        if (!val) {
+            throw std::runtime_error("ArrayLiteralNode: element value is null at index " + std::to_string(i));
+        }
+        
+        if (!arrVarInfo.value) {
+            throw std::runtime_error("ArrayLiteralNode: array storage is null at index " + std::to_string(i));
+        }
+        
         // MLIR memref uses 0-based index
         auto idxConst = builder_.create<mlir::arith::ConstantOp>(
             loc_, builder_.getIndexType(), builder_.getIntegerAttr(builder_.getIndexType(), static_cast<int64_t>(i))
         );
+        
+        if (!idxConst) {
+            throw std::runtime_error("ArrayLiteralNode: failed to create index constant at index " + std::to_string(i));
+        }
+        
         builder_.create<mlir::memref::StoreOp>(loc_, val, arrVarInfo.value, mlir::ValueRange{idxConst});
     }
+    
     pushValue(arrVarInfo);
 }
 

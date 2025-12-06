@@ -1,6 +1,8 @@
 #include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
 #include "Types.h"
+#include "llvm/Support/raw_ostream.h" // For llvm::errs()
+#include <iostream> // For std::cerr
 
 VarInfo MLIRGen::popValue() {
     if (v_stack_.empty()) {
@@ -216,7 +218,6 @@ mlir::Value MLIRGen::computeArraySize(VarInfo* source, int line) {
     }
     
     if (source->value.getType().isa<mlir::MemRefType>()) {
-        auto memrefType = source->value.getType().cast<mlir::MemRefType>();
         auto zeroIdx = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
         return builder_.create<mlir::memref::DimOp>(loc_, source->value, zeroIdx);
     }
@@ -365,6 +366,16 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
                         );
                         srcElemVal = elseBuilder.create<mlir::LLVM::LoadOp>(elseLoc, elemTy, gep);
                     } else {
+                        // Debugging: Print memref type and size before load
+                        if (rhs->value && rhs->value.getType().isa<mlir::MemRefType>()) {
+                            auto memrefType = rhs->value.getType().cast<mlir::MemRefType>();
+                            if (memrefType.hasRank() && memrefType.getRank() > 0 && memrefType.isDynamicDim(0)) {
+                                auto zeroIdx = elseBuilder.create<mlir::arith::ConstantIndexOp>(elseLoc, 0);
+                                mlir::Value currentRhsLen = elseBuilder.create<mlir::memref::DimOp>(elseLoc, rhs->value, zeroIdx);
+                                currentRhsLen.print(llvm::errs()); // Print the MLIR Value itself
+                                llvm::errs() << "\n";
+                            }
+                        }
                         // Load from memref
                         srcElemVal = elseBuilder.create<mlir::memref::LoadOp>(elseLoc, rhs->value, mlir::ValueRange{idx});
                     }
@@ -404,26 +415,54 @@ void MLIRGen::assignToVector(VarInfo* literal, VarInfo* variable, int line) {
         throw TypeError(line, "MLIRGen::assignToVector: Literal of type '" + toString(literal->type) + "' being assigned to vector variable");
         // TODO: Implement int -> vector
     }
-    // Ensure both storages exist
-    if (!variable->value) allocaVar(variable, line);
-    if (!literal->value) allocaVar(literal, line);
+    
+    // Validate literal has correct structure
+    if (literal->type.subTypes.size() != 1) {
+        throw std::runtime_error("assignToVector: literal type must have exactly one element subtype");
+    }
+    
+    // Ensure variable storage exists (vector is allocated with zero length initially)
+    if (!variable->value) {
+        allocaVar(variable, line);
+    }
+    
+    // Array literals should already have a value allocated by ArrayLiteralNode::visit()
+    // Vectors passed as literal should also already have a value
+    // If the literal doesn't have a value, this is an error
+    if (!literal->value) {
+        throw std::runtime_error("assignToVector: literal value is null - array/vector literal should already be allocated");
+    }
 
     // First try updating lhs len using compile time sizing - then fallback to dynamic sizing
     if (literal->type.dims.size() > 0 && literal->type.dims[0] >= 0) {
         variable->runtimeLen = literal->type.dims[0];
-    } else {
+    } else if (literal->runtimeLen >= 0) {
         variable->runtimeLen = literal->runtimeLen;
+    } else {
+        // For array literals, try to get size from the memref dimension
+        if (literal->value.getType().isa<mlir::MemRefType>()) {
+            auto zeroIdx = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+            mlir::Value dimVal = builder_.create<mlir::memref::DimOp>(loc_, literal->value, zeroIdx);
+            // This is a runtime value, but we need a compile-time constant for the loop
+            // This case should not happen for array literals which have compile-time known sizes
+            throw std::runtime_error("assignToVector: cannot determine vector length from runtime dimension");
+        } else {
+            throw std::runtime_error("assignToVector: cannot determine vector length - literal has no dimensions or runtime length");
+        }
     }
 
-    if (variable->runtimeLen == -1) throw std::runtime_error("MLIRGen::assignToVector: Runtime len of " + std::to_string(variable->runtimeLen) + " is invalid");
+    if (variable->runtimeLen == -1 || variable->runtimeLen < 0) {
+        throw std::runtime_error("MLIRGen::assignToVector: Runtime len of " + std::to_string(variable->runtimeLen) + " is invalid");
+    }
 
     // resize the vector to the rhs
     mlir::Value newVector = allocaVector(variable->runtimeLen, variable);
     variable->value = newVector;
 
-    // Copy over elements to the new vector
+    // Copy over elements to the new vector using compile-time loop
+    // (array literals have compile-time known sizes, so this is safe)
     auto idxTy = builder_.getIndexType();
-    for(size_t t=0; t < variable->runtimeLen; ++t){
+    for(size_t t=0; t < static_cast<size_t>(variable->runtimeLen); ++t){
         // index constant
         mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
             loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(t)));
@@ -544,9 +583,6 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
     mlir::func::FuncOp funcOp = getCurrentEnclosingFunction();
     mlir::Block &entry = funcOp.front();
     mlir::OpBuilder entryBuilder(&entry, entry.begin());
-    
-    // Determine if we should allocate in entry block or current block
-    bool allocateInEntry = !sizeValue; // Static allocations go in entry block
 
     switch (varInfo->type.baseType) {
         case BaseType::BOOL:
@@ -580,8 +616,16 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
             break;
         }
         case BaseType::ARRAY:{ 
+            if (varInfo->type.subTypes.empty()) {
+                throw std::runtime_error("allocaVar: ARRAY type must have at least one element subtype");
+            }
+            
             mlir::Type elemTy = getLLVMType(varInfo->type.subTypes[0]);
-
+            
+            if (!elemTy) {
+                throw std::runtime_error("allocaVar: failed to get LLVM type for array element type");
+            }
+            
             if (varInfo->type.dims.size() == 1 && varInfo->type.dims[0] >= 0) {
                 // Static array size
                 int64_t n = varInfo->type.dims[0];
@@ -649,17 +693,19 @@ mlir::Value MLIRGen::allocaVector(int len, VarInfo *varInfo) {
     mlir::Block &entry = funcOp.front();
     mlir::OpBuilder entryBuilder(&entry, entry.begin());
 
-
     mlir::Type elemTy = getLLVMType(varInfo->type.subTypes[0]);
     auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, elemTy);
+    
     mlir::Value arrayLen = entryBuilder.create<mlir::arith::ConstantOp>(
         loc_, builder_.getIndexType(), builder_.getIntegerAttr(builder_.getIndexType(), len));
+    
     auto alloca = entryBuilder.create<mlir::memref::AllocaOp>(
         loc_,
         memTy,
         mlir::ValueRange{arrayLen},
         mlir::ValueRange{},
         mlir::IntegerAttr());
+    
     varInfo->value = alloca;
     return alloca;
 }

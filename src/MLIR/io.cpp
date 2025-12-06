@@ -339,7 +339,7 @@ void MLIRGen::visit(OutputStatNode* node) {
     // Evaluate the expression to get the value to print
     node->expr->accept(*this);
     VarInfo exprVarInfo = popValue();
-
+    
 
     if (exprVarInfo.type.baseType == BaseType::ARRAY) {
         emitPrintArray(exprVarInfo);
@@ -347,7 +347,7 @@ void MLIRGen::visit(OutputStatNode* node) {
     } else if (exprVarInfo.type.baseType == BaseType::VECTOR) {
         throw TypeError(node->line, "Cannot print vectors");
     } else if (isScalarType(exprVarInfo.type.baseType)) {
-    mlir::Value loadedValue = getSSAValue(exprVarInfo);
+        mlir::Value loadedValue = getSSAValue(exprVarInfo);
         emitPrintScalar(exprVarInfo.type, loadedValue);
     } else {
         throw std::runtime_error("MLIRGen::OutputStat: unsupported type for printing");
