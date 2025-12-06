@@ -25,6 +25,50 @@ static ConstantValue getCharConst(char data) {
 static ConstantValue getStringConst(const std::string &s) {
     return ConstantValue(CompleteType(BaseType::STRING), s);
 }
+
+/*
+Deep equality on ConstantValue trees. Used for folding equality on composite constant expressions (arrays/vectors/matrices/tuples/structs).
+*/ 
+static bool equalConstantValues(const ConstantValue &a, const ConstantValue &b) {
+    if (a.type.baseType != b.type.baseType) return false;
+    BaseType bt = a.type.baseType;
+
+    // Composite types: recurse element-wise
+    if (bt == BaseType::ARRAY ||
+        bt == BaseType::VECTOR ||
+        bt == BaseType::MATRIX ||
+        bt == BaseType::TUPLE  ||
+        bt == BaseType::STRUCT) {
+
+        if (!std::holds_alternative<std::vector<ConstantValue>>(a.value) ||
+            !std::holds_alternative<std::vector<ConstantValue>>(b.value)) {
+            return false;
+        }
+        const auto &va = std::get<std::vector<ConstantValue>>(a.value);
+        const auto &vb = std::get<std::vector<ConstantValue>>(b.value);
+        if (va.size() != vb.size()) return false;
+        for (size_t i = 0; i < va.size(); ++i) {
+            if (!equalConstantValues(va[i], vb[i])) return false;
+        }
+        return true;
+    }
+
+    // Scalar cases
+    switch (bt) {
+        case BaseType::INTEGER:
+            return std::get<int64_t>(a.value) == std::get<int64_t>(b.value);
+        case BaseType::REAL:
+            return std::get<double>(a.value) == std::get<double>(b.value);
+        case BaseType::BOOL:
+            return std::get<bool>(a.value) == std::get<bool>(b.value);
+        case BaseType::STRING:
+            return std::get<std::string>(a.value) == std::get<std::string>(b.value);
+        case BaseType::CHARACTER:
+            return std::get<char>(a.value) == std::get<char>(b.value);
+        default:
+            return false;
+    }
+}
 std::optional<std::vector<long double>> extractVectorFromConst(const ConstantValue &cv, bool &hasReal) {
     if (!std::holds_alternative<std::vector<ConstantValue>>(cv.value)) return std::nullopt;
     const auto &elems = std::get<std::vector<ConstantValue>>(cv.value);
@@ -773,6 +817,16 @@ void ConstantFoldingVisitor::visit(EqExpr *node){
         setResult(lv == rv);
         return;
     }
+    // Array / vector / matrix: element-wise equality, only when both sides
+    // are already constants of the same composite type.
+    if (L.type.baseType == R.type.baseType &&
+        (L.type.baseType == BaseType::ARRAY ||
+         L.type.baseType == BaseType::VECTOR ||
+         L.type.baseType == BaseType::MATRIX)) {
+        bool eqAll = equalConstantValues(L, R);
+        setResult(eqAll);
+        return;
+    }
     // Bool
     if (L.type.baseType == BaseType::BOOL && R.type.baseType == BaseType::BOOL) {
         setResult(std::get<bool>(L.value) == std::get<bool>(R.value));
@@ -788,6 +842,7 @@ void ConstantFoldingVisitor::visit(EqExpr *node){
         setResult(std::get<char>(L.value) == std::get<char>(R.value));
         return;
     }
+
     // Otherwise: conservative, don't fold mixed/unsupported comparisons
     return;
 }
