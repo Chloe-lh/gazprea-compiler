@@ -308,6 +308,15 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                     "SemanticAnalysis::ArrayTypedDecNode: Unsupported identifier initializer type '" +
                     toString(initType) + "' for '" + node->id + "'.");
             }
+        // Handle array slice expression as initializer
+        } else if (auto sliceExpr = std::dynamic_pointer_cast<ArraySliceExpr>(node->init)) {
+            // ArraySliceExpr already sets its type to array with dynamic dimension
+            // Just verify it's an array type
+            if (initType.baseType != BaseType::ARRAY &&
+                initType.baseType != BaseType::VECTOR) {
+                throw std::runtime_error(
+                    "SemanticAnalysis::ArrayTypedDecNode: ArraySliceExpr initializer must result in array/vector type for '" + node->id + "'.");
+            }
         } else {
             throw std::runtime_error("SemanticAnalysis::ArrayTypedDecNode: Unknown initializer for array '" + node->id + "'.");
         }
