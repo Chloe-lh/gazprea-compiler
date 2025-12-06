@@ -1,14 +1,6 @@
 procedure main() returns integer{
     var integer[3] arr = [1, 2, 3];
 
-    arr -> std_output;
-    "\n" -> std_output;
-
-    arr[2] = 42;
-
-    arr -> std_output;
-    "\n" -> std_output;
-
     // check RHS array assignment
     integer a = arr[2];
     a -> std_output;
@@ -16,5 +8,5 @@ procedure main() returns integer{
 
     return 0;
 }
-//CHECK_FILE:array_element_assign.out
+//CHECK_FILE:array_element_assign_rhs.out
 
