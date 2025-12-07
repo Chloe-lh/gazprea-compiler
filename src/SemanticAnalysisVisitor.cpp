@@ -2,7 +2,6 @@
 #include "AST.h"
 #include "CompileTimeExceptions.h"
 #include "Types.h"
-#include "run_time_errors.h"
 #include <memory>
 #include <optional>
 #include <cstdio>
@@ -171,7 +170,7 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
                 // Only check bounds if index is positive and out of range
                 // Negative indices are allowed and will be converted at runtime
                 if (in->value > 0 && in->value > sz) {
-                    IndexError((std::string("Index ") + std::to_string(in->value) + " out of range for array of len " + std::to_string(sz)).c_str());
+                    throw SizeError(node->line, "Index " + std::to_string(in->value) + " out of range for array of len " + std::to_string(sz));
                     return;
                 }
             }
@@ -181,7 +180,7 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
                 // Only check bounds if index is positive and out of range
                 // Negative indices are allowed and will be converted at runtime
                 if (in->value > 0 && in->value > sz) {
-                    IndexError((std::string("Index ") + std::to_string(in->value) + " out of range for array of len " + std::to_string(sz)).c_str());
+                    throw SizeError(node->line, "Index " + std::to_string(in->value) + " out of range for array of len " + std::to_string(sz));
                     return;
                 }
             }
@@ -272,8 +271,8 @@ void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
             int arraySize = var->type.dims[0];
             // Using 1-based indexing - index must be between 1 and arraySize (or negative for reverse indexing)
             if (indexValue == 0 || indexValue > arraySize || indexValue < -arraySize) {
-                IndexError(("Index " + std::to_string(indexValue) + " out of range for array of length " +
-                    std::to_string(arraySize)).c_str());
+                throw SizeError(node->line, "Index " + std::to_string(indexValue) + " out of range for array of length " +
+                    std::to_string(arraySize));
                 return;
             }
         }
@@ -292,8 +291,8 @@ void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
                 int indexValue2 = intLiteral2->value;
                 int arraySize2 = var->type.dims[1];
                 if (indexValue2 == 0 || indexValue2 > arraySize2 || indexValue2 < -arraySize2) {
-                    IndexError(("Second index " + std::to_string(indexValue2) + " out of range for dimension of length " +
-                        std::to_string(arraySize2)).c_str());
+                    throw SizeError(node->line, "Second index " + std::to_string(indexValue2) + " out of range for dimension of length " +
+                        std::to_string(arraySize2));
                     return;
                 }
             }
@@ -483,7 +482,7 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                 if (declaredType.baseType == BaseType::MATRIX) {
                     // Update the literal node's type to match
                     if (lit->type.dims != declaredType.dims) {
-                        SizeError("Initializer dimensions do not match declared matrix dimensions");
+                        throw SizeError(node->line, "Initializer dimensions do not match declared matrix dimensions");
                     }
                     
                     // Do NOT modify inner array types - they should remain as ARRAY with 1D
@@ -591,8 +590,8 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
     if(L1 && R1){ // vector ** vector = scalar
         int Llen = getDim(leftType.dims, 0);
         int Rlen = getDim(rightType.dims, 0);
-        if(Llen < 0 || Rlen < 0) SizeError("Semantic Analysis: invalid vector/array dimensions");
-        if(Llen != Rlen) SizeError("Semantic Analysis: vectors/arrays must have the same dimensions in order to calculate dot product");
+        if(Llen < 0 || Rlen < 0) throw SizeError(node->line, "Semantic Analysis: invalid vector/array dimensions");
+        if(Llen != Rlen) throw SizeError(node->line, "Semantic Analysis: vectors/arrays must have the same dimensions in order to calculate dot product");
         node->type = promoted;
         return;
     }else if(LM && RM){ // matrix ** matrix = matrix
@@ -605,8 +604,8 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
         int Lcol = getDim(leftType.dims, 1);
         int Rrow = getDim(rightType.dims, 0);
         int Rcol = getDim(rightType.dims, 1);
-        if(Lrow<0||Lcol<0||Rrow<0||Rcol<0) SizeError("Semantic Analysis: invalid matrix dimensions");
-        if(Lcol != Rrow) SizeError(("Semantic Analysis: invalid matrix dimensions for matrix multiplication - left columns (" + std::to_string(Lcol) + ") must equal right rows (" + std::to_string(Rrow) + ")").c_str());
+        if(Lrow<0||Lcol<0||Rrow<0||Rcol<0) throw SizeError(node->line, "Semantic Analysis: invalid matrix dimensions");
+        if(Lcol != Rrow) throw SizeError(node->line, ("Semantic Analysis: invalid matrix dimensions for matrix multiplication - left columns (" + std::to_string(Lcol) + ") must equal right rows (" + std::to_string(Rrow) + ")"));
         
         // Ensure element type promotion succeeded
         if(promoted.baseType == BaseType::UNKNOWN) {
@@ -1648,6 +1647,145 @@ void SemanticAnalysisVisitor::visit(IteratorLoopNode* node) {
     node->type = CompleteType(BaseType::UNKNOWN);
 }
 
+void SemanticAnalysisVisitor::visit(GeneratorExprNode* node) {
+    // Arity check: only 1D for now
+    if (node->domains.empty() || node->domains.size() > 2) {
+        throw TypeError(node->line, "Generator must have 1 or 2 domain variables.");
+    }
+
+    // For 1D only in this milestone
+    size_t arity = node->domains.size();
+    if (arity != 1) {
+        throw TypeError(node->line, "2D generators not yet implemented.");
+    }
+
+    // Domain normalization: visit domain expr (allows range, array, nested generator)
+    auto &domPair = node->domains[0];
+    if (!domPair.second) {
+        throw TypeError(node->line, "Generator domain is null.");
+    }
+    domPair.second->accept(*this);
+    CompleteType domType = resolveUnresolvedType(current_, domPair.second->type, node->line);
+    if (domType.baseType != BaseType::ARRAY && domType.baseType != BaseType::VECTOR && domType.baseType != BaseType::MATRIX && domType.baseType != BaseType::UNKNOWN) {
+        throw TypeError(node->line, "Generator domain must be array/vector/matrix or range.");
+    }
+
+    // Determine length for 1D
+    int len = -1; // -1 dynamic
+    if (!domType.dims.empty() && domType.dims[0] >= 0) {
+        len = domType.dims[0];
+    }
+    // If domain is RangeExprNode, try to compute static len; else keep dynamic
+    if (auto rangeDom = std::dynamic_pointer_cast<RangeExprNode>(domPair.second)) {
+        // Best-effort static length if start/end/step are int literals
+        int startLit = 1;
+        int endLit = -1;
+        int stepLit = 1;
+        bool startIsLit = false, endIsLit = false, stepIsLit = false;
+        if (rangeDom->start) {
+            if (auto s = std::dynamic_pointer_cast<IntNode>(rangeDom->start)) { startLit = s->value; startIsLit = true; }
+        } else { startIsLit = true; startLit = 1; }
+        if (rangeDom->end) {
+            if (auto e = std::dynamic_pointer_cast<IntNode>(rangeDom->end)) { endLit = e->value; endIsLit = true; }
+        }
+        if (rangeDom->step) {
+            if (auto st = std::dynamic_pointer_cast<IntNode>(rangeDom->step)) { stepLit = st->value; stepIsLit = true; }
+        } else { stepIsLit = true; stepLit = 1; }
+        if (stepLit <= 0 && stepIsLit) throw StrideError(node->line, "Iterator loop range stride must be positive.");
+        if (startIsLit && endIsLit && stepIsLit) {
+            if (endLit < startLit) len = 0;
+            else len = static_cast<int>((static_cast<int64_t>(endLit - startLit) / stepLit) + 1);
+        }
+    }
+
+    // Determine element type: use domain element type where possible
+    CompleteType iterType(BaseType::UNKNOWN);
+    if (domType.baseType == BaseType::ARRAY || domType.baseType == BaseType::VECTOR || domType.baseType == BaseType::MATRIX) {
+        if (!domType.subTypes.empty()) iterType = domType.subTypes[0];
+    } else {
+        // Range domain -> integer
+        iterType = CompleteType(BaseType::INTEGER);
+    }
+
+    // Bind iterator with inferred element type in a child scope, then visit RHS to refine
+    enterScopeFor(node, current_->isInLoop(), current_->getReturnType());
+    current_->declareVar(domPair.first, iterType, true, node->line);
+    if (node->rhs) node->rhs->accept(*this);
+    CompleteType elemType = resolveUnresolvedType(current_, node->rhs ? node->rhs->type : CompleteType(BaseType::UNKNOWN), node->line);
+    exitScope();
+
+    // Build result type
+    CompleteType resultType(BaseType::ARRAY);
+    resultType.subTypes.push_back(elemType);
+    resultType.dims = {len};
+    node->type = resultType;
+
+    // Allocate result var (in lowered block) with computed len (static or dynamic)
+    static int genTempCounter = 0;
+    std::string resName = "__gen_tmp_" + std::to_string(genTempCounter++);
+    auto resDec = std::make_shared<ArrayTypedDecNode>("var", resName, resultType);
+    resDec->line = node->line;
+    // Declare in current scope so downstream passes can resolve it
+    current_->declareVar(resName, resultType, false, node->line);
+
+    // Build iterator loop to fill result: loop idx in domain { res[w]=rhs; w++ }
+    // Write index declaration (var w = 1)
+    auto one = std::make_shared<IntNode>(1); one->line = node->line;
+    auto wName = "__gen_w_" + std::to_string(genTempCounter);
+    auto wDec = std::make_shared<InferredDecNode>(wName, "var", one);
+    wDec->line = node->line;
+    current_->declareVar(wName, CompleteType(BaseType::INTEGER), false, node->line);
+
+    // Iterator binding inside loop: const iter = domain element (handled by IteratorLoopNode)
+    // Body: res[w] = rhs; w = w + 1;
+    // Build assign res[w] = rhs
+    auto resId = std::make_shared<IdNode>(resName); resId->line = node->line;
+    auto wIdForStore = std::make_shared<IdNode>(wDec->name); wIdForStore->line = node->line;
+    auto arrAccess = std::make_shared<ArrayAccessNode>(resId->id, wIdForStore);
+    arrAccess->line = node->line;
+    // RHS: use original rhs with iterator binding resolved in loop scope; just reuse node->rhs
+    auto storeStat = std::make_shared<ArrayAccessAssignStatNode>(arrAccess, node->rhs);
+    storeStat->line = node->line;
+
+    // Increment w
+    auto wIdForInc = std::make_shared<IdNode>(wDec->name); wIdForInc->line = node->line;
+    auto incExpr = std::make_shared<AddExpr>("+", wIdForInc, one);
+    incExpr->line = node->line;
+    auto incStat = std::make_shared<AssignStatNode>(wDec->name, incExpr);
+    incStat->line = node->line;
+
+    // Loop body block: store RHS into result[w], then increment w
+    std::vector<std::shared_ptr<DecNode>> loopDecs;
+    std::vector<std::shared_ptr<StatNode>> loopStats;
+    loopStats.push_back(storeStat);
+    loopStats.push_back(incStat);
+    auto loopBody = std::make_shared<BlockNode>(std::move(loopDecs), std::move(loopStats));
+    loopBody->line = node->line;
+
+    // Iterator loop over domain
+    auto iterLoop = std::make_shared<IteratorLoopNode>(domPair.first, domPair.second, loopBody);
+    iterLoop->line = node->line;
+
+    // Lowered block: [resDec, wDec] then iter loop
+    std::vector<std::shared_ptr<DecNode>> loweredDecs;
+    loweredDecs.push_back(resDec);
+    loweredDecs.push_back(wDec);
+    std::vector<std::shared_ptr<StatNode>> loweredStats;
+    loweredStats.push_back(iterLoop);
+    auto lowered = std::make_shared<BlockNode>(std::move(loweredDecs), std::move(loweredStats));
+    lowered->line = node->line;
+
+    node->lowered = lowered;
+    node->loweredResultName = resName;
+
+    // Visit lowered STATS ONLY to resolve references without creating new scope/shadowing vars
+    // We skip visiting decs in SA because we manually declared them in the current scope above.
+    // MLIRGen will still visit the declarations to handle allocation/initialization.
+    for (const auto& s : lowered->stats) {
+        if (s) s->accept(*this);
+    }
+}
+
 void SemanticAnalysisVisitor::visit(ParenExpr* node) {
     node->expr->accept(*this);
     node->type = node->expr->type;
@@ -1842,7 +1980,7 @@ void SemanticAnalysisVisitor::visit(AddExpr* node) {
         auto lsz = getCompileTimeSize(node->left);
         auto rsz = getCompileTimeSize(node->right);
         if (lsz.has_value() && rsz.has_value() && lsz.value() != rsz.value()) {
-            SizeError("Semantic Analysis: Arrays must have same size");
+            throw SizeError(node->line, "Semantic Analysis: Arrays must have same size");
         }
     }
     CompleteType finalType = promote(leftOperandType, rightOperandType);
@@ -1983,7 +2121,7 @@ void SemanticAnalysisVisitor::visit(TupleAccessNode* node) {
     }
 
     if (node->index > varInfo->type.subTypes.size() || node->index == 0) {
-        IndexError(("Index " + std::to_string(node->index) + " out of range for tuple of len " + std::to_string(varInfo->type.subTypes.size())).c_str());
+        throw SizeError(node->line, "Index " + std::to_string(node->index) + " out of range for tuple of len " + std::to_string(varInfo->type.subTypes.size()));
         return; 
     }
 

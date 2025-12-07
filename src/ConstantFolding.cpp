@@ -478,6 +478,14 @@ void ConstantFoldingVisitor::visit(TupleTypeAliasNode *node){}
     if (node->target) removeConst(node->target->structName);
   }
 
+  void ConstantFoldingVisitor::visit(ArrayAccessAssignStatNode *node) {
+    if (!node) throw std::runtime_error("ConstantFolding::ArrayAccessAssignStatNode: null node");
+    if (node->target) node->target->accept(*this);
+    if (node->expr) node->expr->accept(*this);
+    // array element assignment invalidates constant info for the base array id
+    if (node->target) removeConst(node->target->id);
+  }
+
   void ConstantFoldingVisitor::visit(OutputStatNode *node){ if(node->expr) node->expr->accept(*this);}
   void ConstantFoldingVisitor::visit(InputStatNode *node){}
   void ConstantFoldingVisitor::visit(BreakStatNode *node){}
@@ -538,6 +546,17 @@ void ConstantFoldingVisitor::visit(TupleTypeAliasNode *node){}
     }
     if (node->domainExpr) node->domainExpr->accept(*this);
     if (node->body) node->body->accept(*this);
+  }
+  void ConstantFoldingVisitor::visit(GeneratorExprNode *node){
+    // Fold domains and rhs; lowered form, if present, is visited in place
+    if (node->lowered) {
+      node->lowered->accept(*this);
+      return;
+    }
+    for (auto &d : node->domains) {
+      if (d.second) d.second->accept(*this);
+    }
+    if (node->rhs) node->rhs->accept(*this);
   }
   void ConstantFoldingVisitor::visit(BlockNode *node){
     pushScope();

@@ -28,9 +28,7 @@ public:
   virtual void visit(DestructAssignStatNode *node) = 0;
   virtual void visit(TupleAccessAssignStatNode *node) = 0;
   virtual void visit(StructAccessAssignStatNode *node) = 0;
-  // TODO just added ArrayAccessAssignStatNode
-  // TODO needs to be added to semantic pass
-  virtual void visit(ArrayAccessAssignStatNode *node) { (void)node; }
+  virtual void visit(ArrayAccessAssignStatNode *node) = 0;
   virtual void visit(OutputStatNode *node) = 0;
   virtual void visit(InputStatNode *node) = 0;
   virtual void visit(BreakStatNode *node) = 0;

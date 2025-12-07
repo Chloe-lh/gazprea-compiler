@@ -1,0 +1,14 @@
+procedure main() returns integer {
+    var integer[*] squares = [i in 1..7 | i * i];       // 1 4 9 16 25 36 49
+    var integer[*] plusIdx = [j in 1..7 | squares[j] + j]; // 2 6 12 20 30 42 56
+
+    // Slice first 4 via a range
+    var integer[4] first4 = [k in 1..4 | plusIdx[k]];
+
+    squares -> std_output; "\n" -> std_output;
+    plusIdx -> std_output; "\n" -> std_output;
+    first4 -> std_output;
+    return 0;
+}
+//CHECK_FILE:gen_nested_complex.out
+

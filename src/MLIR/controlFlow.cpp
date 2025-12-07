@@ -206,3 +206,23 @@ void MLIRGen::visit(IteratorLoopNode* node) {
     }
     node->lowered->accept(*this);
 }
+
+void MLIRGen::visit(GeneratorExprNode* node) {
+    // Generators should have been lowered to allocation + fill loops.
+    if (!node->lowered) {
+        throw std::runtime_error("GeneratorExprNode: missing lowered form; semantic pass should have populated it.");
+    }
+    // Manually emit lowered decs/stats in the current scope (avoid new scope)
+    for (const auto &d : node->lowered->decs) {
+        if (d) d->accept(*this);
+    }
+    for (const auto &s : node->lowered->stats) {
+        if (s) s->accept(*this);
+    }
+    // Push result VarInfo
+    VarInfo* res = currScope_->resolveVar(node->loweredResultName, node->line);
+    if (!res) {
+        throw std::runtime_error("GeneratorExprNode: result variable '" + node->loweredResultName + "' not found");
+    }
+    pushValue(*res);
+}
