@@ -174,6 +174,133 @@ void MLIRGen::visit(EqExpr* node){
         mlir::Value rightStruct = builder_.create<mlir::LLVM::LoadOp>(
             loc_, structTy, rightPromoted.value);
         result = mlirAggregateEquals(leftStruct, rightStruct, loc_, builder_);
+    } else if (
+        promotedType.baseType == BaseType::ARRAY || 
+        promotedType.baseType == BaseType::VECTOR ||
+        promotedType.baseType == BaseType::MATRIX
+    ) {
+        // Ensure storage exists
+        if (!leftPromoted.value) allocaVar(&leftPromoted, node->line);
+        if (!rightPromoted.value) allocaVar(&rightPromoted, node->line);
+
+        // Ensure runtime dimensions are populated
+        if (leftPromoted.runtimeDims.empty()) leftPromoted.runtimeDims = promotedType.dims;
+        if (rightPromoted.runtimeDims.empty()) rightPromoted.runtimeDims = promotedType.dims;
+
+        auto &lhsDims = leftPromoted.runtimeDims;
+        auto &rhsDims = rightPromoted.runtimeDims;
+
+        auto i1Ty = builder_.getI1Type();
+
+        // Dimension checks
+        if (lhsDims.size() != rhsDims.size() || lhsDims.empty() || rhsDims.empty()) throw std::runtime_error("MLIRGen::EqExpr: Comparison with two elements of dim size " + std::to_string(lhsDims.size()) + " and " + std::to_string(rhsDims.size()));
+        if (lhsDims[0] != rhsDims[0]) throw std::runtime_error("MLIRGen::EqExpr: Comparison with two elements of dim size " + std::to_string(lhsDims[0]) + " and " + std::to_string(rhsDims[0]));
+
+        // Handle vector / arrays
+        if (lhsDims.size() == 1) {
+            int64_t lhsLen = lhsDims[0];
+            int64_t rhsLen = rhsDims[0];
+
+            // Accumulator stored in a temporary boolean memref
+            VarInfo accInfo{CompleteType(BaseType::BOOL)};
+            allocaLiteral(&accInfo, node->line);
+
+            // Assume true at the start
+            mlir::Value trueVal = builder_.create<mlir::arith::ConstantOp>(loc_, i1Ty, builder_.getIntegerAttr(i1Ty, 1)).getResult();
+            builder_.create<mlir::memref::StoreOp>(loc_, trueVal, accInfo.value, mlir::ValueRange{});
+
+            auto idxTy = builder_.getIndexType();
+            mlir::Value lb = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, 0));
+            mlir::Value ub = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, lhsLen));
+            mlir::Value step = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, 1));
+
+            auto forOp = builder_.create<mlir::scf::ForOp>(loc_, lb, ub, step, mlir::ValueRange{});
+
+            builder_.setInsertionPointToStart(forOp.getBody());
+            {
+                mlir::Value idx = forOp.getInductionVar();
+
+                mlir::Value lElem = builder_.create<mlir::memref::LoadOp>(loc_, leftPromoted.value, mlir::ValueRange{idx});
+                mlir::Value rElem = builder_.create<mlir::memref::LoadOp>(loc_, rightPromoted.value, mlir::ValueRange{idx});
+
+                mlir::Type elemTy = lElem.getType();
+                mlir::Value elemEq;
+                if (elemTy.isa<mlir::LLVM::LLVMStructType>()) {elemEq = mlirAggregateEquals(lElem, rElem, loc_, builder_);
+                } else {
+                    elemEq = mlirScalarEquals(lElem, rElem, loc_, builder_);
+                }
+
+                mlir::Value accVal = builder_.create<mlir::memref::LoadOp>(loc_, accInfo.value, mlir::ValueRange{});
+                mlir::Value newAcc = builder_.create<mlir::arith::AndIOp>(loc_, accVal, elemEq);
+                builder_.create<mlir::memref::StoreOp>(loc_, newAcc, accInfo.value, mlir::ValueRange{});
+            }
+
+            builder_.setInsertionPointAfter(forOp);
+            result = builder_.create<mlir::memref::LoadOp>(loc_, accInfo.value, mlir::ValueRange{}).getResult();
+
+        } else if (lhsDims.size() == 2) {
+            // 2D equality (matrix / 2D array)
+            int64_t lhsRows = lhsDims[0];
+            int64_t lhsCols = lhsDims[1];
+            int64_t rhsRows = rhsDims[0];
+            int64_t rhsCols = rhsDims[1];
+
+            if (lhsRows != rhsRows || lhsCols != rhsCols ||
+                lhsRows == 0 || lhsCols == 0) {
+                throw std::runtime_error("MLIRGen::EqExpr: Invalid row/col size of " + std::to_string(lhsRows) + "x" + std::to_string(lhsCols) + " and " + std::to_string(rhsRows) + "x" + std::to_string(rhsCols));
+            }
+
+            VarInfo accInfo{CompleteType(BaseType::BOOL)};
+            allocaLiteral(&accInfo, node->line);
+
+            mlir::Value trueVal = builder_.create<mlir::arith::ConstantOp>(loc_, i1Ty, builder_.getIntegerAttr(i1Ty, 1)).getResult();
+            builder_.create<mlir::memref::StoreOp>(loc_, trueVal, accInfo.value, mlir::ValueRange{});
+
+            auto idxTy = builder_.getIndexType();
+
+            mlir::Value rowLb = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, 0));
+            mlir::Value rowUb = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, lhsRows));
+            mlir::Value one = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, 1));
+
+            auto outerFor = builder_.create<mlir::scf::ForOp>(loc_, rowLb, rowUb, one, mlir::ValueRange{});
+
+            builder_.setInsertionPointToStart(outerFor.getBody());
+            {
+                mlir::Value rowIdx = outerFor.getInductionVar();
+
+                mlir::Value colLb = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, 0));
+                mlir::Value colUb = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, lhsCols));
+
+                auto innerFor = builder_.create<mlir::scf::ForOp>(loc_, colLb, colUb, one, mlir::ValueRange{});
+
+                builder_.setInsertionPointToStart(innerFor.getBody());
+                {
+                    mlir::Value colIdx = innerFor.getInductionVar();
+
+                    mlir::Value lElem = builder_.create<mlir::memref::LoadOp>(loc_, leftPromoted.value, mlir::ValueRange{rowIdx, colIdx});
+                    mlir::Value rElem = builder_.create<mlir::memref::LoadOp>(loc_, rightPromoted.value, mlir::ValueRange{rowIdx, colIdx});
+
+                    mlir::Type elemTy = lElem.getType();
+                    mlir::Value elemEq;
+                    if (elemTy.isa<mlir::LLVM::LLVMStructType>()) {
+                        elemEq = mlirAggregateEquals(lElem, rElem, loc_, builder_);
+                    } else {
+                        elemEq = mlirScalarEquals(lElem, rElem, loc_, builder_);
+                    }
+
+                    mlir::Value accVal = builder_.create<mlir::memref::LoadOp>(loc_, accInfo.value, mlir::ValueRange{});
+                    mlir::Value newAcc = builder_.create<mlir::arith::AndIOp>(loc_, accVal, elemEq);
+                    builder_.create<mlir::memref::StoreOp>(loc_, newAcc, accInfo.value, mlir::ValueRange{});
+                }
+
+                builder_.setInsertionPointAfter(innerFor);
+
+                builder_.setInsertionPointAfter(outerFor);
+                result = builder_.create<mlir::memref::LoadOp>(loc_, accInfo.value, mlir::ValueRange{}).getResult();
+            }
+        } else {
+            throw std::runtime_error("MLIRGen::EqExpr: Invalid dimensions for comparison of " + toString(promotedType));
+        }
     } else if (isScalarType(promotedType.baseType)) {
         // Load the scalar values from their memrefs
         mlir::Value left = getSSAValue(leftPromoted);
