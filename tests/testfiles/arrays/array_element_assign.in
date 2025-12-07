@@ -1,5 +1,5 @@
 procedure main() returns integer{
-    integer[3] arr = [1, 2, 3];
+    var integer[3] arr = [1, 2, 3];
 
     arr -> std_output;
     "\n" -> std_output;
