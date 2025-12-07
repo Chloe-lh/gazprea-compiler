@@ -14,3 +14,4 @@ procedure main() returns integer {
     
     return 0;
 }
+//CHECK_FILE:explicit_broadcast_cast.out

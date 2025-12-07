@@ -10,3 +10,4 @@ procedure main() returns integer {
     
     return 0;
 }
+//CHECK_FILE:slice_stride.out

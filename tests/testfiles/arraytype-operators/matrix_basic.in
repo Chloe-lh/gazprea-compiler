@@ -12,3 +12,4 @@ procedure main() returns integer {
     
     return 0;
 }
+//CHECK_FILE:matrix_basic.out
