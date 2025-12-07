@@ -1563,7 +1563,7 @@ void SemanticAnalysisVisitor::visit(IteratorLoopNode* node) {
     // Reject non-positive stride
     if (auto stepInt = std::dynamic_pointer_cast<IntNode>(stepExpr)) {
         if (stepInt->value <= 0) {
-            throw TypeError(node->line, "Iterator loop range stride must be positive.");
+            throw StrideError(node->line, "Iterator loop range stride must be positive.");
         }
     }
 
