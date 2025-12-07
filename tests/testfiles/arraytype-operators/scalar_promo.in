@@ -1,16 +1,18 @@
 procedure main() returns integer {
     integer[3] arr = [1, 2, 3];
     integer[3] arr_res = arr + 10;
+    vector<integer> vec = [4, 5];
+    vector<integer> vec_res = vec * 2;
+    integer[2] arr_vec_res = vec_res;
+    integer[2][2] mat = [[1, 1], [1, 1]];
+    integer[2][2] mat_res = mat + 9;
+
     arr_res -> std_output;
     "\n" -> std_output;
 
-    vector<integer> vec = [4, 5];
-    vector<integer> vec_res = vec * 2;
-    vec_res -> std_output;
+    arr_vec_res -> std_output;
     "\n" -> std_output;
     
-    integer[2][2] mat = [[1, 1], [1, 1]];
-    integer[2][2] mat_res = mat + 9;
     mat_res -> std_output;
     "\n" -> std_output;
     
