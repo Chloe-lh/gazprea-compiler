@@ -384,10 +384,61 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
         // Handle initializer as identifier or general expression
         } else {
             // Permit any expression initializer (including IdNode, DotExpr, etc.)
-            // The type checking will be done below via promotion and handleAssignError
+            // The type checking will be done below via promotion and handleAssignError,
+            // but we also need to resolve inferred dimensions from rhs.
             if (initType.baseType == BaseType::UNKNOWN) {
                 throw std::runtime_error(
                     "SemanticAnalysis::ArrayTypedDecNode: Expression initializer has UNKNOWN type for '" + node->id + "'.");
+            }
+
+            // Infer dimensions from initializer - first compile time dimension we see will be set as the lhs dimension. If dimension cannot be inferred, then SizeError.
+            if (!declaredType.dims.empty()) {
+                bool hasWildcard = false;
+                for (int d : declaredType.dims) {
+                    if (d < 0) { hasWildcard = true; break; }
+                }
+
+                if (hasWildcard) {
+                    // Only attempt inference when RHS is the same composite kind.
+                    if (initType.baseType != declaredType.baseType) {
+                        SizeError(("Semantic Analysis: Initializer type does not match declared composite type for '" +
+                                   node->id + "'.").c_str());
+                    }
+
+                    if (initType.dims.empty()) {
+                        // We have no concrete size information on the RHS.
+                        SizeError(("Semantic Analysis: Cannot infer array length from initializer for '" +
+                                   node->id + "'.").c_str());
+                    }
+
+                    if (declaredType.dims.size() != initType.dims.size()) {
+                        SizeError(("Semantic Analysis: Initializer dimensions do not match declared rank for '" +
+                                   node->id + "'.").c_str());
+                    }
+
+                    for (size_t i = 0; i < declaredType.dims.size(); ++i) {
+                        int lhsDim = declaredType.dims[i];
+                        int rhsDim = initType.dims[i];
+
+                        if (lhsDim < 0) {
+                            if (rhsDim < 0) {
+                                // Still no concrete dimension to lock onto.
+                                SizeError(("Semantic Analysis: Cannot infer array length from initializer for '" +
+                                           node->id + "'.").c_str());
+                            }
+                            declaredType.dims[i] = rhsDim;
+                        } else {
+                            if (rhsDim >= 0 && rhsDim != lhsDim) {
+                                SizeError(("Semantic Analysis: Initializer dimensions do not match declared size for '" +
+                                           node->id + "'.").c_str());
+                            }
+                        }
+                    }
+
+                    // Propagate inferred dims to the declared VarInfo and node type
+                    declared->type.dims = declaredType.dims;
+                    node->type.dims = declaredType.dims;
+                }
             }
         }
         handleGlobalErrors(node);
@@ -483,8 +534,13 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
         int Lcol = getDim(leftType.dims, 1);
         int Rrow = getDim(rightType.dims, 0);
         int Rcol = getDim(rightType.dims, 1);
-        if(Lrow<0||Lcol<0||Rrow<0||Rcol<0) SizeError("Semantic Analysis: invalid matrix dimensions");
-        if(Lcol != Rrow) SizeError(("Semantic Analysis: invalid matrix dimensions for matrix multiplication - left columns (" + std::to_string(Lcol) + ") must equal right rows (" + std::to_string(Rrow) + ")").c_str());
+        if (Lrow < 0 || Lcol < 0 || Rrow < 0 || Rcol < 0) {
+            SizeError("Semantic Analysis: invalid matrix dimensions");
+        }
+        if (Lcol != Rrow) {
+            SizeError(("Semantic Analysis: invalid matrix dimensions for matrix multiplication - left columns (" +
+                       std::to_string(Lcol) + ") must equal right rows (" + std::to_string(Rrow) + ")").c_str());
+        }
         
         // Ensure element type promotion succeeded
         if(promoted.baseType == BaseType::UNKNOWN) {
