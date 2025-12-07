@@ -1,0 +1,11 @@
+procedure main() returns integer {
+    
+    integer[*] arr = [1, 2, 3];
+    integer[*] arr2 = [1, 2, 3];
+
+    integer arr3 = arr ** arr2;
+
+    arr3 -> std_output;
+    return 0;
+}
+//CHECK_FILE:array_dot.out

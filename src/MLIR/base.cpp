@@ -68,7 +68,7 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<co
     // readChar(char*)
     if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("readChar")) {
         auto readCharType = mlir::LLVM::LLVMFunctionType::get(voidTy, ptrTy, false);
-        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "readChar", readCharType);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "readCha hbvr", readCharType);
     }
     // readBool(bool*)
     if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("readBool")) {
@@ -82,6 +82,28 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<co
         auto i32Ty = builder_.getI32Type();
         auto fnTy = mlir::LLVM::LLVMFunctionType::get(i32Ty, {i32Ty}, false);
         builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "stream_state_runtime", fnTy);
+    }
+
+    // Array slicing runtime function
+    // gaz_slice_int_checked(int32_t* base, size_t base_len, size_t start, size_t end) -> gaz_slice_int
+    // gaz_slice_int is { int32_t* ptr; size_t len; }
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("gaz_slice_int_checked")) {
+        auto i32PtrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+        auto i64Ty = builder_.getI64Type();
+        
+        // Create struct type: { i32*, i64 }
+        llvm::SmallVector<mlir::Type, 2> sliceStructFields;
+        sliceStructFields.push_back(i32PtrTy);
+        sliceStructFields.push_back(i64Ty);
+        auto sliceStructTy = mlir::LLVM::LLVMStructType::getLiteral(&context_, sliceStructFields);
+        
+        // Function signature: (i32*, i64, i64, i64) -> {i32*, i64}
+        auto sliceFuncType = mlir::LLVM::LLVMFunctionType::get(
+            sliceStructTy,
+            {i32PtrTy, i64Ty, i64Ty, i64Ty},
+            false
+        );
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "gaz_slice_int_checked", sliceFuncType);
     }
 
     createGlobalStringIfMissing("%d\0", "intFormat");

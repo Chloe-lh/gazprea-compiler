@@ -29,6 +29,7 @@ public:
     void visit(FuncBlockNode* node) override;
     void visit(ProcedureBlockNode* node) override;
     void visit(ProcedurePrototypeNode* node) override;
+    void visit(BuiltInFuncNode* node) override;
 
     // Declarations
     void visit(TypedDecNode* node) override;
@@ -100,7 +101,8 @@ public:
     void assignToArray(VarInfo* literal, VarInfo* variable, int line);
     void assignToVector(VarInfo* literal, VarInfo* variable, int line);
     void allocaLiteral(VarInfo* varInfo, int line);
-    void allocaVar(VarInfo* varInfo, int line);
+    void allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue = nullptr);
+    mlir::Value computeArraySize(VarInfo* source, int line);
     mlir::Value allocaVector(int len, VarInfo *varInfo);
     void zeroInitializeVar(VarInfo* varInfo);
     VarInfo castType(VarInfo* from, CompleteType* to, int line);

@@ -310,7 +310,6 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                     result.dims = from.dims;
                     return result;
                 }
-
                 default: break;
             }
             break;
@@ -482,6 +481,11 @@ void validateSubtypes(CompleteType completeType) {
             if (!completeType.dims.empty()) {
                 throw std::runtime_error("Semantic Validation: Type" + toString(completeType) + " cannot have " + std::to_string(completeType.dims.size()) + " dimensions.");
             }
+        }
+        
+        // Recursively validate nested subtypes
+        for (const auto& subtype : completeType.subTypes) {
+            validateSubtypes(subtype);
         }
     }
 }

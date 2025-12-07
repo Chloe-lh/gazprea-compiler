@@ -42,6 +42,10 @@ void ASTPrinter::visit(BlockNode *node) {
   }
   indent--;
 }
+
+void ASTPrinter::visit(BuiltInFuncNode *node) {
+  printTreeLine("BuiltInFunc", "name: " + node->funcName + ", arg: " + node->id);
+}
 void ASTPrinter::visit(ArrayStrideExpr *node){
   printTreeLine("ArrayStrideExpr", "id: " + node->id);
   indent++;
@@ -71,10 +75,19 @@ void ASTPrinter::visit(ArraySliceExpr *node) {
   indent--;
 }
 void ASTPrinter::visit(ArrayAccessNode *node) { 
-  printTreeLine("ArrayAccessExpr", "id: " + node->id);
+  printTreeLine("ArrayAccessNode", "id: " + node->id);
   indent++;
   pushChildContext(true);
-  printTreeLine("IndexExpr", &"index: " [ node->index]);
+  printTreeLine("Index");
+  indent++;
+  pushChildContext(true);
+  if (node->indexExpr) {
+    node->indexExpr->accept(*this);
+  } else {
+    printTreeLine("<null>");
+  }
+  popChildContext();
+  indent--;
   popChildContext();
   indent--;
 }

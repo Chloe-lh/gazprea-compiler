@@ -59,6 +59,13 @@ builtin_type
     | STRING
     ;
 
+builtin_func
+    : LENGTH PARENLEFT ID PARENRIGHT
+    | SHAPE PARENLEFT ID PARENRIGHT
+    | REVERSE PARENLEFT ID PARENRIGHT
+    | FORMAT PARENLEFT ID PARENRIGHT
+    ;
+
 // size specification for an array
 size
   : SQLEFT (INT | MULT) SQRIGHT (SQLEFT (INT|MULT) SQRIGHT)? // only up to 2D
@@ -77,6 +84,7 @@ expr
     | ID SQLEFT rangeExpr SQRIGHT                       #ArraySliceExpr
     | ID BY expr                                        #ArrayStrideExpr
     | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr // Also used as struct_literal
+    | builtin_func                                      #BuiltInFuncExpr
     | PARENLEFT expr PARENRIGHT                         #ParenExpr
     | STRING_LIT                                        #StringExpr
     | <assoc=right>NOT expr                             #NotExpr
@@ -117,7 +125,7 @@ struct_access: ID '.' ID;
 
 // Arrays
 array_literal : SQLEFT exprList? SQRIGHT;
-array_access :  ID SQLEFT INT SQRIGHT  (SQLEFT INT SQRIGHT)?; //added support for 2D accessing
+array_access :  ID SQLEFT expr SQRIGHT (SQLEFT expr SQRIGHT)?; // Support expressions as indices and 2D arrays
 
 exprList : expr (COMMA expr)* ;
 rangeExpr : RANGE expr
@@ -165,8 +173,8 @@ INT: [0-9]+;
 // Floating-point literals, including optional exponent parts.
 // Examples: .0, 0.5, 32., 1e10, 1.2e-3, .5E+2
 FLOAT
-    : INT? DECIM INT ([eE] [+-]? INT)?        // .0, .1, .1e10
-    | INT DECIM INT? ([eE] [+-]? INT)?        // 32., 32.0, 32.0e+3
+    : INT? DECIM INT ([eE] [+-]? INT)?        // .0, .1, .1e10, 32.0
+    | INT DECIM {_input->LA(1) != '.'}? ([eE] [+-]? INT)? // 32., 32.e+3 (guarded against ..)
     | INT [eE] [+-]? INT                      // 1e10, 1e-3
     ;
 
@@ -221,6 +229,7 @@ ELSE: 'else';
 FALSE: 'false';
 FORMAT: 'format';
 FUNCTION: 'function';
+SHAPE: 'shape';
 IF: 'if';
 IN: 'in';
 INTEGER: 'integer';

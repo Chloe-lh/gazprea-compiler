@@ -1,0 +1,11 @@
+procedure main() returns integer {
+
+    integer[*] arr = [1, 2, 3, 4, 5];
+    integer[*] b = arr[-1..2];
+
+    b -> std_output;
+
+    return 0; 
+}
+
+//CHECK_FILE:array_slice_no_bounds.out
