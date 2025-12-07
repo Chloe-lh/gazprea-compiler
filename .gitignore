@@ -32,6 +32,7 @@ tests/GazpreaCompileConfigLocalMaks.json
 tests/part1/
 run_test_maks.sh
 copy_tests.sh
+scripts/
 
 gaz
 gaz.ll
