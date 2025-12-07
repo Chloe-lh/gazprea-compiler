@@ -302,13 +302,12 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
             }
 
             // If `lhs` is a vector and its length is unspecified (dims[0] < 0)
-            // or dims are empty, infer the vector length from the literal.
+            // or dims are empty, ensure it remains dynamic (-1).
             if (declaredType.baseType == BaseType::VECTOR) {
                 if (declaredType.dims.empty()) {
-                    declaredType.dims = {static_cast<int>(litSize)};
-                } else if (declaredType.dims[0] < 0) {
-                    declaredType.dims[0] = static_cast<int>(litSize);
+                    declaredType.dims = {-1};
                 }
+                // Do not overwrite runtime len (-1) with literal size
                 declared->type.dims = declaredType.dims;
                 node->type.dims = declaredType.dims;
             }
@@ -438,7 +437,11 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                                 SizeError(("Semantic Analysis: Cannot infer array length from initializer for '" +
                                            node->id + "'.").c_str());
                             }
-                            declaredType.dims[i] = rhsDim;
+                            // Only infer dimensions for non-vector types (arrays)
+                            // Vectors remain dynamic (-1)
+                            if (declaredType.baseType != BaseType::VECTOR) {
+                                declaredType.dims[i] = rhsDim;
+                            }
                         } else {
                             if (rhsDim >= 0 && rhsDim != lhsDim) {
                                 SizeError(("Semantic Analysis: Initializer dimensions do not match declared size for '" +
@@ -1128,47 +1131,6 @@ void SemanticAnalysisVisitor::visit(AssignStatNode* node) {
 
     CompleteType varType = resolveUnresolvedType(current_, varInfo->type, node->line);
     CompleteType exprType = resolveUnresolvedType(current_, node->expr->type, node->line);
-
-    // Handle special case where we update inferred/dynamic size of the lhs so that `handleAssignError()` does not throw a sizeError due to `-1` sizing
-    if (varType.baseType == BaseType::VECTOR &&
-        (exprType.baseType == BaseType::ARRAY ||
-         exprType.baseType == BaseType::VECTOR)) {
-
-        if (!exprType.dims.empty() && exprType.dims[0] >= 0) {
-            int rhsLen = exprType.dims[0];
-
-            bool lhsHasWildcard =
-                varType.dims.empty() ||
-                (varType.dims.size() == 1 && varType.dims[0] < 0);
-
-            if (lhsHasWildcard &&
-                varType.subTypes.size() == 1 &&
-                exprType.subTypes.size() == 1) {
-
-                CompleteType lhsElem = varType.subTypes[0];
-                CompleteType rhsElem = exprType.subTypes[0];
-
-                CompleteType promotedElem = promote(rhsElem, lhsElem);
-                if (promotedElem.baseType == BaseType::UNKNOWN) {
-                    promotedElem = promote(lhsElem, rhsElem);
-                }
-
-                if (promotedElem.baseType != BaseType::UNKNOWN) {
-                    // Fix the vector's length from the rhs.
-                    if (varType.dims.empty()) {
-                        varType.dims.push_back(rhsLen);
-                    } else {
-                        varType.dims[0] = rhsLen;
-                    }
-                    if (varInfo->type.dims.empty()) {
-                        varInfo->type.dims.push_back(rhsLen);
-                    } else {
-                        varInfo->type.dims[0] = rhsLen;
-                    }
-                }
-            }
-        }
-    }
 
     handleAssignError(node->name, varType, exprType, node->line);
 
