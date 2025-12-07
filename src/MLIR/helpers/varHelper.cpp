@@ -255,27 +255,35 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
         (lhs->type.baseType != BaseType::ARRAY && lhs->type.baseType != BaseType::VECTOR && lhs->type.baseType != BaseType::MATRIX)) {
         throw AssignError(line, "Cannot assign type " + toString(rhs->type) + " to " + toString(lhs->type));
     }
-    
+
     // Ensure both storages exist
     if (!lhs->value) allocaVar(lhs, line);
     if (!rhs->value) allocaVar(rhs, line);
 
+    // Fallback on compile time dims if runtimeDims not resolved
+    if (lhs->runtimeDims.empty()) {
+        lhs->runtimeDims = lhs->type.dims;
+    }
+    if (rhs->runtimeDims.empty()) {
+        rhs->runtimeDims = rhs->type.dims;
+    }
+
     // Ensure same dimension count
-    if (lhs->type.dims.size() != rhs->type.dims.size()) {
-        throw SizeError(line, "Mismatched lhs and rhs dimensions of " + std::to_string(lhs->type.dims.size()) + " and " + std::to_string(rhs->type.dims.size()));
+    if (lhs->runtimeDims.size() != rhs->runtimeDims.size()) {
+        throw SizeError(line, "Mismatched lhs and rhs dimensions of " + std::to_string(lhs->runtimeDims.size()) + " and " + std::to_string(rhs->runtimeDims.size()));
     }
 
     // Handle 2D array/matrix assignment
-    if (lhs->type.dims.size() == 2) {
-        int lhsRows = lhs->type.dims[0];
-        int lhsCols = lhs->type.dims[1];
-        int rhsRows = rhs->type.dims[0];
-        int rhsCols = rhs->type.dims[1];
-        
+    if (lhs->runtimeDims.size() == 2) {
+        int lhsRows = lhs->runtimeDims[0];
+        int lhsCols = lhs->runtimeDims[1];
+        int rhsRows = rhs->runtimeDims[0];
+        int rhsCols = rhs->runtimeDims[1];
+
         if (lhsRows != rhsRows || lhsCols != rhsCols) {
             throw SizeError(line, "Mismatched matrix dimensions");
         }
-        
+
         auto idxTy = builder_.getIndexType();
         for (int i = 0; i < lhsRows; ++i) {
             for (int j = 0; j < lhsCols; ++j) {
@@ -294,13 +302,17 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
     }
 
     // Handle 1D array/vector assignment
-    int lhsLen = lhs->type.dims[0] == -1 ? lhs->runtimeLen : lhs->type.dims[0];
-    int rhsLen = rhs->type.dims[0] == -1 ? rhs->runtimeLen : rhs->type.dims[0];
+    if (lhs->runtimeDims.empty() || rhs->runtimeDims.empty()) {
+        throw SizeError(line, "Missing runtime dimensions for array/vector assignment");
+    }
+    int lhsLen = lhs->runtimeDims[0];
+    int rhsLen = rhs->runtimeDims[0];
 
     // Enforce same length assignment only, only exception being vectors.
     // A smaller vector results in 0-padding, a larger vector results in slicing.
     if (lhsLen != rhsLen && rhs->type.baseType != BaseType::VECTOR) {
-        throw SizeError(line, "Mismatched lhs (array) and rhs lengths of " + std::to_string(lhs->type.dims[0]) + " and " + std::to_string(rhs->type.dims[0]));
+        throw SizeError(line, "Mismatched lhs (array) and rhs lengths of " +
+                                  std::to_string(lhsLen) + " and " + std::to_string(rhsLen));
     }
 
     size_t n = lhsLen;
@@ -364,22 +376,28 @@ void MLIRGen::assignToVector(VarInfo* literal, VarInfo* variable, int line) {
     if (!variable->value) allocaVar(variable, line);
     if (!literal->value) allocaVar(literal, line);
 
-    // First try updating lhs len using compile time sizing - then fallback to dynamic sizing
-    if (literal->type.dims.size() > 0 && literal->type.dims[0] >= 0) {
-        variable->runtimeLen = literal->type.dims[0];
-    } else {
-        variable->runtimeLen = literal->runtimeLen;
+    // Seed runtime dimensions from types where missing
+    if (literal->runtimeDims.empty()) {
+        literal->runtimeDims = literal->type.dims;
     }
 
-    if (variable->runtimeLen == -1) throw std::runtime_error("MLIRGen::assignToVector: Runtime len of " + std::to_string(variable->runtimeLen) + " is invalid");
+    // Determine new runtime length from literal
+    if (literal->runtimeDims.empty() || literal->runtimeDims[0] < 0) {
+        throw std::runtime_error("MLIRGen::assignToVector: invalid literal runtime dimensions for vector assignment");
+    }
+    int newLen = literal->runtimeDims[0];
+    if (newLen < 0) {
+        throw std::runtime_error("MLIRGen::assignToVector: Runtime len of " + std::to_string(newLen) + " is invalid");
+    }
+    variable->runtimeDims = {newLen};
 
     // resize the vector to the rhs
-    mlir::Value newVector = allocaVector(variable->runtimeLen, variable);
+    mlir::Value newVector = allocaVector(newLen, variable);
     variable->value = newVector;
 
     // Copy over elements to the new vector
     auto idxTy = builder_.getIndexType();
-    for(size_t t=0; t < variable->runtimeLen; ++t){
+    for (int t = 0; t < newLen; ++t) {
         // index constant
         mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
             loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(t)));

@@ -17,12 +17,27 @@ struct VarInfo {
     bool isLValue = false;
     mlir::Value value = nullptr;
 
-    int runtimeLen = -1; // For dynamic sizing, ONLY determine at runtime
+    std::vector<int> runtimeDims; // Runtime shape (previously runtimeLen)
 
-    VarInfo(CompleteType completeType): type(completeType) {}
-    VarInfo(std::string identifier, CompleteType completeType, bool isConst): identifier(identifier), type(completeType), isConst(isConst) {} // for part 1 compatability
-    VarInfo(std::string identifier, CompleteType completeType, bool isConst, bool isLValue): identifier(identifier), type(completeType), isConst(isConst), isLValue(isLValue) {}
-    VarInfo(std::string aliasName): type(CompleteType(BaseType::UNRESOLVED)) {}
+    VarInfo(CompleteType completeType)
+        : type(completeType),
+          runtimeDims(completeType.dims) {}
+
+    VarInfo(std::string identifier, CompleteType completeType, bool isConst)
+        : identifier(std::move(identifier)),
+          type(completeType),
+          isConst(isConst),
+          runtimeDims(completeType.dims) {} // for part 1 compatability
+
+    VarInfo(std::string identifier, CompleteType completeType, bool isConst, bool isLValue)
+        : identifier(std::move(identifier)),
+          type(completeType),
+          isConst(isConst),
+          isLValue(isLValue),
+          runtimeDims(completeType.dims) {}
+
+    VarInfo(std::string aliasName)
+        : type(CompleteType(BaseType::UNRESOLVED)) {}
 };
 
 struct FuncInfo {

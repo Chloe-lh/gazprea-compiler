@@ -148,6 +148,19 @@ private:
     // Helper to find the enclosing function and its entry block for allocas
     mlir::func::FuncOp getCurrentEnclosingFunction();
 
+    // Casting helpers for array/vector/matrix
+    void storeZeroElement(mlir::Value destMemRef,
+                          const CompleteType &elemType,
+                          mlir::ValueRange indices);
+    mlir::Value loadElementByFlatIndex(VarInfo *from,
+                                       int64_t flatIndex,
+                                       int srcRank,
+                                       int line);
+    void expandScalarToAggregate(VarInfo *from,
+                                 VarInfo &to,
+                                 CompleteType *toType,
+                                 int line);
+
     VarInfo popValue();
     void pushValue(VarInfo& value);
     void emitPrintScalar(const CompleteType &type, mlir::Value value);
