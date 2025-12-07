@@ -403,58 +403,48 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
             }
 
             // Infer dimensions from initializer - first compile time dimension we see will be set as the lhs dimension. If dimension cannot be inferred, then SizeError.
-            if (!declaredType.dims.empty()) {
-                bool hasWildcard = false;
-                for (int d : declaredType.dims) {
-                    if (d < 0) { hasWildcard = true; break; }
-                }
 
-                if (hasWildcard) {
-                    // Only attempt inference when RHS is the same composite kind.
-                    if (initType.baseType != declaredType.baseType) {
-                        SizeError(("Semantic Analysis: Initializer type does not match declared composite type for '" +
-                                   node->id + "'.").c_str());
-                    }
+            // Ensure dims is populated for array/vector/matrix
+            if (declaredType.dims.empty() && (declaredType.baseType == BaseType::ARRAY || declaredType.baseType == BaseType::VECTOR)) throw std::runtime_error("SemanticAnalysis::ArrayTypedDecNode: Empty dims for type '" + toString(node->init->type));
 
-                    if (initType.dims.empty() || initType.dims[0] == -1) {
-                        // We have no concrete size information on the RHS.
-                        SizeError(("Semantic Analysis: Cannot infer array length from initializer for '" +
-                                   node->id + "'.").c_str());
-                    }
+            bool hasWildcard = false;
+            for (int d : declaredType.dims) {
+                if (d < 0) { hasWildcard = true; break; }
+            }
 
-                    if (declaredType.dims.size() != initType.dims.size()) {
-                        SizeError(("Semantic Analysis: Initializer dimensions do not match declared rank for '" +
-                                   node->id + "'.").c_str());
-                    }
+            if (declaredType.dims.size() != initType.dims.size()) {
+                SizeError(("Semantic Analysis: Initializer dimension rank mismatch for '" + node->id + "'.").c_str());
+            }
 
-                    for (size_t i = 0; i < declaredType.dims.size(); ++i) {
-                        int lhsDim = declaredType.dims[i];
-                        int rhsDim = initType.dims[i];
+            // Skip lhs dims inference if rhs is also dynamic (-1)
+            if (hasWildcard && initType.dims[0] != -1) {
+                for (size_t i = 0; i < declaredType.dims.size(); ++i) {
+                    int lhsDim = declaredType.dims[i];
+                    int rhsDim = initType.dims[i];
 
-                        if (lhsDim < 0) {
-                            if (rhsDim < 0) {
-                                // Still no concrete dimension to lock onto.
-                                SizeError(("Semantic Analysis: Cannot infer array length from initializer for '" +
-                                           node->id + "'.").c_str());
-                            }
-                            // Only infer dimensions for non-vector types (arrays)
-                            // Vectors remain dynamic (-1)
-                            if (declaredType.baseType != BaseType::VECTOR) {
-                                declaredType.dims[i] = rhsDim;
-                            }
-                        } else {
-                            if (rhsDim >= 0 && rhsDim != lhsDim) {
-                                SizeError(("Semantic Analysis: Initializer dimensions do not match declared size for '" +
-                                           node->id + "'.").c_str());
-                            }
+                    if (lhsDim < 0) {
+                        if (rhsDim < 0) {
+                            // Still no concrete dimension to lock onto.
+                            SizeError(("Semantic Analysis: Cannot infer array length from initializer for '" +
+                                        node->id + "'.").c_str());
+                        }
+                        // Only infer dimensions for non-vector types (arrays)
+                        // Vectors remain dynamic (-1)
+                        if (declaredType.baseType != BaseType::VECTOR) {
+                            declaredType.dims[i] = rhsDim;
+                        }
+                    } else {
+                        if (rhsDim >= 0 && rhsDim != lhsDim) {
+                            SizeError(("Semantic Analysis: Initializer dimensions do not match declared size for '" +
+                                        node->id + "'.").c_str());
                         }
                     }
-
-                    // Propagate inferred dims to the declared VarInfo and node type
-                    declared->type.dims = declaredType.dims;
-                    node->type.dims = declaredType.dims;
                 }
-            }
+
+                // Propagate inferred dims to the declared VarInfo and node type
+                declared->type.dims = declaredType.dims;
+                node->type.dims = declaredType.dims;
+                }
         }
         handleGlobalErrors(node);
 
