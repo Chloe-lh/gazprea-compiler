@@ -273,6 +273,24 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
         throw SizeError(line, "Mismatched lhs and rhs dimensions of " + std::to_string(lhs->runtimeDims.size()) + " and " + std::to_string(rhs->runtimeDims.size()));
     }
 
+    // Handle lhs inferred dimensions ('*') using rhs dimensions. SizeError if dimension cannot be inferred.
+    for (size_t i = 0; i < lhs->runtimeDims.size(); ++i) {
+        int &lhsDim = lhs->runtimeDims[i];
+        int rhsDim = rhs->runtimeDims[i];
+
+        if (lhsDim < 0) {
+            if (rhsDim < 0) {
+                throw SizeError(line, "Missing runtime dimensions for array/vector assignment");
+            }
+
+            // Save lhs dims from rhs
+            lhsDim = rhsDim;
+            if (i < lhs->type.dims.size()) {
+                lhs->type.dims[i] = rhsDim;
+            }
+        }
+    }
+
     // Handle 2D array/matrix assignment
     if (lhs->runtimeDims.size() == 2) {
         int lhsRows = lhs->runtimeDims[0];
