@@ -1,0 +1,31 @@
+procedure main() returns integer {
+    /* 
+       Test Array Division Features:
+       1. Element-wise division (Array / Array)
+       2. Scalar promotion division (Array / Scalar)
+       3. Scalar / Array (Scalar promoted to array)
+       4. Integer division truncation (integer / integer)
+    */
+
+    integer[4] num = [20, 15, 10, 5];
+    integer[4] den = [2, 3, 4, 5];
+    integer[4] res1 = num / den;
+    integer[4] res2 = res1 / 2;
+    integer[4] res3 = 100 / [10, 20, 50, 100];
+    
+    // [20/2, 15/3, 10/4, 5/5] -> [10, 5, 2, 1] (integer truncation)
+    res1 -> std_output;
+    "\n" -> std_output;
+    
+    // [10, 5, 2, 1] / 2 -> [5, 2, 1, 0]
+    res2 -> std_output;
+    "\n" -> std_output;
+
+    // Scalar 100 promoted to [100, 100, 100, 100]
+    res3 -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+
+//CHECK_FILE:array_division_basic.out
