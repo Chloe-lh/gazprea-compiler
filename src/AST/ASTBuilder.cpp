@@ -185,15 +185,15 @@ dec
 */
 std::any
 ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
-  // qualifier (optional) - defaults to "const" if not provided
-  std::string qualifier = "const";
+  // qualifier (optional) - decide default after we know the type
+  std::string qualifier;
   if (ctx->qualifier()) {
     auto qualAny = visit(ctx->qualifier());
     if (qualAny.has_value()) {
       try {
         qualifier = std::any_cast<std::string>(qualAny);
       } catch (const std::bad_any_cast &) {
-        qualifier = "const";
+        qualifier = "var";
       }
     }
   }
@@ -228,6 +228,14 @@ ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
 
     CompleteType ct = std::any_cast<CompleteType>(anyType);
 
+    // Set default qualifier: arrays/vectors/matrices default to var; scalars default to const
+    if (qualifier.empty()) {
+      if (ct.baseType == BaseType::ARRAY || ct.baseType == BaseType::VECTOR || ct.baseType == BaseType::MATRIX) {
+        qualifier = "var";
+      } else {
+        qualifier = "const";
+      }
+    }
 
     // Arrays, vectors and matrices bundled into same node -
     // Distinguished by `CompleteType::baseType`
@@ -246,6 +254,7 @@ ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
     // alias ID ID case: ID(0) alias name, ID(1) variable name
     std::string aliasName = ctx->ID(0)->getText();
     id = ctx->ID(1)->getText();
+    if (qualifier.empty()) qualifier = "const";
     typeAlias = std::make_shared<TypeAliasNode>(
         aliasName, CompleteType(BaseType::UNKNOWN));
   }

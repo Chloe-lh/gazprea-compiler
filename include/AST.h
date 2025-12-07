@@ -52,7 +52,7 @@ class DecNode : public ASTNode {
 public:
   std::string name;
   std::string declTypeName; // Renamed from 'type' to 'declTypeName'
-  std::string qualifier = "const";      // default const; overridden where needed
+  std::string qualifier = "const";      // default const; builders can override per-kind
   std::shared_ptr<ExprNode> init;       // optional initializer shared by declarations
   virtual ~DecNode() = default;
   virtual void accept(ASTVisitor &visitor) = 0;

@@ -332,8 +332,10 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
 
     node->type = declaredType;
 
-    // Qualifier checks
-    bool isConst = (node->qualifier != "var");
+    // Qualifier checks: arrays default to mutable unless explicitly 'const'
+    if (node->qualifier.empty()) node->qualifier = "var";
+    bool isConst = (node->qualifier == "const");
+    // Older qualifier usage: empty qualifier should still default to mutable
     if (!isConst && current_->isInGlobal()) {
         throw GlobalError(node->line, "'var' is not allowed in global scope.");
     }

@@ -1,0 +1,24 @@
+procedure main() returns integer {
+    var integer base = 3;
+    var integer span = 4;
+    integer[6] accum = [i in 1..6 | 0];  // fixed-size sink
+
+    loop k in 2..4 {
+        // start/end/stride are expressions of k
+        integer start = base + k;
+        integer end_  = start + span + k;   // avoid 'end' keyword clash
+        integer stride = (k % 2) + 1;
+
+        // generator with dynamic start/end/stride (size inferred from initializer)
+        var integer[*] tmp = [i in start..(end_) by stride | i * (k + 1)];
+
+        // take the first two elements of tmp into accum
+        accum[k-1] = tmp[1];
+        accum[k]   = tmp[2];
+    }
+
+    accum -> std_output;
+    return 0;
+}
+
+//CHECK_FILE:gen_range_nested.out

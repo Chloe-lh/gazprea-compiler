@@ -1,0 +1,11 @@
+procedure main() returns integer {
+    var integer[*] squares = [i in 1..7 | i * i];       // 1 4 9 16 25 36 49
+    loop i in 1..5 {
+        integer[*] x = [j in 1..i | j * i];
+        x -> std_output;
+    }
+
+    return 0;
+}
+//CHECK_FILE:gen_nested_index_expr.out
+
