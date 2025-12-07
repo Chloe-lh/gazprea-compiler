@@ -186,6 +186,57 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
     node->type = baseType;
 }
 
+// Built-in functions with a single identifier argument (length/len, shape,
+// reverse, format).
+void SemanticAnalysisVisitor::visit(BuiltInFuncNode *node) {
+    std::string fname = node->funcName;
+    VarInfo* var = current_->resolveVar(node->id, node->line);
+    if (!var) {
+        throw SymbolError(node->line, "Semantic Analysis: unknown identifier '" + node->id + "' in builtin call.");
+    }
+    CompleteType argType = resolveUnresolvedType(current_, var->type, node->line);
+
+    if (fname == "length") {
+        if (argType.baseType == BaseType::STRING || argType.baseType == BaseType::ARRAY ||
+            argType.baseType == BaseType::VECTOR || argType.baseType == BaseType::MATRIX) {
+            node->type = CompleteType(BaseType::INTEGER);
+            return;
+        }
+        throw TypeError(node->line, "Semantic Analysis: length() requires string/array/vector/matrix argument.");
+    }
+
+    if (fname == "shape") {
+        if (argType.baseType == BaseType::ARRAY || argType.baseType == BaseType::VECTOR || argType.baseType == BaseType::MATRIX) {
+            if (argType.dims.empty()) {
+                throw TypeError(node->line, "Semantic Analysis: shape() requires a sized array/vector/matrix.");
+            }
+            CompleteType elem(BaseType::INTEGER);
+            node->type = CompleteType(BaseType::ARRAY, elem, {static_cast<int>(argType.dims.size())});
+            return;
+        }
+        throw TypeError(node->line, "Semantic Analysis: shape() requires array/vector/matrix argument.");
+    }
+
+    if (fname == "reverse") {
+        if (argType.baseType == BaseType::STRING || argType.baseType == BaseType::ARRAY ||
+            argType.baseType == BaseType::VECTOR) {
+            node->type = argType;
+            return;
+        }
+        throw TypeError(node->line, "Semantic Analysis: reverse() requires string/array/vector argument.");
+    }
+
+    if (fname == "format") {
+        if (argType.baseType == BaseType::STRING) {
+            node->type = argType;
+            return;
+        }
+        throw TypeError(node->line, "Semantic Analysis: format() requires string argument.");
+    }
+
+    throw SymbolError(node->line, "Semantic Analysis: unknown builtin function '" + node->funcName + "'.");
+}
+
 void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
     // Resolve array variable
     VarInfo* var = current_->resolveVar(node->id, node->line);
@@ -299,6 +350,11 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                 // if (litSize == 0) {
                 //     lit->type = declaredType;
                 // }
+            }
+            if(declaredType.baseType == BaseType::VECTOR){
+                declaredType.dims[0] = static_cast<int>(litSize);
+                declared->type.dims = declaredType.dims;
+                node->type.dims = declaredType.dims;
             }
             
             // Handle 2D array/matrix dimensions

@@ -138,7 +138,13 @@ public:
                 CompleteType returnType, std::shared_ptr<BlockNode> body);
   void accept(ASTVisitor &visitor) override;
 };
-
+class BuiltInFuncNode: public ExprNode{
+public:
+  std::string funcName;
+  std::string id;
+  BuiltInFuncNode(const std::string &funcName, const std::string &id) : funcName(std::move(funcName)), id(std::move(id)) {}
+  void accept(ASTVisitor &visitor) override;
+};
 /*    Procedure-related               */
 class ProcedureBlockNode : public ASTNode {
 public:

@@ -325,7 +325,6 @@ void MLIRGen::visit(OutputStatNode* node) {
     // Evaluate the expression to get the value to print
     node->expr->accept(*this);
     VarInfo exprVarInfo = popValue();
-    std::cerr << "exprVarInfo type: " << toString(exprVarInfo.type.baseType);
     if (exprVarInfo.type.baseType == BaseType::MATRIX){
         emitPrintMatrix(exprVarInfo);
         return;
