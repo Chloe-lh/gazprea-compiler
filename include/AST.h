@@ -239,8 +239,10 @@ class RangeExprNode : public ExprNode {
 public:
   std::shared_ptr<ExprNode> start; // nullable
   std::shared_ptr<ExprNode> end;   // nullable
-  RangeExprNode(std::shared_ptr<ExprNode> s, std::shared_ptr<ExprNode> e)
-      : start(std::move(s)), end(std::move(e)) {}
+  std::shared_ptr<ExprNode> step;  // nullable (stride)
+  RangeExprNode(std::shared_ptr<ExprNode> s, std::shared_ptr<ExprNode> e,
+                std::shared_ptr<ExprNode> p = nullptr)
+      : start(std::move(s)), end(std::move(e)), step(std::move(p)) {}
   void accept(ASTVisitor &visitor) override;
 };
 // expression classes

@@ -128,9 +128,9 @@ array_literal : SQLEFT exprList? SQRIGHT;
 array_access :  ID SQLEFT expr SQRIGHT (SQLEFT expr SQRIGHT)?; // Support expressions as indices and 2D arrays
 
 exprList : expr (COMMA expr)* ;
-rangeExpr : RANGE expr
-          | expr RANGE
-          | expr RANGE expr
+rangeExpr : RANGE expr (BY expr)?          // ..end [by s]
+          | expr RANGE (BY expr)?          // start.. [by s]
+          | expr RANGE expr (BY expr)?     // start..end [by s]
           ;
 
 // Block: declarations allowed anywhere but semantic analysis enforces that they appear before statements within each block.

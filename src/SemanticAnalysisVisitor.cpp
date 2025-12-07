@@ -1530,9 +1530,10 @@ void SemanticAnalysisVisitor::visit(IteratorLoopNode* node) {
         throw TypeError(node->line, "Iterator loop currently supports only range domains.");
     }
 
-    // Prepare start/end expressions (default start to 1 if omitted)
+    // Prepare start/end/step expressions (default start to 1 if omitted, step to 1)
     std::shared_ptr<ExprNode> startExpr = range->start;
     std::shared_ptr<ExprNode> endExpr = range->end;
+    std::shared_ptr<ExprNode> stepExpr = range->step;
     if (!startExpr) {
         startExpr = std::make_shared<IntNode>(1);
         startExpr->line = node->line;
@@ -1540,15 +1541,30 @@ void SemanticAnalysisVisitor::visit(IteratorLoopNode* node) {
     if (!endExpr) {
         throw TypeError(node->line, "Iterator loop range requires an end expression.");
     }
+    if (!stepExpr) {
+        stepExpr = std::make_shared<IntNode>(1);
+        stepExpr->line = node->line;
+    }
 
-    // Type-check bounds
+    // Type-check bounds and stride
     startExpr->accept(*this);
     endExpr->accept(*this);
+    stepExpr->accept(*this);
     if (startExpr->type.baseType != BaseType::INTEGER) {
         throw TypeError(node->line, "Iterator loop range start must be integer.");
     }
     if (endExpr->type.baseType != BaseType::INTEGER) {
         throw TypeError(node->line, "Iterator loop range end must be integer.");
+    }
+    if (stepExpr->type.baseType != BaseType::INTEGER) {
+        throw TypeError(node->line, "Iterator loop range stride must be integer.");
+    }
+
+    // Reject non-positive stride
+    if (auto stepInt = std::dynamic_pointer_cast<IntNode>(stepExpr)) {
+        if (stepInt->value <= 0) {
+            throw TypeError(node->line, "Iterator loop range stride must be positive.");
+        }
     }
 
     // Hidden temp names
@@ -1556,13 +1572,16 @@ void SemanticAnalysisVisitor::visit(IteratorLoopNode* node) {
     const std::string startName = "__loop_start_" + std::to_string(loopTempCounter);
     const std::string endName   = "__loop_end_" + std::to_string(loopTempCounter);
     const std::string idxName   = "__loop_idx_" + std::to_string(loopTempCounter);
+    const std::string stepName  = "__loop_step_" + std::to_string(loopTempCounter);
     loopTempCounter++;
 
-    // Declarations for start/end/idx
+    // Declarations for start/end/step/idx
     auto startDec = std::make_shared<InferredDecNode>(startName, "const", startExpr);
     startDec->line = node->line;
     auto endDec = std::make_shared<InferredDecNode>(endName, "const", endExpr);
     endDec->line = node->line;
+    auto stepDec = std::make_shared<InferredDecNode>(stepName, "const", stepExpr);
+    stepDec->line = node->line;
 
     auto idxInit = std::make_shared<IdNode>(startName);
     idxInit->line = node->line;
@@ -1583,12 +1602,12 @@ void SemanticAnalysisVisitor::visit(IteratorLoopNode* node) {
     auto iterDec = std::make_shared<InferredDecNode>(node->iterName, "const", idxIdForIter);
     iterDec->line = node->line;
 
-    // idx = idx + 1
+    // idx = idx + step
     auto idxIdForInc = std::make_shared<IdNode>(idxName);
     idxIdForInc->line = node->line;
-    auto one = std::make_shared<IntNode>(1);
-    one->line = node->line;
-    auto incExpr = std::make_shared<AddExpr>("+", idxIdForInc, one);
+    auto stepIdForInc = std::make_shared<IdNode>(stepName);
+    stepIdForInc->line = node->line;
+    auto incExpr = std::make_shared<AddExpr>("+", idxIdForInc, stepIdForInc);
     incExpr->line = node->line;
     auto incStat = std::make_shared<AssignStatNode>(idxName, incExpr);
     incStat->line = node->line;
@@ -1614,6 +1633,7 @@ void SemanticAnalysisVisitor::visit(IteratorLoopNode* node) {
     std::vector<std::shared_ptr<DecNode>> outerDecs;
     outerDecs.push_back(startDec);
     outerDecs.push_back(endDec);
+    outerDecs.push_back(stepDec);
     outerDecs.push_back(idxDec);
     std::vector<std::shared_ptr<StatNode>> outerStats;
     outerStats.push_back(whileNode);

@@ -28,9 +28,9 @@ int main(int argc, char **argv) {
   std::vector<std::string> positional_args;
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
-    if (arg == "--verbose-errors") {
+    if (arg == "--verbose-errors" || arg == "-ve") {
       VERBOSE_ERRORS = true;
-    } else if (arg == "--dump-ast-post-sema") {
+    } else if (arg == "--dump-ast-post-sema" || arg == "-daps") {
       DUMP_AST_POST_SEMA = true;
     } else {
       positional_args.push_back(arg);
