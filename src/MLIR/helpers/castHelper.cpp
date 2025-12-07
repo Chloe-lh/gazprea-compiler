@@ -307,6 +307,189 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType, int line) {
             }
             break;
         }
+        case (BaseType::ARRAY):
+        case (BaseType::VECTOR):
+        case (BaseType::MATRIX):
+        {
+            if (toType->baseType != BaseType::ARRAY &&
+                toType->baseType != BaseType::VECTOR &&
+                toType->baseType != BaseType::MATRIX) {
+                throw TypeError(line, "MLIRGen::castType: cannot cast from '" + toString(from->type) + "' to '" + toString(*toType) + "'.");
+                // TODO: confirm if downcasting from 1D/2D types to scalar is allowed
+            }
+
+            if (!from->value) {
+                allocaVar(from, line);
+            }
+
+            if (from->type.subTypes.size() != 1 || toType->subTypes.size() != 1) {
+                throw std::runtime_error("MLIRGen::castType: array/vector types must have exactly one element subtype");
+            }
+
+            // Ensure runtime dimensions exist
+            if (from->runtimeDims.empty()) {
+                from->runtimeDims = from->type.dims;
+            }
+            if (to.runtimeDims.empty()) {
+                to.runtimeDims = toType->dims;
+            }
+
+            const CompleteType &fromElemCT = from->type.subTypes[0];
+            const CompleteType &toElemCT   = toType->subTypes[0];
+
+            int srcRank = static_cast<int>(from->runtimeDims.size());
+            int dstRank = static_cast<int>(toType->dims.size());
+
+            if (srcRank <= 0 || srcRank > 2 || dstRank <= 0 || dstRank > 2) {
+                throw SizeError(line, "MLIRGen::castType: unsupported array/vector/matrix rank for cast");
+            }
+            auto idxTy = builder_.getIndexType();
+
+            
+            if (dstRank == 1) {                                 // Case 1: Casting to 1D type
+                int64_t destLen = 0;
+
+                // Calculate 
+                if (toType->baseType == BaseType::VECTOR) {
+                    // For vectors, take the total number of elements from the source
+                    int64_t srcTotal = 0;
+                    if (srcRank == 1) {
+                        srcTotal = from->runtimeDims[0];
+                    } else { // srcRank == 2
+                        int64_t srcRows = from->runtimeDims[0];
+                        int64_t srcCols = from->runtimeDims[1];
+
+                        if (srcRows < 0 || srcCols < 0) throw SizeError(line, "MLIRGen::castType: invalid source matrix dimensions for vector cast");
+
+                        srcTotal = srcRows * srcCols;
+                    }
+                    if (srcTotal < 0) {
+                        throw SizeError(line, "MLIRGen::castType: negative source length for vector cast");
+                    }
+
+                    destLen = srcTotal;
+                    to.runtimeDims = {static_cast<int>(destLen)};
+
+                    // Re-allocate vector storage to the desired length
+                    mlir::Value newVec = allocaVector(static_cast<int>(destLen), &to);
+                    to.value = newVec;
+                } else {
+                    // 1D array: use declared dimension
+                    if (toType->dims.empty() || toType->dims[0] < 0) {
+                        throw SizeError(line, "MLIRGen::castType: invalid destination array length for cast");
+                    }
+                    destLen = toType->dims[0];
+                    to.runtimeDims = {toType->dims[0]};
+                }
+
+                for (int64_t t = 0; t < destLen; ++t) {
+                    // Determine source element using row-major indexing
+                    mlir::Value srcVal = loadElementByFlatIndex(from, t, srcRank, line);
+
+                    mlir::Value destIdx =
+                        builder_.create<mlir::arith::ConstantOp>(
+                            loc_, idxTy,
+                            builder_.getIntegerAttr(idxTy, t));
+
+                    if (srcVal) {
+                        // Wrap source element to reuse castType recursively
+                        VarInfo srcElemVar(fromElemCT);
+                        allocaLiteral(&srcElemVar, line);
+                        builder_.create<mlir::memref::StoreOp>(
+                            loc_, srcVal, srcElemVar.value, mlir::ValueRange{});
+
+                        VarInfo castedElem =
+                            castType(&srcElemVar, const_cast<CompleteType*>(&toElemCT), line);
+                        mlir::Value elemVal = getSSAValue(castedElem);
+
+                        builder_.create<mlir::memref::StoreOp>(
+                            loc_, elemVal, to.value, mlir::ValueRange{destIdx});
+                    } else {
+                        storeZeroElement(to.value, toElemCT, mlir::ValueRange{destIdx});
+                    }
+                }
+            } else {                                        // 2. Handle matrix destination
+                if (toType->dims.size() < 2 ||
+                    toType->dims[0] < 0 || toType->dims[1] < 0) {
+                    throw SizeError(line, "MLIRGen::castType: invalid destination matrix dimensions for cast");
+                }
+
+                int64_t dstRows = toType->dims[0];
+                int64_t dstCols = toType->dims[1];
+                to.runtimeDims = {toType->dims[0], toType->dims[1]};
+
+                int64_t srcRows = 0;
+                int64_t srcCols = 0;
+                if (srcRank == 2) {
+                    srcRows = from->runtimeDims[0];
+                    srcCols = from->runtimeDims[1];
+                    if (srcRows < 0 || srcCols < 0) {
+                        throw SizeError(line, "MLIRGen::castType: invalid source matrix dimensions");
+                    }
+                } else { // srcRank == 1
+                    if (from->runtimeDims[0] < 0) {
+                        throw SizeError(line, "MLIRGen::castType: invalid source vector length for matrix cast");
+                    }
+                }
+
+                for (int64_t i = 0; i < dstRows; ++i) {
+                    mlir::Value rowIdx =
+                        builder_.create<mlir::arith::ConstantOp>(
+                            loc_, idxTy,
+                            builder_.getIntegerAttr(idxTy, i));
+                    for (int64_t j = 0; j < dstCols; ++j) {
+                        mlir::Value colIdx =
+                            builder_.create<mlir::arith::ConstantOp>(
+                                loc_, idxTy,
+                                builder_.getIntegerAttr(idxTy, j));
+
+                        bool hasSrc = false;
+                        mlir::Value srcVal;
+
+                        if (srcRank == 2) {
+                            if (i < srcRows && j < srcCols) {
+                                hasSrc = true;
+                                srcVal = builder_.create<mlir::memref::LoadOp>(
+                                    loc_, from->value,
+                                    mlir::ValueRange{rowIdx, colIdx});
+                            }
+                        } else { // srcRank == 1 => flatten into matrix row-major
+                            int64_t srcLen = from->runtimeDims[0];
+                            int64_t flatIndex = i * dstCols + j;
+                            if (flatIndex < srcLen) {
+                                hasSrc = true;
+                                mlir::Value flatIdx =
+                                    builder_.create<mlir::arith::ConstantOp>(
+                                        loc_, idxTy,
+                                        builder_.getIntegerAttr(idxTy, flatIndex));
+                                srcVal = builder_.create<mlir::memref::LoadOp>(
+                                    loc_, from->value,
+                                    mlir::ValueRange{flatIdx});
+                            }
+                        }
+
+                        if (hasSrc) {
+                            VarInfo srcElemVar(fromElemCT);
+                            allocaLiteral(&srcElemVar, line);
+                            builder_.create<mlir::memref::StoreOp>(
+                                loc_, srcVal, srcElemVar.value, mlir::ValueRange{});
+
+                            VarInfo castedElem =
+                                castType(&srcElemVar, const_cast<CompleteType*>(&toElemCT), line);
+                            mlir::Value elemVal = getSSAValue(castedElem);
+
+                            builder_.create<mlir::memref::StoreOp>(
+                                loc_, elemVal, to.value,
+                                mlir::ValueRange{rowIdx, colIdx});
+                        } else {
+                            storeZeroElement(to.value, toElemCT, mlir::ValueRange{rowIdx, colIdx});
+                        }
+                    }
+                }
+            }
+
+            break;
+        }
 
         default:
             throw TypeError(line, std::string("Codegen: unsupported cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
