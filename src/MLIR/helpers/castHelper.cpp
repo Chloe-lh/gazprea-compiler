@@ -101,22 +101,26 @@ void MLIRGen::expandScalarToAggregate(VarInfo *from,
     auto idxTy = builder_.getIndexType();
 
     if (toType->baseType == BaseType::VECTOR) {
-        // Vectors are dynamically sized; for scalar->vector casts,
-        // materialise a single-element vector containing the scalar.
+        // Broadcast scalar to all vector elements
         int len = 1;
+        if (!toType->dims.empty() && toType->dims[0] > 0) {
+            len = toType->dims[0];
+        }
         to.runtimeDims = {len};
 
         mlir::Value newVec = allocaVector(len, &to);
         to.value = newVec;
 
-        mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
-            loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(0)));
-
         VarInfo elemVar = castType(from, const_cast<CompleteType*>(&elemType), line);
         mlir::Value elemVal = getSSAValue(elemVar);
 
-        builder_.create<mlir::memref::StoreOp>(
-            loc_, elemVal, to.value, mlir::ValueRange{idx});
+        for (int i = 0; i < len; ++i) {
+            mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
+                loc_, idxTy,
+                builder_.getIntegerAttr(idxTy, static_cast<int64_t>(i)));
+            builder_.create<mlir::memref::StoreOp>(
+                loc_, elemVal, to.value, mlir::ValueRange{idx});
+        }
         return;
     }
 
