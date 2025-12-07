@@ -289,6 +289,32 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                     return to;
                 }
 
+                // Support promotions like array<integer> -> array<real> when mixing an array with a scalar
+                case BaseType::INTEGER:
+                case BaseType::REAL:
+                {
+                    if (from.dims.empty()) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+
+                    CompleteType elemType = from.subTypes[0];
+                    CompleteType scalarType = to; // scalar target
+
+                    // Try both promotion directions on the element types
+                    CompleteType promotedElem = promote(elemType, scalarType);
+                    if (promotedElem.baseType == BaseType::UNKNOWN) {
+                        promotedElem = promote(scalarType, elemType);
+                    }
+                    if (promotedElem.baseType == BaseType::UNKNOWN) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+
+                    CompleteType result(BaseType::ARRAY);
+                    result.subTypes.push_back(promotedElem);
+                    result.dims = from.dims;
+                    return result;
+                }
+
                 default: break;
             }
             break;
@@ -319,6 +345,33 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                     }
 
                     return to;
+                }
+
+                // Support promotions like vector<integer> -> vector<real>
+                // when mixing a vector with a scalar. Compute the promoted
+                // element type and keep the original length.
+                case BaseType::INTEGER:
+                case BaseType::REAL:
+                {
+                    if (from.dims.empty()) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+
+                    CompleteType elemType = from.subTypes[0];
+                    CompleteType scalarType = to;
+
+                    CompleteType promotedElem = promote(elemType, scalarType);
+                    if (promotedElem.baseType == BaseType::UNKNOWN) {
+                        promotedElem = promote(scalarType, elemType);
+                    }
+                    if (promotedElem.baseType == BaseType::UNKNOWN) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+
+                    CompleteType result(BaseType::VECTOR);
+                    result.subTypes.push_back(promotedElem);
+                    result.dims = from.dims;
+                    return result;
                 }
                 default: break;
             }
@@ -352,6 +405,39 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
 
                     return result;
                 }
+
+                // Support promotions like matrix<integer> -> matrix<real>
+                // when mixing a matrix with a scalar. Compute the promoted
+                // element type and keep the original matrix dimensions.
+                case BaseType::INTEGER:
+                case BaseType::REAL:
+                {
+                    if (from.subTypes.size() != 1) {
+                        throw std::runtime_error(
+                            "promote(): from matrix with subtype len " +
+                            std::to_string(from.subTypes.size()));
+                    }
+                    if (from.dims.size() != 2) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+
+                    CompleteType elemType = from.subTypes[0];
+                    CompleteType scalarType = to;
+
+                    CompleteType promotedElem = promote(elemType, scalarType);
+                    if (promotedElem.baseType == BaseType::UNKNOWN) {
+                        promotedElem = promote(scalarType, elemType);
+                    }
+                    if (promotedElem.baseType == BaseType::UNKNOWN) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+
+                    CompleteType result(BaseType::MATRIX);
+                    result.subTypes.push_back(promotedElem);
+                    result.dims = from.dims;
+                    return result;
+                }
+
                 default: break;
             }
             break;
