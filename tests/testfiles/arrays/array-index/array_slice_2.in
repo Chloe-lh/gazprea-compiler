@@ -1,0 +1,8 @@
+procedure main() {
+    integer[*] a = 0..10 by 2; /* a = [0, 2, 4, 6, 8, 10] */
+    integer x = a[..4]; /* x == [0, 2, 4] */
+    integer y = a[4..]; /* x == [6, 8, 10] */
+    integer z = a[..-1]; /* x == [0, 2, 4, 6, 8] */
+    return 0; 
+}
+//CHECK_FILE:array_slice_2.out

@@ -238,17 +238,35 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                             std::to_string(to.subTypes.size()));
                     }
 
-                    // ensure dimensions match
-                    if (from.dims[0] != to.dims[0]) {
-                        return CompleteType(BaseType::UNKNOWN);
+                    // Allow promotion from static array to dynamic array (static -> dynamic)
+                    // Also allow exact dimension match (static -> static, dynamic -> dynamic)
+                    bool dimsCompatible = false;
+                    if (from.dims.empty() || to.dims.empty()) {
+                        dimsCompatible = false;
+                    } else if (to.dims[0] == -1) {
+                        // Target is dynamic - allow promotion from any static size
+                        dimsCompatible = true;
+                    } else if (from.dims[0] == to.dims[0]) {
+                        // Exact dimension match
+                        dimsCompatible = true;
                     }
 
-                    if (from.dims[0] != to.dims[0]) {
+                    if (!dimsCompatible) {
                         return CompleteType(BaseType::UNKNOWN);
                     }
 
                     CompleteType result(BaseType::ARRAY);
-                    CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
+                    CompleteType subtypeResult(BaseType::UNKNOWN);
+                    // Empty literals (size 0, unknown subtype) inherit the destination element type.
+                    if (from.subTypes[0].baseType == BaseType::UNKNOWN &&
+                        !from.dims.empty() && from.dims[0] == 0) {
+                        subtypeResult = to.subTypes[0];
+                    } else {
+                        subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
+                    }
+                    if (subtypeResult.baseType == BaseType::UNKNOWN) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
 
                     result.subTypes.push_back(subtypeResult);
                     result.dims = to.dims;
@@ -269,7 +287,16 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                     }
 
                     CompleteType result(BaseType::VECTOR);
-                    CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
+                    CompleteType subtypeResult(BaseType::UNKNOWN);
+                    if (from.subTypes[0].baseType == BaseType::UNKNOWN &&
+                        !from.dims.empty() && from.dims[0] == 0) {
+                        subtypeResult = to.subTypes[0];
+                    } else {
+                        subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
+                    }
+                    if (subtypeResult.baseType == BaseType::UNKNOWN) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
 
                     result.subTypes.push_back(subtypeResult);
                     result.dims = from.dims;
@@ -405,6 +432,11 @@ void validateSubtypes(CompleteType completeType) {
             if (!completeType.dims.empty()) {
                 throw std::runtime_error("Semantic Validation: Type" + toString(completeType) + " cannot have " + std::to_string(completeType.dims.size()) + " dimensions.");
             }
+        }
+        
+        // Recursively validate nested subtypes
+        for (const auto& subtype : completeType.subTypes) {
+            validateSubtypes(subtype);
         }
     }
 }

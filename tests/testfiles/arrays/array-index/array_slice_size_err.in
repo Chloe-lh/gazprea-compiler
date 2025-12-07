@@ -1,0 +1,7 @@
+procedure main() return integer {
+
+    integer[4] arr = [1, 2, 3, 4];
+    integer[3] b = arr[1..3];
+
+    return 0;
+}

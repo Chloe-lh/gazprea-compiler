@@ -26,7 +26,14 @@ CIConfig.json
 compile_commands.json
 temp/
 
-# Ignore maks' config for dragon runner
+# Ignore maks' configs for lots of things
 tests/GazpreaCompileConfigLocalMaks.json
 # Made separate test folder for part 1 failures only
 tests/part1/
+run_test_maks.sh
+copy_tests.sh
+scripts/
+
+gaz
+gaz.ll
+gaz.o

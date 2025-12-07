@@ -189,11 +189,11 @@ public:
 class ArrayAccessNode : public ExprNode {
 public:
   std::string id;
-  int index;
-  int index2D;
+  std::shared_ptr<ExprNode> indexExpr;
+  std::shared_ptr<ExprNode> indexExpr2;  // For 2D array access
   VarInfo *binding = nullptr;
-  ArrayAccessNode(const std::string &id, int index) : id(id), index(index) {}
-  ArrayAccessNode(const std::string &id, int i1, int i2) : id(id), index(i1), index2D(i2) {}
+  ArrayAccessNode(const std::string &id, std::shared_ptr<ExprNode> indexExpr) : id(id), indexExpr(std::move(indexExpr)) {}
+  ArrayAccessNode(const std::string &id, std::shared_ptr<ExprNode> i1, std::shared_ptr<ExprNode> i2) : id(id), indexExpr(std::move(i1)), indexExpr2(std::move(i2)) {}
   void accept(ASTVisitor &visitor) override;
 };
 class ArrayLiteralNode;

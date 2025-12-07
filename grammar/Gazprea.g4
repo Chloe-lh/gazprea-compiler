@@ -125,7 +125,7 @@ struct_access: ID '.' ID;
 
 // Arrays
 array_literal : SQLEFT exprList? SQRIGHT;
-array_access :  ID SQLEFT INT SQRIGHT  (SQLEFT INT SQRIGHT)?; //added support for 2D accessing
+array_access :  ID SQLEFT expr SQRIGHT (SQLEFT expr SQRIGHT)?; // Support expressions as indices and 2D arrays
 
 exprList : expr (COMMA expr)* ;
 rangeExpr : RANGE expr
@@ -170,8 +170,10 @@ fragment ESC_SEQ:
 INT: [0-9]+;
 
 FLOAT
-    : INT? DECIM INT // .0
-    | INT DECIM INT?; // 32.
+    : INT? DECIM INT // .0 or 0.5
+    | INT DECIM {_input->LA(1) != '.'}? // 1. (but not 1..) - check next char is not '.'
+    | INT DECIM INT  // 32.5
+    ;
 
 
 // operators and punctuation

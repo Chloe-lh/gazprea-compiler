@@ -320,9 +320,14 @@ void ConstantFoldingVisitor::visit(ExprListNode *node) {
 void ConstantFoldingVisitor::visit(ArrayLiteralNode *node) {
     if (!node) return;
     if (!node->list || node->list->list.empty()) {
-        // Represent empty array literal as an ARRAY with UNKNOWN element
-        // subtype so it can act as a wildcard for later type promotion.
-        node->type = CompleteType(BaseType::ARRAY, CompleteType(BaseType::UNKNOWN), {0});
+        // Preserve any element type inferred during semantic analysis; only
+        // fall back to UNKNOWN when no subtype was provided.
+        if (node->type.subTypes.empty() ||
+            node->type.subTypes[0].baseType == BaseType::UNKNOWN) {
+            node->type = CompleteType(BaseType::ARRAY, CompleteType(BaseType::UNKNOWN), {0});
+        } else if (node->type.dims.empty()) {
+            node->type.dims = {0};
+        }
         return;
     }
 

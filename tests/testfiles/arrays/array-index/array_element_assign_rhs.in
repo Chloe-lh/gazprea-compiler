@@ -1,0 +1,12 @@
+procedure main() returns integer{
+    var integer[3] arr = [1, 2, 3];
+
+    // check RHS array assignment
+    integer a = arr[2];
+    a -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+//CHECK_FILE:array_element_assign_rhs.out
+

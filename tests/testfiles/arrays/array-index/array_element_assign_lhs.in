@@ -1,5 +1,5 @@
 procedure main() returns integer{
-    integer[3] arr = [1, 2, 3];
+    var integer[3] arr = [1, 2, 3];
 
     arr -> std_output;
     "\n" -> std_output;
@@ -11,5 +11,5 @@ procedure main() returns integer{
 
     return 0;
 }
-//CHECK_FILE:array_element_assign.out
+//CHECK_FILE:array_element_assign_lhs.out
 
