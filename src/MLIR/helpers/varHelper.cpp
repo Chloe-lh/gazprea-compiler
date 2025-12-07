@@ -341,6 +341,22 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
                 
                 mlir::Value srcVal = builder_.create<mlir::memref::LoadOp>(
                     loc_, rhs->value, mlir::ValueRange{idxI, idxJ});
+                
+                // Cast if element types differ
+                if (rhs->type.subTypes.size() != 1 || lhs->type.subTypes.size() != 1) {
+                    throw std::runtime_error("assignToArray: 2D array element type mismatch");
+                }
+                CompleteType srcElemCT = rhs->type.subTypes[0];
+                CompleteType lhsElemCT = lhs->type.subTypes[0];
+                
+                if (srcElemCT.baseType != lhsElemCT.baseType) {
+                    VarInfo srcElemVar(srcElemCT);
+                    srcElemVar.value = srcVal;
+                    srcElemVar.isLValue = false;
+                    VarInfo casted = castType(&srcElemVar, &lhsElemCT, line);
+                    srcVal = getSSAValue(casted);
+                }
+                
                 builder_.create<mlir::memref::StoreOp>(
                     loc_, srcVal, lhs->value, mlir::ValueRange{idxI, idxJ});
             }
@@ -751,7 +767,6 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
                                          (varInfo->identifier.empty() ? std::string("<unknown>") : varInfo->identifier) + "'");
             }
             mlir::Type elemTy = getLLVMType(varInfo->type.subTypes[0]);
-            std::cerr << "DEBUG: dims: " << varInfo->type.dims[0] << varInfo->type.dims[1];
             if (varInfo->type.dims.size() != 2) {
                 throw std::runtime_error("allocaVar: MATRIX requires 2 dimensions but got " + 
                                          std::to_string(varInfo->type.dims.size()) + " for variable '" +

@@ -59,6 +59,13 @@ builtin_type
     | STRING
     ;
 
+builtin_func
+    : LENGTH PARENLEFT ID PARENRIGHT
+    | SHAPE PARENLEFT ID PARENRIGHT
+    | REVERSE PARENLEFT ID PARENRIGHT
+    | FORMAT PARENLEFT ID PARENRIGHT
+    ;
+
 // size specification for an array
 size
   : SQLEFT (INT | MULT) SQRIGHT (SQLEFT (INT|MULT) SQRIGHT)? // only up to 2D
@@ -77,6 +84,7 @@ expr
     | ID SQLEFT rangeExpr SQRIGHT                       #ArraySliceExpr
     | ID BY expr                                        #ArrayStrideExpr
     | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr // Also used as struct_literal
+    | builtin_func                                      #BuiltInFuncExpr
     | PARENLEFT expr PARENRIGHT                         #ParenExpr
     | STRING_LIT                                        #StringExpr
     | <assoc=right>NOT expr                             #NotExpr
@@ -220,6 +228,7 @@ ELSE: 'else';
 FALSE: 'false';
 FORMAT: 'format';
 FUNCTION: 'function';
+SHAPE: 'shape';
 IF: 'if';
 IN: 'in';
 INTEGER: 'integer';

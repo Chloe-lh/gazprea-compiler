@@ -1,6 +1,98 @@
+#include "AST.h"
 #include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
 
+void MLIRGen::visit(BuiltInFuncNode *node){
+    // Handle builtins at MLIR gen time. Currently support length/len; others
+    std::string fname = node->funcName;
+    
+    // Fast path: if constant was already computed, emit it as SSA
+    if (node->constant.has_value()) {
+        ConstantValue cv = node->constant.value();
+        if (cv.type.baseType == BaseType::INTEGER) {
+            auto i32 = builder_.getI32Type();
+            int64_t v = std::get<int64_t>(cv.value);
+            auto c = builder_.create<mlir::arith::ConstantOp>(loc_, i32, builder_.getIntegerAttr(i32, v));
+            VarInfo vi{CompleteType(BaseType::INTEGER)};
+            vi.value = c.getResult();
+            vi.isLValue = false;
+            pushValue(vi);
+            return;
+        }
+    }
+
+    VarInfo* var = currScope_ ? currScope_->resolveVar(node->id, node->line) : nullptr;
+    if (!var) {
+        throw SymbolError(node->line, "MLIRGen: unknown identifier '" + node->id + "' in builtin call.");
+    }
+    CompleteType argType = var->type;
+
+    if (fname == "length") {
+        int64_t len = -1;
+        if (!argType.dims.empty()) {
+            len = argType.dims[0];
+        }
+        if (len < 0) {
+            throw std::runtime_error("MLIRGen: length() requires a sized array/vector/matrix.");
+        }
+        auto i32 = builder_.getI32Type();
+        auto c = builder_.create<mlir::arith::ConstantOp>(loc_, i32, builder_.getIntegerAttr(i32, len));
+        VarInfo vi{CompleteType(BaseType::INTEGER)};
+        vi.value = c.getResult();
+        vi.isLValue = false;
+        pushValue(vi);
+        return;
+    }
+    if (fname == "shape") { // return array listing size of each dimension
+        // Accept any array/vector/matrix type
+        if (argType.baseType != BaseType::ARRAY && argType.baseType != BaseType::VECTOR && 
+            argType.baseType != BaseType::MATRIX) {
+            throw std::runtime_error("MLIRGen: shape() requires an array/vector/matrix argument.");
+        }
+        
+        if (argType.dims.empty()) {
+            throw std::runtime_error("MLIRGen: shape() requires a sized array/vector/matrix.");
+        }
+        
+        // Check all dims are non-negative
+        for (const auto& d : argType.dims) {
+            if (d < 0) {
+                throw std::runtime_error("MLIRGen: shape() requires all dimensions to be sized.");
+            }
+        }
+
+        int rank = static_cast<int>(argType.dims.size());
+        CompleteType outType(BaseType::ARRAY, CompleteType(BaseType::INTEGER), {rank});
+        VarInfo out(outType);
+        allocaLiteral(&out, node->line); // allocates memref<rank x i32>
+
+        // Verify memref was allocated
+        if (!out.value) {
+            throw std::runtime_error("MLIRGen: failed to allocate shape result array");
+        }
+
+        auto idxTy = builder_.getIndexType();
+        auto i32 = builder_.getI32Type();
+        for (int i = 0; i < rank; ++i) {
+            auto idx = builder_.create<mlir::arith::ConstantOp>(
+                loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(i)));
+            auto val = builder_.create<mlir::arith::ConstantOp>(
+                loc_, i32, builder_.getIntegerAttr(i32, static_cast<int64_t>(argType.dims[i])));
+            builder_.create<mlir::memref::StoreOp>(loc_, val, out.value, mlir::ValueRange{idx});
+        }
+        out.isLValue = false;
+        pushValue(out);
+        return;
+    }
+    if(fname == "reverse"){
+        // if (argType.dims.empty() || argType.dims[0] < 0) {
+        //     throw std::runtime_error("MLIRGen: shape() requires a sized array/vector/string");
+        // }
+        // int rank = static_cast<int>(argType.dims.size());
+        // CompleteType arType = node->type->elemBaseType;
+    throw std::runtime_error("MLIRGen: builtin '" + fname + "' not lowered");
+    }
+}
 void MLIRGen::visit(FuncStatNode* node) {
     Scope* savedScope = nullptr;
     beginFunctionDefinitionWithConstants(

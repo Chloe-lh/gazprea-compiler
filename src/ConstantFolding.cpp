@@ -9,6 +9,7 @@
 #include <cmath>
 #include <optional>
 #include <variant>
+#include <cctype>
 
 static ConstantValue getIntConst(int64_t data) {
     return ConstantValue(CompleteType(BaseType::INTEGER), static_cast<int64_t>(data));
@@ -196,6 +197,102 @@ void ConstantFoldingVisitor::visit(FileNode *node){
     }
     popScope();
 }
+
+static ConstantValue makeIntArrayConst(const std::vector<int64_t> &vals) {
+    std::vector<ConstantValue> elems;
+    elems.reserve(vals.size());
+    for (auto v : vals) elems.push_back(getIntConst(v));
+
+    ConstantValue cv;
+    cv.type = CompleteType(BaseType::ARRAY, CompleteType(BaseType::INTEGER), {static_cast<int>(vals.size())});
+    cv.value = elems;
+    return cv;
+}
+
+// Build an array ConstantValue for arbitrary element type. Dims describe the
+// outer array; element type is provided (it may itself be ARRAY/VECTOR/MATRIX).
+static ConstantValue makeArrayConst(const std::vector<ConstantValue> &elems,
+                                    CompleteType elemType,
+                                    std::vector<int> dims) {
+    if (dims.empty()) {
+        dims.push_back(static_cast<int>(elems.size()));
+    }
+    // Ensure element subtype is present
+    if (elemType.baseType == BaseType::UNKNOWN) {
+        elemType = elems.empty() ? CompleteType(BaseType::UNKNOWN) : elems[0].type;
+    }
+
+    ConstantValue cv;
+    cv.type = CompleteType(BaseType::ARRAY, elemType, dims);
+    cv.value = elems;
+    return cv;
+}
+
+
+
+void ConstantFoldingVisitor::visit(BuiltInFuncNode *node) {
+    // Builtins have a single identifier argument. Try to resolve its constant.
+    auto argConstOpt = lookup(node->id);
+    if (!argConstOpt.has_value()) return;
+    const ConstantValue &arg = argConstOpt.value();
+
+
+    // len/length: strings -> integer length, arrays -> first dimension size.
+    if (node->funcName == "length") {
+        if (arg.type.baseType == BaseType::STRING) {
+            const auto &s = std::get<std::string>(arg.value);
+            node->constant = getIntConst(static_cast<int64_t>(s.size()));
+        } else if (arg.type.baseType == BaseType::ARRAY || arg.type.baseType == BaseType::VECTOR || arg.type.baseType == BaseType::MATRIX) {
+            int64_t len = 0;
+            if (!arg.type.dims.empty()) {
+                len = arg.type.dims[0];
+            } else if (std::holds_alternative<std::vector<ConstantValue>>(arg.value)) {
+                len = static_cast<int64_t>(std::get<std::vector<ConstantValue>>(arg.value).size());
+            }
+            node->constant = getIntConst(len);
+        }
+        return;
+    }
+
+    // shape: return an int array of all known dims.
+    if (node->funcName == "shape") {
+        if (!arg.type.dims.empty()) {
+            std::vector<int64_t> dims;
+            dims.reserve(arg.type.dims.size());
+            for (int d : arg.type.dims) dims.push_back(static_cast<int64_t>(d));
+            node->constant = makeIntArrayConst(dims);
+        }
+        return;
+    }
+
+    // reverse: strings and arrays.
+    if (node->funcName == "reverse") {
+        if (arg.type.baseType == BaseType::STRING) {
+            std::string s = std::get<std::string>(arg.value);
+            std::reverse(s.begin(), s.end());
+            node->constant = getStringConst(s);
+            return;
+        }
+        if (std::holds_alternative<std::vector<ConstantValue>>(arg.value)) {
+            auto elems = std::get<std::vector<ConstantValue>>(arg.value);
+            std::reverse(elems.begin(), elems.end());
+            ConstantValue cv;
+            cv.type = arg.type;
+            cv.value = elems;
+            node->constant = cv;
+            return;
+        }
+        return;
+    }
+
+    // format: if arg is string, passthrough (no templating supported in folding).
+    if (node->funcName == "format") {
+        if (arg.type.baseType == BaseType::STRING) {
+            node->constant = arg;
+        }
+        return;
+    }
+}
 void ConstantFoldingVisitor::visit(ArrayStrideExpr *node) {}
 void ConstantFoldingVisitor::visit(ArraySliceExpr *node) {}
 void ConstantFoldingVisitor::visit(ArrayAccessNode *node) {} // not needed
@@ -254,9 +351,21 @@ void ConstantFoldingVisitor::visit(ArrayLiteralNode *node) {
             }
             common = promoted;
         }
-        ConstantValue cv;
-        cv.type = node->type;
-        cv.value = elems;
+        CompleteType arrType = node->type;
+        // Normalise the array type so it always carries a subtype and dims
+        if (arrType.baseType != BaseType::ARRAY &&
+            arrType.baseType != BaseType::VECTOR &&
+            arrType.baseType != BaseType::MATRIX) {
+            arrType = CompleteType(BaseType::ARRAY, common, {});
+        }
+        if (arrType.subTypes.empty()) {
+            arrType.subTypes.push_back(common);
+        }
+        if (arrType.dims.empty()) {
+            arrType.dims = { static_cast<int>(elems.size()) };
+        }
+
+        ConstantValue cv = makeArrayConst(elems, arrType.subTypes[0], arrType.dims);
         node->constant = cv;
         node->type = cv.type; // keep AST type consistent
         // Record concrete dimension for this array literal so downstream
