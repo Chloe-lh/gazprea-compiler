@@ -8,9 +8,9 @@ procedure main() returns integer {
         5, 5, 5, 5
     ];
     var integer[4] arr2;
-    vector<integer> vec3;
+    var vector<integer> vec3;
     var integer[4] arr3;
-    vector<integer> vec4;
+    var vector<integer> vec4;
     var integer[4] arr4;
 
     arr1 = vec1;
@@ -31,6 +31,8 @@ procedure main() returns integer {
     arr4 = vec4;
     arr4 -> std_output;
     "\n" -> std_output;
+
+    return 0;
 }
 
 //CHECK_FILE:vectorAdd.out
