@@ -8,6 +8,9 @@ void MLIRGen::visit(AssignStatNode* node) {
     VarInfo* to = currScope_->resolveVar(node->name, node->line);
     VarInfo from = popValue();
 
+    syncRuntimeDims(&from);
+    syncRuntimeDims(to);
+
     if (to->isConst) {
         throw AssignError(node->line, "Cannot assign to const variable '" + to->identifier + "'.");
     }

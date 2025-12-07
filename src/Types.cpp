@@ -481,7 +481,8 @@ void validateSubtypes(CompleteType completeType) {
         // else: should not carry dimensions
         if (completeType.baseType == BaseType::VECTOR && completeType.dims.size() != 1) {
             throw std::runtime_error("Semantic Validation: Type" + toString(completeType) + " cannot have " + std::to_string(completeType.dims.size()) + " dimensions.");
-        } else if (completeType.baseType == BaseType::ARRAY && completeType.dims.size() != 1) {
+        } else if (completeType.baseType == BaseType::ARRAY &&
+                   (completeType.dims.empty() || completeType.dims.size() > 2)) {
             throw std::runtime_error("Semantic Validation: Type" + toString(completeType) + " cannot have " + std::to_string(completeType.dims.size()) + " dimensions.");
         } else if (completeType.baseType == BaseType::MATRIX && completeType.dims.size() != 2) {
             throw std::runtime_error("Semantic Validation: Type" + toString(completeType) + " cannot have " + std::to_string(completeType.dims.size()) + " dimensions.");

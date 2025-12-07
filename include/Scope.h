@@ -17,7 +17,7 @@ struct VarInfo {
     bool isLValue = false;
     mlir::Value value = nullptr;
 
-    std::vector<int> runtimeDims; // Runtime shape (previously runtimeLen)
+    std::vector<int> runtimeDims = {-1}; // Runtime shape (previously runtimeLen)
 
     VarInfo(CompleteType completeType)
         : type(completeType),
