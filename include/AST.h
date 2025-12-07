@@ -245,6 +245,20 @@ public:
       : start(std::move(s)), end(std::move(e)), step(std::move(p)) {}
   void accept(ASTVisitor &visitor) override;
 };
+
+// Generator: [ domains | expr ], supports 1D or 2D (arity 1 or 2)
+class GeneratorExprNode : public ExprNode {
+public:
+  std::vector<std::pair<std::string, std::shared_ptr<ExprNode>>> domains; // (iterName, domainExpr)
+  std::shared_ptr<ExprNode> rhs;
+  // Lowered materialization: block that allocates and fills result; result binding name
+  std::shared_ptr<BlockNode> lowered;
+  std::string loweredResultName;
+  GeneratorExprNode(std::vector<std::pair<std::string, std::shared_ptr<ExprNode>>> doms,
+                    std::shared_ptr<ExprNode> r)
+      : domains(std::move(doms)), rhs(std::move(r)) {}
+  void accept(ASTVisitor &visitor) override;
+};
 // expression classes
 class ParenExpr : public ExprNode {
 public:

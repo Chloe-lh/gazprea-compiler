@@ -82,6 +82,7 @@ expr
     | struct_access                                     #StructAccessExpr  
     | array_access                                      #ArrayAccessExpr
     | ID SQLEFT rangeExpr SQRIGHT                       #ArraySliceExpr
+    | SQLEFT generatorBody SQRIGHT                      #GeneratorExpr
     | ID BY expr                                        #ArrayStrideExpr
     | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr // Also used as struct_literal
     | builtin_func                                      #BuiltInFuncExpr
@@ -108,6 +109,18 @@ expr
     | AS '<' tuple_dec  '>' PARENLEFT expr PARENRIGHT   #TupleTypeCastExpr
     | STD_INPUT                                         #StdInputExpr
     | ID                                                #IdExpr
+    ;
+
+generatorBody
+    : generatorDomains '|' expr
+    ;
+
+generatorDomains
+    : generatorDomain (COMMA generatorDomain)?
+    ;
+
+generatorDomain
+    : ID IN (rangeExpr | array_literal | expr)
     ;
 
 

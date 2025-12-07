@@ -140,6 +140,51 @@ namespace gazprea{
     return node_any(std::move(node));
   };
 
+  // Generators
+  std::any ASTBuilder::visitGeneratorDomain(GazpreaParser::GeneratorDomainContext *ctx) {
+    std::string iter = ctx->ID()->getText();
+    std::shared_ptr<ExprNode> dom = nullptr;
+    if (ctx->rangeExpr()) {
+      auto anyDom = visit(ctx->rangeExpr());
+      if (anyDom.has_value()) dom = safe_any_cast_ptr<ExprNode>(anyDom);
+    } else if (ctx->array_literal()) {
+      auto anyDom = visit(ctx->array_literal());
+      if (anyDom.has_value()) dom = safe_any_cast_ptr<ExprNode>(anyDom);
+    } else if (ctx->expr()) {
+      auto anyDom = visit(ctx->expr());
+      if (anyDom.has_value()) dom = safe_any_cast_ptr<ExprNode>(anyDom);
+    }
+    return std::make_pair(iter, dom);
+  }
+
+  std::any ASTBuilder::visitGeneratorDomains(GazpreaParser::GeneratorDomainsContext *ctx) {
+    std::vector<std::pair<std::string, std::shared_ptr<ExprNode>>> domains;
+    for (auto dctx : ctx->generatorDomain()) {
+      auto anyDom = visit(dctx);
+      if (anyDom.has_value()) {
+        domains.push_back(std::any_cast<std::pair<std::string, std::shared_ptr<ExprNode>>>(anyDom));
+      }
+    }
+    return domains;
+  }
+
+  std::any ASTBuilder::visitGeneratorBody(GazpreaParser::GeneratorBodyContext *ctx) {
+    auto anyDomains = visit(ctx->generatorDomains());
+    auto domains = std::any_cast<std::vector<std::pair<std::string, std::shared_ptr<ExprNode>>>>(anyDomains);
+    std::shared_ptr<ExprNode> rhs = nullptr;
+    if (ctx->expr()) {
+      auto anyRhs = visit(ctx->expr());
+      if (anyRhs.has_value()) rhs = safe_any_cast_ptr<ExprNode>(anyRhs);
+    }
+    auto node = std::make_shared<GeneratorExprNode>(std::move(domains), rhs);
+    setLocationFromCtx(node, ctx);
+    return expr_any(std::move(node));
+  }
+
+  std::any ASTBuilder::visitGeneratorExpr(GazpreaParser::GeneratorExprContext *ctx) {
+    return visit(ctx->generatorBody());
+  }
+
   std::any ASTBuilder::visitRangeExpr(gazprea::GazpreaParser::RangeExprContext *ctx){
     std::shared_ptr<ExprNode> start = nullptr;
     std::shared_ptr<ExprNode> end = nullptr;

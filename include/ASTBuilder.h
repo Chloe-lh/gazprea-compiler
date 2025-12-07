@@ -139,5 +139,9 @@ std::any visitDotExpr(gazprea::GazpreaParser::DotExprContext *ctx) override;
   std::any visitExprList(gazprea::GazpreaParser::ExprListContext *ctx) override;
   std::any visitArray_literal(gazprea::GazpreaParser::Array_literalContext *ctx) override;
   std::any visitRangeExpr(gazprea::GazpreaParser::RangeExprContext *ctx) override;
+  std::any visitGeneratorExpr(gazprea::GazpreaParser::GeneratorExprContext *ctx) override;
+  std::any visitGeneratorBody(gazprea::GazpreaParser::GeneratorBodyContext *ctx);
+  std::any visitGeneratorDomains(gazprea::GazpreaParser::GeneratorDomainsContext *ctx);
+  std::any visitGeneratorDomain(gazprea::GazpreaParser::GeneratorDomainContext *ctx);
 };
 } // namespace gazprea

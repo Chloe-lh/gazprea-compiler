@@ -76,6 +76,7 @@ public:
   virtual void visit(ArraySliceExpr *node)= 0;
   virtual void visit(ArrayAccessNode *node) = 0;
   virtual void visit(ArrayTypedDecNode *node) = 0;
+  virtual void visit(GeneratorExprNode *node) = 0;
   virtual void visit(ExprListNode *node) = 0;
   virtual void visit(ArrayLiteralNode *node) = 0;
   virtual void visit(RangeExprNode *node) = 0;
