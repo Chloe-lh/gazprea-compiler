@@ -256,7 +256,14 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                     }
 
                     CompleteType result(BaseType::ARRAY);
-                    CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
+                    CompleteType subtypeResult(BaseType::UNKNOWN);
+                    // Empty literals (size 0, unknown subtype) inherit the destination element type.
+                    if (from.subTypes[0].baseType == BaseType::UNKNOWN &&
+                        !from.dims.empty() && from.dims[0] == 0) {
+                        subtypeResult = to.subTypes[0];
+                    } else {
+                        subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
+                    }
                     if (subtypeResult.baseType == BaseType::UNKNOWN) {
                         return CompleteType(BaseType::UNKNOWN);
                     }
@@ -280,7 +287,16 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                     }
 
                     CompleteType result(BaseType::VECTOR);
-                    CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
+                    CompleteType subtypeResult(BaseType::UNKNOWN);
+                    if (from.subTypes[0].baseType == BaseType::UNKNOWN &&
+                        !from.dims.empty() && from.dims[0] == 0) {
+                        subtypeResult = to.subTypes[0];
+                    } else {
+                        subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
+                    }
+                    if (subtypeResult.baseType == BaseType::UNKNOWN) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
 
                     result.subTypes.push_back(subtypeResult);
                     result.dims = to.dims;

@@ -305,6 +305,17 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
         // 1. Handle array literals as initializer
         if (auto lit = std::dynamic_pointer_cast<ArrayLiteralNode>(node->init)) {
             int64_t litSize = lit->list ? lit->list->list.size() : 0;
+            // Empty literals carry UNKNOWN element types; seed them from the declared type
+            if (litSize == 0 && !declaredType.subTypes.empty()) {
+                CompleteType elemType = declaredType.subTypes[0];
+                lit->type.subTypes = {elemType};
+                initType.subTypes = {elemType};
+                if (lit->type.dims.empty()) {
+                    lit->type.dims = {0};
+                } else if (lit->type.dims[0] < 0) {
+                    lit->type.dims[0] = 0;
+                }
+            }
             // If dims not provided, infer from literal (1D or nested 2D)
             if (declaredType.dims.empty()) {
                 bool isNested = lit->list && !lit->list->list.empty() &&

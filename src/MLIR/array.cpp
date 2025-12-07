@@ -487,10 +487,17 @@ void MLIRGen::visit(ArrayLiteralNode *node){
         throw std::runtime_error("ArrayLiteralNode: failed to allocate array storage.");
     }
 
+    // Empty literal: nothing to store, just return allocated container.
+    if (!node->list || node->list->list.empty()) {
+        pushValue(arrVarInfo);
+        return;
+    }
+
     // Handle 2D array/matrix literals
     if (node->type.dims.size() == 2) {
-        int rows = node->type.dims[0];
-        int cols = node->type.dims[1];
+        CompleteType elemType = arrVarInfo.type.subTypes.empty()
+            ? CompleteType(BaseType::UNKNOWN)
+            : arrVarInfo.type.subTypes[0];
         
         for (size_t i = 0; i < node->list->list.size(); ++i) {
             // Each element is itself an ArrayLiteralNode
@@ -503,7 +510,8 @@ void MLIRGen::visit(ArrayLiteralNode *node){
             for (size_t j = 0; j < innerArray->list->list.size(); ++j) {
                 innerArray->list->list[j]->accept(*this);
                 VarInfo elem = popValue();
-                mlir::Value val = getSSAValue(elem);
+                VarInfo promoted = promoteType(&elem, &elemType, node->line);
+                mlir::Value val = getSSAValue(promoted);
                 
                 auto rowIdx = builder_.create<mlir::arith::ConstantOp>(
                     loc_, builder_.getIndexType(), 
@@ -518,11 +526,15 @@ void MLIRGen::visit(ArrayLiteralNode *node){
         }
     } else {
         // Handle 1D array literals
+        CompleteType elemType = arrVarInfo.type.subTypes.empty()
+            ? CompleteType(BaseType::UNKNOWN)
+            : arrVarInfo.type.subTypes[0];
         for (size_t i = 0; i < node->list->list.size(); ++i) {
             node->list->list[i]->accept(*this);
             VarInfo elem = popValue();
             
-            mlir::Value val = getSSAValue(elem);
+            VarInfo promoted = promoteType(&elem, &elemType, node->line);
+            mlir::Value val = getSSAValue(promoted);
             
             if (!val) {
                 throw std::runtime_error("ArrayLiteralNode: element value is null at index " + std::to_string(i));
