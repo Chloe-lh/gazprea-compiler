@@ -35,7 +35,6 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         // Statements
         virtual void visit(AssignStatNode* node)    override;
         virtual void visit(DestructAssignStatNode* node) override;
-        virtual void visit(ArrayAccessAssignStatNode* node) override;
         virtual void visit(TupleAccessAssignStatNode* node) override;
         virtual void visit(StructAccessAssignStatNode* node) override;
         virtual void visit(ArrayAccessAssignStatNode* node) override;
