@@ -106,6 +106,44 @@ void MLIRGen::syncRuntimeDims(VarInfo* var) {
         rtDims.push_back(final1);
     }
 }
+
+void MLIRGen::syncRuntimeDims(CompleteType& promotedType, const VarInfo& lhs, const VarInfo& rhs) {
+    // Only applicable for array-like types
+    if (promotedType.baseType != BaseType::ARRAY && 
+        promotedType.baseType != BaseType::VECTOR && 
+        promotedType.baseType != BaseType::MATRIX) {
+        return;
+    }
+
+    // Check if we have wildcards
+    bool hasWildcard = false;
+    for (int d : promotedType.dims) {
+        if (d < 0) { hasWildcard = true; break; }
+    }
+    if (!hasWildcard && !promotedType.dims.empty()) return; // All static dims known
+
+    // Helper to copy from source if compatible
+    auto copyDims = [&](const VarInfo& src) -> bool {
+        if (src.runtimeDims.empty()) return false;
+        
+        int promoRank = promotedType.baseType == BaseType::MATRIX ? 2 : 1;
+        if (promotedType.dims.size() > 0) promoRank = promotedType.dims.size();
+        
+        int srcRank = src.runtimeDims.size();
+        
+        if (srcRank == promoRank) {
+             // Ensure source dims are valid
+             for (int d : src.runtimeDims) if (d <= 0) return false;
+             
+             promotedType.dims = src.runtimeDims;
+             return true;
+        }
+        return false;
+    };
+
+    if (copyDims(lhs)) return;
+    copyDims(rhs);
+}
 // Declarations / Globals helpers
 mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
     switch (type.baseType) {
@@ -680,7 +718,6 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
                                          (varInfo->identifier.empty() ? std::string("<unknown>") : varInfo->identifier) + "'");
             }
             mlir::Type elemTy = getLLVMType(varInfo->type.subTypes[0]);
-            std::cerr << "DEBUG: dims: " << varInfo->type.dims[0] << varInfo->type.dims[1];
             if (varInfo->type.dims.size() != 2) {
                 throw std::runtime_error("allocaVar: MATRIX requires 2 dimensions but got " + 
                                          std::to_string(varInfo->type.dims.size()) + " for variable '" +

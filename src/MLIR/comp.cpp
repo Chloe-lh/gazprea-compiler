@@ -160,6 +160,8 @@ void MLIRGen::visit(EqExpr* node){
         throw std::runtime_error("EqExpr: cannot promote types for comparison");
     }
     
+    resolveRuntimeDims(promotedType, leftInfo, rightInfo);
+
     VarInfo leftPromoted = castType(&leftInfo, &promotedType, node->line);
     VarInfo rightPromoted = castType(&rightInfo, &promotedType, node->line);
 
@@ -199,7 +201,6 @@ void MLIRGen::visit(EqExpr* node){
         // Handle vector / arrays
         if (lhsDims.size() == 1) {
             int64_t lhsLen = lhsDims[0];
-            int64_t rhsLen = rhsDims[0];
 
             // Accumulator stored in a temporary boolean memref
             VarInfo accInfo{CompleteType(BaseType::BOOL)};

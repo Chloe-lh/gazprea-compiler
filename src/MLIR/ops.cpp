@@ -59,6 +59,8 @@ void MLIRGen::visit(AddExpr* node){
         }
     }
 
+    syncRuntimeDims(promotedType, leftInfo, rightInfo);
+
     // Cast both operands to the promoted type
     VarInfo leftPromoted = castType(&leftInfo, &promotedType, node->line);
     VarInfo rightPromoted = castType(&rightInfo, &promotedType, node->line);
@@ -354,6 +356,8 @@ void MLIRGen::visit(MultExpr* node){
         throw std::runtime_error("MLIRGen::MultExpr: Node type is " + toString(promotedType) + ".");
     }
 
+    syncRuntimeDims(promotedType, leftInfo, rightInfo);
+
     // Cast both operands to the promoted type
     VarInfo leftPromoted = castType(&leftInfo, &promotedType, node->line);
     VarInfo rightPromoted = castType(&rightInfo, &promotedType, node->line);
@@ -396,7 +400,7 @@ void MLIRGen::visit(MultExpr* node){
             int64_t len = lhsDims[0];
             if (len < 0 || rhsDims[0] != len) {
                 throw SizeError(node->line,
-                                "MLIRGen::MultExpr: mismatched 1D lengths");
+                                "MLIRGen::MultExpr: mismatched 1D lengths of " + std::to_string(lhsDims[0]) + " and " + std::to_string(rhsDims[0]));
             }
 
             VarInfo outVar(node->type);
