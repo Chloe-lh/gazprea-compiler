@@ -160,7 +160,7 @@ void MLIRGen::visit(EqExpr* node){
         throw std::runtime_error("EqExpr: cannot promote types for comparison");
     }
     
-    resolveRuntimeDims(promotedType, leftInfo, rightInfo);
+    syncRuntimeDims(promotedType, leftInfo, rightInfo);
 
     VarInfo leftPromoted = castType(&leftInfo, &promotedType, node->line);
     VarInfo rightPromoted = castType(&rightInfo, &promotedType, node->line);

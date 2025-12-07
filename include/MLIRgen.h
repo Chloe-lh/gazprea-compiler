@@ -162,6 +162,7 @@ private:
                                  int line);
 
     void syncRuntimeDims(VarInfo* var); // Update runtimeDims
+    void syncRuntimeDims(CompleteType& promotedType, const VarInfo& lhs, const VarInfo& rhs); // Resolve wildcards from operands
 
     VarInfo popValue();
     void pushValue(VarInfo& value);
