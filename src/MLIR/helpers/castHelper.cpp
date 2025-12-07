@@ -1,6 +1,172 @@
 #include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
 
+void MLIRGen::storeZeroElement(mlir::Value destMemRef,
+                               const CompleteType &elemType,
+                               mlir::ValueRange indices) {
+    BaseType elemBase = elemType.baseType;
+    mlir::Type elemTy = getLLVMType(elemType);
+    mlir::Value zero;
+
+    if (elemBase == BaseType::INTEGER ||
+        elemBase == BaseType::BOOL ||
+        elemBase == BaseType::CHARACTER) {
+        zero = builder_.create<mlir::arith::ConstantOp>(
+            loc_, elemTy, builder_.getIntegerAttr(elemTy, 0));
+    } else if (elemBase == BaseType::REAL) {
+        zero = builder_.create<mlir::arith::ConstantOp>(
+            loc_, elemTy, builder_.getFloatAttr(elemTy, 0.0));
+    } else {
+        throw std::runtime_error("MLIRGen::storeZeroElement: unsupported element type for zero padding");
+    }
+
+    builder_.create<mlir::memref::StoreOp>(loc_, zero, destMemRef, indices);
+}
+
+mlir::Value MLIRGen::loadElementByFlatIndex(VarInfo *from, int64_t flatIndex, int srcRank, int line) {
+    if (flatIndex < 0) {
+        return mlir::Value();
+    }
+
+    auto idxTy = builder_.getIndexType();
+
+    if (srcRank == 1) {
+        if (from->runtimeDims.empty()) {
+            from->runtimeDims = from->type.dims;
+        }
+        int64_t srcLen = from->runtimeDims.empty() ? -1 : from->runtimeDims[0];
+        if (srcLen < 0 || flatIndex >= srcLen) {
+            return mlir::Value();
+        }
+
+        mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
+            loc_, idxTy, builder_.getIntegerAttr(idxTy, flatIndex));
+        return builder_.create<mlir::memref::LoadOp>(
+            loc_, from->value, mlir::ValueRange{idx});
+    }
+
+    if (srcRank == 2) {
+        if (from->runtimeDims.size() < 2) {
+            from->runtimeDims = from->type.dims;
+        }
+        if (from->runtimeDims.size() < 2) {
+            throw SizeError(line, "MLIRGen::loadElementByFlatIndex: invalid source matrix dimensions");
+        }
+        int64_t srcRows = from->runtimeDims[0];
+        int64_t srcCols = from->runtimeDims[1];
+        if (srcRows < 0 || srcCols < 0) {
+            throw SizeError(line, "MLIRGen::loadElementByFlatIndex: invalid source matrix dimensions");
+        }
+        int64_t total = srcRows * srcCols;
+        if (flatIndex >= total) {
+            return mlir::Value();
+        }
+
+        int64_t row = flatIndex / srcCols;
+        int64_t col = flatIndex % srcCols;
+
+        mlir::Value rIdx = builder_.create<mlir::arith::ConstantOp>(
+            loc_, idxTy, builder_.getIntegerAttr(idxTy, row));
+        mlir::Value cIdx = builder_.create<mlir::arith::ConstantOp>(
+            loc_, idxTy, builder_.getIntegerAttr(idxTy, col));
+        return builder_.create<mlir::memref::LoadOp>(
+            loc_, from->value, mlir::ValueRange{rIdx, cIdx});
+    }
+
+    // Unsupported rank
+    return mlir::Value();
+}
+
+void MLIRGen::expandScalarToAggregate(VarInfo *from,
+                                      VarInfo &to,
+                                      CompleteType *toType,
+                                      int line) {
+    if (!isScalarType(from->type.baseType)) {
+        throw std::runtime_error("MLIRGen::expandScalarToAggregate: source must be scalar");
+    }
+
+    if (toType->subTypes.size() != 1) {
+        throw std::runtime_error("MLIRGen::expandScalarToAggregate: aggregate must have exactly one element subtype");
+    }
+
+    const CompleteType &elemType = toType->subTypes[0];
+
+    if (!isScalarType(elemType.baseType) ||
+        !canScalarCast(from->type.baseType, elemType.baseType)) {
+        throw TypeError(line, std::string("Codegen: cannot cast from '") +
+                               toString(from->type) + "' to '" +
+                               toString(*toType) + "'.");
+    }
+
+    auto idxTy = builder_.getIndexType();
+
+    if (toType->baseType == BaseType::VECTOR) {
+        // Vectors are dynamically sized; for scalar->vector casts,
+        // materialise a single-element vector containing the scalar.
+        int len = 1;
+        to.runtimeDims = {len};
+
+        mlir::Value newVec = allocaVector(len, &to);
+        to.value = newVec;
+
+        mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
+            loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(0)));
+
+        VarInfo elemVar = castType(from, const_cast<CompleteType*>(&elemType), line);
+        mlir::Value elemVal = getSSAValue(elemVar);
+
+        builder_.create<mlir::memref::StoreOp>(
+            loc_, elemVal, to.value, mlir::ValueRange{idx});
+        return;
+    }
+
+    // Arrays and matrices: use static dimensions from type.
+    if (toType->dims.empty()) {
+        throw SizeError(line, "MLIRGen::expandScalarToAggregate: destination aggregate has no dimensions");
+    }
+
+    if (toType->dims.size() == 1) {
+        int64_t len = toType->dims[0];
+        if (len < 0) {
+            throw SizeError(line, "MLIRGen::expandScalarToAggregate: invalid 1D length");
+        }
+
+        for (int64_t i = 0; i < len; ++i) {
+            mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
+                loc_, idxTy, builder_.getIntegerAttr(idxTy, i));
+
+            VarInfo elemVar = castType(from, const_cast<CompleteType*>(&elemType), line);
+            mlir::Value elemVal = getSSAValue(elemVar);
+
+            builder_.create<mlir::memref::StoreOp>(
+                loc_, elemVal, to.value, mlir::ValueRange{idx});
+        }
+    } else if (toType->dims.size() == 2) {
+        int64_t rows = toType->dims[0];
+        int64_t cols = toType->dims[1];
+        if (rows < 0 || cols < 0) {
+            throw SizeError(line, "MLIRGen::expandScalarToAggregate: invalid 2D dimensions");
+        }
+
+        for (int64_t i = 0; i < rows; ++i) {
+            mlir::Value rowIdx = builder_.create<mlir::arith::ConstantOp>(
+                loc_, idxTy, builder_.getIntegerAttr(idxTy, i));
+            for (int64_t j = 0; j < cols; ++j) {
+                mlir::Value colIdx = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, idxTy, builder_.getIntegerAttr(idxTy, j));
+
+                VarInfo elemVar = castType(from, const_cast<CompleteType*>(&elemType), line);
+                mlir::Value elemVal = getSSAValue(elemVar);
+
+                builder_.create<mlir::memref::StoreOp>(
+                    loc_, elemVal, to.value, mlir::ValueRange{rowIdx, colIdx});
+            }
+        }
+    } else {
+        throw SizeError(line, "MLIRGen::expandScalarToAggregate: unsupported aggregate rank");
+    }
+}
+
 //* Only allows implicit promotion from integer -> real. throws AssignError otherwise. */
 VarInfo MLIRGen::promoteType(VarInfo* from, CompleteType* toType, int line) {
     if (toType->baseType == BaseType::UNKNOWN) {
@@ -157,6 +323,12 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType, int line) {
         {
             mlir::Value boolVal = getSSAValue(*from); // Load value or use SSA
             switch (toType->baseType) {
+                case BaseType::ARRAY:
+                case BaseType::VECTOR:
+                case BaseType::MATRIX:
+                    expandScalarToAggregate(from, to, toType, line);
+                    break;
+
                 case BaseType::BOOL:                    // Bool -> Bool
                     builder_.create<mlir::memref::StoreOp>(
                         loc_, boolVal, to.value, mlir::ValueRange{});
@@ -199,6 +371,12 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType, int line) {
         {
             mlir::Value chVal = getSSAValue(*from);
             switch (toType->baseType) {
+                case BaseType::ARRAY:
+                case BaseType::VECTOR:
+                case BaseType::MATRIX:
+                    expandScalarToAggregate(from, to, toType, line);
+                    break;
+
                 case BaseType::CHARACTER:               // Char -> Char
                     builder_.create<mlir::memref::StoreOp>(loc_, chVal, to.value, mlir::ValueRange{});
                     break;
@@ -243,6 +421,12 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType, int line) {
         {
             mlir::Value i32Val = getSSAValue(*from);
             switch (toType->baseType) {
+                case BaseType::ARRAY:
+                case BaseType::VECTOR:
+                case BaseType::MATRIX:
+                    expandScalarToAggregate(from, to, toType, line);
+                    break;
+
                 case BaseType::INTEGER:                 // Int -> Int
                     builder_.create<mlir::memref::StoreOp>(loc_, i32Val, to.value, mlir::ValueRange{});
                     break;
@@ -287,6 +471,12 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType, int line) {
         {
             mlir::Value fVal = getSSAValue(*from);
             switch (toType->baseType) {
+                case BaseType::ARRAY:
+                case BaseType::VECTOR:
+                case BaseType::MATRIX:
+                    expandScalarToAggregate(from, to, toType, line);
+                    break;
+
                 case BaseType::REAL:                    // Real -> Real
                     builder_.create<mlir::memref::StoreOp>(loc_, fVal, to.value, mlir::ValueRange{});
                     break;
