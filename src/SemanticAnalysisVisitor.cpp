@@ -1121,13 +1121,54 @@ void SemanticAnalysisVisitor::visit(AssignStatNode* node) {
     // std::cerr << "Visiting AssignNode";
     // handles if undeclared
     VarInfo* varInfo = current_->resolveVar(node->name, node->line);
-    
+
     if (varInfo->isConst) {
         throw AssignError(node->line, "Semantic Analysis: cannot assign to const variable '" + node->name + "'."); // TODO add line num
     }
 
     CompleteType varType = resolveUnresolvedType(current_, varInfo->type, node->line);
     CompleteType exprType = resolveUnresolvedType(current_, node->expr->type, node->line);
+
+    // Handle special case where we update inferred/dynamic size of the lhs so that `handleAssignError()` does not throw a sizeError due to `-1` sizing
+    if (varType.baseType == BaseType::VECTOR &&
+        (exprType.baseType == BaseType::ARRAY ||
+         exprType.baseType == BaseType::VECTOR)) {
+
+        if (!exprType.dims.empty() && exprType.dims[0] >= 0) {
+            int rhsLen = exprType.dims[0];
+
+            bool lhsHasWildcard =
+                varType.dims.empty() ||
+                (varType.dims.size() == 1 && varType.dims[0] < 0);
+
+            if (lhsHasWildcard &&
+                varType.subTypes.size() == 1 &&
+                exprType.subTypes.size() == 1) {
+
+                CompleteType lhsElem = varType.subTypes[0];
+                CompleteType rhsElem = exprType.subTypes[0];
+
+                CompleteType promotedElem = promote(rhsElem, lhsElem);
+                if (promotedElem.baseType == BaseType::UNKNOWN) {
+                    promotedElem = promote(lhsElem, rhsElem);
+                }
+
+                if (promotedElem.baseType != BaseType::UNKNOWN) {
+                    // Fix the vector's length from the rhs.
+                    if (varType.dims.empty()) {
+                        varType.dims.push_back(rhsLen);
+                    } else {
+                        varType.dims[0] = rhsLen;
+                    }
+                    if (varInfo->type.dims.empty()) {
+                        varInfo->type.dims.push_back(rhsLen);
+                    } else {
+                        varInfo->type.dims[0] = rhsLen;
+                    }
+                }
+            }
+        }
+    }
 
     handleAssignError(node->name, varType, exprType, node->line);
 
