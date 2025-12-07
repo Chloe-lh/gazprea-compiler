@@ -10,6 +10,7 @@ VarInfo MLIRGen::popValue() {
     v_stack_.pop_back();
     return v;
 }
+
 void MLIRGen::pushValue(VarInfo& value) {
     v_stack_.push_back(value);
 }
@@ -24,29 +25,85 @@ void MLIRGen::syncRuntimeDims(VarInfo* var) {
 
     BaseType bt = var->type.baseType;
     if (bt != BaseType::ARRAY && bt != BaseType::VECTOR && bt != BaseType::MATRIX) {
+        // For non array-like values we do not track runtimeDims.
+        // Ensure we never carry more than 2 entries to keep invariants simple.
+        if (var->runtimeDims.size() > 2) {
+            var->runtimeDims.resize(2);
+        }
         return;
     }
 
     auto &staticDims = var->type.dims;
     auto &rtDims = var->runtimeDims;
 
-    // If we have no static dimension info, leave runtimeDims as-is.
-    if (staticDims.empty()) {
-        return;
+    // Hard cap: we never want to carry more than 2 runtime dimensions.
+    if (rtDims.size() > 2) {
+        rtDims.resize(2);
     }
 
-    // If ranks differ, trust the static shape.
-    if (rtDims.size() != staticDims.size()) {
-        rtDims = staticDims;
-        return;
-    }
+    // Helper lambdas to pick a dimension from runtime vs static info.
+    auto pickDim = [](int rt, int st) -> int {
+        // Prefer a positive runtime value if available,
+        // otherwise fall back to a positive static dimension.
+        if (rt > 0) return rt;
+        if (st > 0) return st;
+        // Unknown / inferred at runtime.
+        return -1;
+    };
 
-    // For each dimension, if runtime is unknown/zero but static is
-    // concrete and positive, adopt the static dimension.
-    for (size_t i = 0; i < rtDims.size(); ++i) {
-        if ((rtDims[i] <= 0) && staticDims[i] > 0) {
-            rtDims[i] = staticDims[i];
+    if (bt == BaseType::ARRAY || bt == BaseType::VECTOR) {
+        // For true vectors and 1D arrays we normalise to rank-1.
+        // For ARRAY types that are explicitly 2D at the type level
+        // (e.g., used to represent nested composites), preserve a 2D
+        // shape instead of collapsing.
+        if (bt == BaseType::ARRAY && staticDims.size() >= 2) {
+            int rt0 = rtDims.size() > 0 ? rtDims[0] : -1;
+            int rt1 = rtDims.size() > 1 ? rtDims[1] : -1;
+            int st0 = staticDims[0];
+            int st1 = staticDims[1];
+
+            int final0 = pickDim(rt0, st0);
+            int final1 = pickDim(rt1, st1);
+            rtDims.clear();
+            rtDims.push_back(final0);
+            rtDims.push_back(final1);
+        } else {
+            // Canonical rank-1 shape. Collapse any higher-rank info into a
+            // single effective length using either runtime or static info.
+            int rt0 = !rtDims.empty() ? rtDims[0] : -1;
+            int st0 = !staticDims.empty() ? staticDims[0] : -1;
+
+            if (rtDims.size() > 1) {
+                long long prod = 1;
+                bool hasPositive = false;
+                for (int d : rtDims) {
+                    if (d > 0) {
+                        hasPositive = true;
+                        prod *= d;
+                    }
+                }
+                if (hasPositive) {
+                    rt0 = static_cast<int>(prod);
+                }
+            }
+
+            int finalLen = pickDim(rt0, st0);
+            rtDims.clear();
+            rtDims.push_back(finalLen);
         }
+    } else if (bt == BaseType::MATRIX) {
+        // Canonical rank-2 shape. Ensure exactly two runtime dims, seeded from
+        // runtime where available and otherwise from static dims.
+        int rt0 = rtDims.size() > 0 ? rtDims[0] : -1;
+        int rt1 = rtDims.size() > 1 ? rtDims[1] : -1;
+        int st0 = staticDims.size() > 0 ? staticDims[0] : -1;
+        int st1 = staticDims.size() > 1 ? staticDims[1] : -1;
+
+        int final0 = pickDim(rt0, st0);
+        int final1 = pickDim(rt1, st1);
+        rtDims.clear();
+        rtDims.push_back(final0);
+        rtDims.push_back(final1);
     }
 }
 // Declarations / Globals helpers
@@ -600,13 +657,15 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
             if (varInfo->type.dims.size() == 1 && varInfo->type.dims[0] >= 0) {
                 int64_t n = varInfo->type.dims[0];
                 auto memTy = mlir::MemRefType::get({n}, elemTy);
-                varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
+                varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
+                    loc_, memTy, mlir::ValueRange{}, mlir::ValueRange{}, builder_.getIntegerAttr(builder_.getI64Type(), 16));
             } else if (varInfo->type.dims.size() == 2 && varInfo->type.dims[0] >= 0 && varInfo->type.dims[1] >= 0) {
                 // 2D array (matrix)
                 int64_t rows = varInfo->type.dims[0];
                 int64_t cols = varInfo->type.dims[1];
                 auto memTy = mlir::MemRefType::get({rows, cols}, elemTy);
-                varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
+                varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
+                    loc_, memTy, mlir::ValueRange{}, mlir::ValueRange{}, builder_.getIntegerAttr(builder_.getI64Type(), 16));
             } else {
                 throw std::runtime_error("allocaVar: unsupported array shape with dimension " + std::to_string(varInfo->type.dims.size()) + " for variable '" +
                                          (varInfo->identifier.empty() ? std::string("<unknown>") : varInfo->identifier) + "'");
@@ -637,7 +696,8 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
             int64_t rows = varInfo->type.dims[0];
             int64_t cols = varInfo->type.dims[1];
             auto memTy = mlir::MemRefType::get({rows, cols}, elemTy);
-            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
+            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
+                loc_, memTy, mlir::ValueRange{}, mlir::ValueRange{}, builder_.getIntegerAttr(builder_.getI64Type(), 16));
             break;
         }
 
@@ -658,8 +718,8 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
                 loc_,
                 memTy,
                 mlir::ValueRange{zeroLen}, // one dynamic size operand
-                mlir::ValueRange{},        // symbol operands
-                mlir::IntegerAttr()        // no alignment
+                mlir::ValueRange{},
+                builder_.getIntegerAttr(builder_.getI64Type(), 16)
             );
             break;
         }
@@ -671,6 +731,8 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line) {
                                      " for variable '" + varName + "'");
         }
     }
+
+    syncRuntimeDims(varInfo);
 }
 
 mlir::Value MLIRGen::allocaVector(int len, VarInfo *varInfo) {
@@ -684,12 +746,22 @@ mlir::Value MLIRGen::allocaVector(int len, VarInfo *varInfo) {
     auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, elemTy);
     mlir::Value arrayLen = entryBuilder.create<mlir::arith::ConstantOp>(
         loc_, builder_.getIndexType(), builder_.getIntegerAttr(builder_.getIndexType(), len));
-    auto alloca = entryBuilder.create<mlir::memref::AllocaOp>(
-        loc_,
-        memTy,
-        mlir::ValueRange{arrayLen},
-        mlir::ValueRange{},
-        mlir::IntegerAttr());
+    
+    mlir::Value alloca;
+    BaseType bt = varInfo->type.subTypes[0].baseType;
+    if (bt == BaseType::CHARACTER || bt == BaseType::BOOL) {
+        alloca = entryBuilder.create<mlir::memref::AllocOp>(
+            loc_,
+            memTy,
+            mlir::ValueRange{arrayLen},
+            mlir::ValueRange{});
+    } else {
+        alloca = entryBuilder.create<mlir::memref::AllocaOp>(
+            loc_,
+            memTy,
+            mlir::ValueRange{arrayLen},
+            mlir::ValueRange{});
+    }
     varInfo->value = alloca;
     return alloca;
 }
