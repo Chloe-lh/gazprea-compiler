@@ -300,6 +300,18 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                 //     lit->type = declaredType;
                 // }
             }
+
+            // If `lhs` is a vector and its length is unspecified (dims[0] < 0)
+            // or dims are empty, infer the vector length from the literal.
+            if (declaredType.baseType == BaseType::VECTOR) {
+                if (declaredType.dims.empty()) {
+                    declaredType.dims = {static_cast<int>(litSize)};
+                } else if (declaredType.dims[0] < 0) {
+                    declaredType.dims[0] = static_cast<int>(litSize);
+                }
+                declared->type.dims = declaredType.dims;
+                node->type.dims = declaredType.dims;
+            }
             
             // Handle 2D array/matrix dimensions
             if (declaredType.baseType == BaseType::MATRIX){
@@ -405,7 +417,7 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                                    node->id + "'.").c_str());
                     }
 
-                    if (initType.dims.empty()) {
+                    if (initType.dims.empty() || initType.dims[0] == -1) {
                         // We have no concrete size information on the RHS.
                         SizeError(("Semantic Analysis: Cannot infer array length from initializer for '" +
                                    node->id + "'.").c_str());
