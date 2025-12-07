@@ -525,8 +525,10 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
     if(L1 && R1){ // vector ** vector = scalar
         int Llen = getDim(leftType.dims, 0);
         int Rlen = getDim(rightType.dims, 0);
-        if(Llen < 0 || Rlen < 0) SizeError("Semantic Analysis: invalid vector/array dimensions");
-        if(Llen != Rlen) SizeError("Semantic Analysis: vectors/arrays must have the same dimensions in order to calculate dot product");
+        // Only enforce equality if both dimensions are known statically.
+        if (Llen >= 0 && Rlen >= 0 && Llen != Rlen) {
+             SizeError(("Semantic Analysis: vectors/arrays must have the same dimensions in order to calculate dot product. Got " + std::to_string(Llen) + " and " + std::to_string(Rlen)).c_str());
+        }
         node->type = promoted;
         return;
     }else if(LM && RM){ // matrix ** matrix = matrix
@@ -539,10 +541,9 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
         int Lcol = getDim(leftType.dims, 1);
         int Rrow = getDim(rightType.dims, 0);
         int Rcol = getDim(rightType.dims, 1);
-        if (Lrow < 0 || Lcol < 0 || Rrow < 0 || Rcol < 0) {
-            SizeError("Semantic Analysis: invalid matrix dimensions");
-        }
-        if (Lcol != Rrow) {
+        
+        // Only enforce compatibility if inner dimensions are known statically.
+        if (Lcol >= 0 && Rrow >= 0 && Lcol != Rrow) {
             SizeError(("Semantic Analysis: invalid matrix dimensions for matrix multiplication - left columns (" +
                        std::to_string(Lcol) + ") must equal right rows (" + std::to_string(Rrow) + ")").c_str());
         }
@@ -552,6 +553,7 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
             throw TypeError(node->line, "Semantic Analysis: incompatible element types for matrix multiplication");
         }
         
+        // Output dimensions propagate wildcards
         int outRows = Lrow;
         int outCols = Rcol;
         node->type = CompleteType(BaseType::MATRIX, promoted, {outRows, outCols});
