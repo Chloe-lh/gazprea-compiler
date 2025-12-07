@@ -255,6 +255,48 @@ void ASTPrinter::visit(LoopNode *node) {
   indent--;
 }
 
+void ASTPrinter::visit(IteratorLoopNode *node) {
+  printTreeLine("IteratorLoopNode", "iter: " + node->iterName);
+  indent++;
+  pushChildContext(false);
+  printTreeLine("Domain");
+  indent++;
+  pushChildContext(true);
+  if (node->domainExpr) {
+    node->domainExpr->accept(*this);
+  } else {
+    printTreeLine("null domain");
+  }
+  popChildContext();
+  indent--;
+  popChildContext();
+
+  pushChildContext(true);
+  printTreeLine("Body");
+  indent++;
+  pushChildContext(true);
+  if (node->body) {
+    node->body->accept(*this);
+  } else {
+    printTreeLine("null body");
+  }
+  popChildContext();
+  indent--;
+  popChildContext();
+
+  if (node->lowered) {
+    pushChildContext(true);
+    printTreeLine("Lowered");
+    indent++;
+    pushChildContext(true);
+    node->lowered->accept(*this);
+    popChildContext();
+    indent--;
+    popChildContext();
+  }
+  indent--;
+}
+
 void ASTPrinter::visit(ParenExpr *node) {
   printTreeLine("ParenExpr");
   indent++;

@@ -58,6 +58,7 @@ void ContinueStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ReturnStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void IfNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void LoopNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void IteratorLoopNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
 // Extended nodes
 void ProcedureBlockNode::accept(ASTVisitor &visitor) { visitor.visit(this); }

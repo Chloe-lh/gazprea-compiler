@@ -1517,6 +1517,117 @@ void SemanticAnalysisVisitor::visit(LoopNode* node) {
     exitScope();
 }
 
+void SemanticAnalysisVisitor::visit(IteratorLoopNode* node) {
+    if (!node->domainExpr) {
+        throw std::runtime_error("IteratorLoop: missing domain expression");
+    }
+    if (!node->body) {
+        throw std::runtime_error("IteratorLoop: missing loop body");
+    }
+
+    auto range = std::dynamic_pointer_cast<RangeExprNode>(node->domainExpr);
+    if (!range) {
+        throw TypeError(node->line, "Iterator loop currently supports only range domains.");
+    }
+
+    // Prepare start/end expressions (default start to 1 if omitted)
+    std::shared_ptr<ExprNode> startExpr = range->start;
+    std::shared_ptr<ExprNode> endExpr = range->end;
+    if (!startExpr) {
+        startExpr = std::make_shared<IntNode>(1);
+        startExpr->line = node->line;
+    }
+    if (!endExpr) {
+        throw TypeError(node->line, "Iterator loop range requires an end expression.");
+    }
+
+    // Type-check bounds
+    startExpr->accept(*this);
+    endExpr->accept(*this);
+    if (startExpr->type.baseType != BaseType::INTEGER) {
+        throw TypeError(node->line, "Iterator loop range start must be integer.");
+    }
+    if (endExpr->type.baseType != BaseType::INTEGER) {
+        throw TypeError(node->line, "Iterator loop range end must be integer.");
+    }
+
+    // Hidden temp names
+    static int loopTempCounter = 0;
+    const std::string startName = "__loop_start_" + std::to_string(loopTempCounter);
+    const std::string endName   = "__loop_end_" + std::to_string(loopTempCounter);
+    const std::string idxName   = "__loop_idx_" + std::to_string(loopTempCounter);
+    loopTempCounter++;
+
+    // Declarations for start/end/idx
+    auto startDec = std::make_shared<InferredDecNode>(startName, "const", startExpr);
+    startDec->line = node->line;
+    auto endDec = std::make_shared<InferredDecNode>(endName, "const", endExpr);
+    endDec->line = node->line;
+
+    auto idxInit = std::make_shared<IdNode>(startName);
+    idxInit->line = node->line;
+    auto idxDec = std::make_shared<InferredDecNode>(idxName, "var", idxInit);
+    idxDec->line = node->line;
+
+    // While condition: idx <= end
+    auto idxIdForCond = std::make_shared<IdNode>(idxName);
+    idxIdForCond->line = node->line;
+    auto endIdForCond = std::make_shared<IdNode>(endName);
+    endIdForCond->line = node->line;
+    auto condExpr = std::make_shared<CompExpr>("<=", idxIdForCond, endIdForCond);
+    condExpr->line = node->line;
+
+    // Iterator binding: const iter = idx
+    auto idxIdForIter = std::make_shared<IdNode>(idxName);
+    idxIdForIter->line = node->line;
+    auto iterDec = std::make_shared<InferredDecNode>(node->iterName, "const", idxIdForIter);
+    iterDec->line = node->line;
+
+    // idx = idx + 1
+    auto idxIdForInc = std::make_shared<IdNode>(idxName);
+    idxIdForInc->line = node->line;
+    auto one = std::make_shared<IntNode>(1);
+    one->line = node->line;
+    auto incExpr = std::make_shared<AddExpr>("+", idxIdForInc, one);
+    incExpr->line = node->line;
+    auto incStat = std::make_shared<AssignStatNode>(idxName, incExpr);
+    incStat->line = node->line;
+
+    // While body: iterator binding + original body
+    std::vector<std::shared_ptr<DecNode>> bodyDecs;
+    std::vector<std::shared_ptr<StatNode>> bodyStats;
+    bodyDecs.push_back(iterDec);
+    if (node->body) {
+        // Preserve existing declarations/statements
+        bodyDecs.insert(bodyDecs.end(), node->body->decs.begin(), node->body->decs.end());
+        bodyStats.insert(bodyStats.end(), node->body->stats.begin(), node->body->stats.end());
+    }
+    bodyStats.push_back(incStat);
+    auto whileBody = std::make_shared<BlockNode>(std::move(bodyDecs), std::move(bodyStats));
+    whileBody->line = node->line;
+
+    auto whileNode = std::make_shared<LoopNode>(whileBody, condExpr);
+    whileNode->kind = LoopKind::While;
+    whileNode->line = node->line;
+
+    // Outer block: declare temps then execute while
+    std::vector<std::shared_ptr<DecNode>> outerDecs;
+    outerDecs.push_back(startDec);
+    outerDecs.push_back(endDec);
+    outerDecs.push_back(idxDec);
+    std::vector<std::shared_ptr<StatNode>> outerStats;
+    outerStats.push_back(whileNode);
+    auto lowered = std::make_shared<BlockNode>(std::move(outerDecs), std::move(outerStats));
+    lowered->line = node->line;
+
+    // Store lowered form for downstream passes
+    node->lowered = lowered;
+
+    // Visit lowered form
+    lowered->accept(*this);
+    node->type = CompleteType(BaseType::UNKNOWN);
+}
+
 void SemanticAnalysisVisitor::visit(ParenExpr* node) {
     node->expr->accept(*this);
     node->type = node->expr->type;

@@ -199,3 +199,10 @@ void MLIRGen::visit(LoopNode* node) {
     // Continue inserting after the loop in the exit block.
     builder_.setInsertionPointToStart(exitBlock);
 }
+
+void MLIRGen::visit(IteratorLoopNode* node) {
+    if (!node->lowered) {
+        throw std::runtime_error("IteratorLoopNode: missing lowered while-form; semantic pass should have populated it.");
+    }
+    node->lowered->accept(*this);
+}

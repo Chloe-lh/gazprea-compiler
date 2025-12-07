@@ -520,6 +520,20 @@ public:
   void accept(ASTVisitor &visitor) override;
 };
 
+// Iterator loop (loop <id> in <domain>)
+class IteratorLoopNode : public StatNode {
+public:
+  std::string iterName;
+  std::shared_ptr<ExprNode> domainExpr;
+  std::shared_ptr<BlockNode> body;
+  std::shared_ptr<BlockNode> lowered; // lowered while-form subtree
+  IteratorLoopNode(std::string iter, std::shared_ptr<ExprNode> domain,
+                   std::shared_ptr<BlockNode> b)
+      : iterName(std::move(iter)), domainExpr(std::move(domain)),
+        body(std::move(b)), lowered(nullptr) {}
+  void accept(ASTVisitor &visitor) override;
+};
+
 class BlockNode : public ASTNode {
 public:
   std::vector<std::shared_ptr<DecNode>> decs;

@@ -126,6 +126,8 @@ std::any visitDotExpr(gazprea::GazpreaParser::DotExprContext *ctx) override;
   std::any visitLoopStat(gazprea::GazpreaParser::LoopStatContext *ctx) override;
   std::any visitWhileLoopBlock(
       gazprea::GazpreaParser::WhileLoopBlockContext *ctx) override;
+  std::any visitForLoopBlock(
+      gazprea::GazpreaParser::ForLoopBlockContext *ctx) override;
   std::any
   visitLoopDefault(gazprea::GazpreaParser::LoopDefaultContext *ctx) override;
   //Arrays

@@ -43,6 +43,7 @@ public:
   void visit(CallStatNode *node) override;
   void visit(IfNode *node) override;
   void visit(LoopNode *node) override;
+  void visit(IteratorLoopNode *node) override;
   void visit(BlockNode *node) override;
 
   // Expressions

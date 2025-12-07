@@ -39,6 +39,7 @@ public:
   virtual void visit(CallStatNode *node) = 0;
   virtual void visit(IfNode *node) = 0;
   virtual void visit(LoopNode *node) = 0;
+  virtual void visit(IteratorLoopNode *node) = 0;
   virtual void visit(BlockNode *node) = 0;
 
   // Expressions

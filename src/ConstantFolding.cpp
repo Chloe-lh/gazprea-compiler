@@ -530,6 +530,15 @@ void ConstantFoldingVisitor::visit(TupleTypeAliasNode *node){}
             break;
     }
   }
+  void ConstantFoldingVisitor::visit(IteratorLoopNode *node){
+    // Prefer lowered form if present
+    if (node->lowered) {
+      node->lowered->accept(*this);
+      return;
+    }
+    if (node->domainExpr) node->domainExpr->accept(*this);
+    if (node->body) node->body->accept(*this);
+  }
   void ConstantFoldingVisitor::visit(BlockNode *node){
     pushScope();
     // Visit declarations first (they are in the declarations area of a block)
