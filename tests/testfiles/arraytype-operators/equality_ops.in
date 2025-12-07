@@ -2,10 +2,15 @@ procedure main() returns integer {
     integer[3] a = [1, 2, 3];
     integer[3] b = [1, 2, 3];
     integer[3] c = [1, 2, 4];
+    integer[4] d = [1, 1, 1, 1];
+    integer[4] e = [1, 2, 1, 1];
     
     boolean eq1 = a == b;
     boolean eq2 = a == c;
     boolean neq1 = a != c;
+    boolean eqScalar = d == 1;
+    boolean eqScalar2 = e == 1;
+    boolean neScalar = d != 1;
     
     if (eq1) { "true" -> std_output; } else { "false" -> std_output; }
     "\n" -> std_output;
@@ -13,6 +18,14 @@ procedure main() returns integer {
     "\n" -> std_output;
     if (neq1) { "true" -> std_output; } else { "false" -> std_output; }
     "\n" -> std_output;
+    eqScalar -> std_output;
+    "\n" -> std_output;
+    eqScalar2 -> std_output;
+    "\n" -> std_output;
+    neScalar -> std_output;
+    "\n" -> std_output;
+
     
     return 0;
 }
+//CHECK_FILE:equality_ops.out
