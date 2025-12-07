@@ -198,9 +198,23 @@ void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
         throw TypeError(node->line, "Semantic Analysis: index operator applied to non-array type.");
     }
 
-    // ! INDEX CAN BE NEGATIVE
-    if (node->index > node->type.dims.size() || node->index < -1){
-        IndexError(("Index " + std::to_string(node->index) + " out of range for array/vector of len " + std::to_string(var->type.subTypes.size())).c_str());
+    // ! INDEX CAN BE NEGATIVE (dynamic check)
+    // Compile-time check if dimension is known
+    if (baseType.dims.empty()) {
+        throw std::runtime_error("MLIRGen::ArrayAccessNode: Empty dims for " + toString(baseType));
+    } else {
+        int size = baseType.dims[0];
+        if (size != -1) {
+            if (node->index > size || node->index < 1) { // 1-based indexing check at compile time
+                 IndexError(("Index " + std::to_string(node->index) + " out of range for array/vector of len " + std::to_string(size)).c_str());
+            }
+        } else {
+            // Dynamic size (-1): check for < 1 at compile time?
+            // 1-based index
+            if (node->index < 1) {
+                 IndexError(("Index " + std::to_string(node->index) + " out of range (must be >= 1)").c_str());
+            }
+        }
     }
 
     if (baseType.subTypes.size() != 1) {
@@ -1232,6 +1246,35 @@ void SemanticAnalysisVisitor::visit(CallStatNode* node) {
     }
 
     // Statements have no resultant type
+    node->type = CompleteType(BaseType::UNKNOWN);
+}
+
+void SemanticAnalysisVisitor::visit(ArrayAccessAssignStatNode *node) {
+    if (!node->target || !node->expr) {
+        throw AssignError(node->line, "Semantic Analysis: malformed array access assignment.");
+    }
+
+    // Analyse LHS array access first (binds array variable + element type)
+    node->target->accept(*this);
+
+    if (!node->target->binding) {
+        throw std::runtime_error("Semantic Analysis: FATAL: ArrayAccessNode missing binding in assignment.");
+    }
+
+    VarInfo* arrayVar = node->target->binding;
+    if (arrayVar->isConst) {
+        throw AssignError(node->line, "Semantic Analysis: cannot assign to element of const array '" +
+                                 node->target->id + "'.");
+    }
+
+    // visit rhs
+    node->expr->accept(*this);
+
+    CompleteType elemType = resolveUnresolvedType(current_, node->target->type, node->line);
+    CompleteType exprType = resolveUnresolvedType(current_, node->expr->type, node->line);
+
+    handleAssignError(node->target->id, elemType, exprType, node->line);
+
     node->type = CompleteType(BaseType::UNKNOWN);
 }
 
