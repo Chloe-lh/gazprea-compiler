@@ -271,12 +271,8 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                 case BaseType::ARRAY: 
                 case BaseType::VECTOR:
                 {
-                    // ensure dimensions match
-                    if (from.dims[0] != to.dims[0]) {
-                        return CompleteType(BaseType::UNKNOWN);
-                    }
-
-                    if (from.dims[0] != to.dims[0]) {
+                    // ensure dimensions match (allow runtime len -1)
+                    if (from.dims[0] != -1 && to.dims[0] != -1 && from.dims[0] != to.dims[0]) {
                         return CompleteType(BaseType::UNKNOWN);
                     }
 
@@ -329,12 +325,8 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                 case BaseType::ARRAY: 
                 case BaseType::VECTOR:
                 {
-                    // ensure dimensions match
-                    if (from.dims[0] != to.dims[0]) {
-                        return CompleteType(BaseType::UNKNOWN);
-                    }
-
-                    if (from.dims[0] != to.dims[0]) {
+                    // ensure dimensions match (allow runtime len -1)
+                    if (from.dims[0] != -1 && to.dims[0] != -1 && from.dims[0] != to.dims[0]) {
                         return CompleteType(BaseType::UNKNOWN);
                     }
 
