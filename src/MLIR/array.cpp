@@ -172,11 +172,28 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
         }
 
         mlir::Type idxTy = builder_.getIndexType();
-        for (size_t i = 0; i < n; ++i) {
-            mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
-                loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(i)));
-            builder_.create<mlir::memref::StoreOp>(
-                loc_, zeroVal, declaredVar->value, mlir::ValueRange{idx});
+        if (declaredVar->type.dims.size() == 2) {
+            // 2D array/matrix: use nested loops
+            int64_t rows = static_cast<int64_t>(declaredVar->type.dims[0]);
+            int64_t cols = static_cast<int64_t>(declaredVar->type.dims[1]);
+            for (int64_t i = 0; i < rows; ++i) {
+                for (int64_t j = 0; j < cols; ++j) {
+                    mlir::Value idxI = builder_.create<mlir::arith::ConstantOp>(
+                        loc_, idxTy, builder_.getIntegerAttr(idxTy, i));
+                    mlir::Value idxJ = builder_.create<mlir::arith::ConstantOp>(
+                        loc_, idxTy, builder_.getIntegerAttr(idxTy, j));
+                    builder_.create<mlir::memref::StoreOp>(
+                        loc_, zeroVal, declaredVar->value, mlir::ValueRange{idxI, idxJ});
+                }
+            }
+        } else {
+            // 1D array/vector
+            for (size_t i = 0; i < n; ++i) {
+                mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(i)));
+                builder_.create<mlir::memref::StoreOp>(
+                    loc_, zeroVal, declaredVar->value, mlir::ValueRange{idx});
+            }
         }
     }
 }

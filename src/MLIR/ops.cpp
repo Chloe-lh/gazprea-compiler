@@ -622,40 +622,176 @@ void MLIRGen::visit(MultExpr* node){
 void MLIRGen::visit(DotExpr *node){
     // If this DotExpr was folded into a compile-time constant, emit it
     // now and return.
-    //TODO add vector support to tryEmitConstantForNode so we can put vectors on the stack
-    if (tryEmitConstantForNode(node)) return; // THIS SHOULD WORK - NO NEED TO COMPLICATED IN MLIR
+    if (tryEmitConstantForNode(node)) return;
 
-
-    // Runtime lowering: implement vector (1D) dot product
-    // as an scf.for loop that sums element-wise products. Other
-    // shapes (matrix-matrix, vector-matrix) currently fall back to
-    // emitting an allocated zero result to avoid value-stack underflow.
-
-    //! this is basically not used at all
     // Evaluate operands
     if (node->left) node->left->accept(*this);
     VarInfo leftInfo = popValue();
     if (node->right) node->right->accept(*this);
     VarInfo rightInfo = popValue();
 
-    // Helper to detect 1D containers
-    auto is1D = [](const CompleteType &t){
-        return t.baseType == BaseType::ARRAY || t.baseType == BaseType::VECTOR;
-    };
+    // Only support 1D vector/array dot product for now
+    bool is1D = (leftInfo.type.baseType == BaseType::ARRAY || leftInfo.type.baseType == BaseType::VECTOR) &&
+                (rightInfo.type.baseType == BaseType::ARRAY || rightInfo.type.baseType == BaseType::VECTOR);
+    
+    bool isMatrix = (leftInfo.type.baseType == BaseType::MATRIX) && (rightInfo.type.baseType == BaseType::MATRIX);
 
-    if (is1D(leftInfo.type) && is1D(rightInfo.type)) {
-        // Ensure we have concrete (compile-time) lengths
-        if (leftInfo.type.dims.empty() || rightInfo.type.dims.empty()) {
-            throw SizeError(node->line, "MLIRGen: dynamic vector lengths not supported in dot product");
+    if (isMatrix) {
+        // Ensure storage exists
+        if (!leftInfo.value) allocaVar(&leftInfo, node->line);
+        if (!rightInfo.value) allocaVar(&rightInfo, node->line);
+
+        // Get dimensions
+        // Left: M x K
+        // Right: K2 x N
+        mlir::Value M, K, K2, N;
+        
+        // Helper to get dim
+        auto getDim = [&](VarInfo& v, int d, int staticD) -> mlir::Value {
+             if (staticD >= 0) {
+                 return builder_.create<mlir::arith::ConstantOp>(loc_, builder_.getIndexType(), builder_.getIntegerAttr(builder_.getIndexType(), staticD));
+             } else {
+                 return builder_.create<mlir::memref::DimOp>(loc_, v.value, d);
+             }
+        };
+
+        M = getDim(leftInfo, 0, (leftInfo.type.dims.size() > 0) ? leftInfo.type.dims[0] : -1);
+        K = getDim(leftInfo, 1, (leftInfo.type.dims.size() > 1) ? leftInfo.type.dims[1] : -1);
+        K2 = getDim(rightInfo, 0, (rightInfo.type.dims.size() > 0) ? rightInfo.type.dims[0] : -1);
+        N = getDim(rightInfo, 1, (rightInfo.type.dims.size() > 1) ? rightInfo.type.dims[1] : -1);
+
+        // Runtime check K == K2
+        mlir::Value kMismatch = builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::ne, K, K2);
+        auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, kMismatch, /*withElseRegion=*/false);
+        builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
+        {
+             auto sizeErrorFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("SizeError");
+             if (sizeErrorFunc) {
+                 std::string errorMsgStr = "Runtime Error: Matrix multiplication dimension mismatch (cols != rows)";
+                 std::string errorMsgName = "mat_mul_size_err_str";
+                 if (!module_.lookupSymbol<mlir::LLVM::GlobalOp>(errorMsgName)) {
+                      mlir::OpBuilder moduleBuilder(module_.getBodyRegion());
+                      mlir::Type charType = builder_.getI8Type();
+                      auto strRef = mlir::StringRef(errorMsgStr.c_str(), errorMsgStr.length() + 1);
+                      auto strType = mlir::LLVM::LLVMArrayType::get(charType, strRef.size());
+                      moduleBuilder.create<mlir::LLVM::GlobalOp>(loc_, strType, true,
+                                              mlir::LLVM::Linkage::Internal, errorMsgName,
+                                              builder_.getStringAttr(strRef), 0);
+                 }
+                 auto globalErrorMsg = module_.lookupSymbol<mlir::LLVM::GlobalOp>(errorMsgName);
+                 mlir::Value errorMsgPtr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalErrorMsg);
+                 builder_.create<mlir::LLVM::CallOp>(loc_, sizeErrorFunc, mlir::ValueRange{errorMsgPtr});
+             }
         }
-        int64_t Llen = leftInfo.type.dims[0];
-        int64_t Rlen = rightInfo.type.dims[0];
-        if (Llen < 0 || Rlen < 0) {
-            throw SizeError(node->line, "MLIRGen: invalid vector dimensions for dot product");
+        builder_.setInsertionPointAfter(ifOp);
+
+        // Allocate result M x N
+        VarInfo outVar(node->type);
+        allocaLiteral(&outVar, node->line);
+
+        // Zero init result
+        auto idxTy = builder_.getIndexType();
+        mlir::Value zeroIdx = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, 0));
+        mlir::Value oneIdx = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, 1));
+        
+        // Loops i: 0..M, j: 0..N
+        auto rowLoop = builder_.create<mlir::scf::ForOp>(loc_, zeroIdx, M, oneIdx);
+        builder_.setInsertionPointToStart(rowLoop.getBody());
+        auto rowIdx = rowLoop.getInductionVar();
+        
+        auto colLoop = builder_.create<mlir::scf::ForOp>(loc_, zeroIdx, N, oneIdx);
+        builder_.setInsertionPointToStart(colLoop.getBody());
+        auto colIdx = colLoop.getInductionVar();
+
+        // Zero result[i][j]
+        if (node->type.subTypes.empty()) throw std::runtime_error("MLIRGen: Matrix type missing subtype");
+        CompleteType elemType = node->type.subTypes[0];
+        mlir::Type elemTy = getLLVMType(elemType);
+        mlir::Value zeroVal;
+        if (elemTy.isa<mlir::IntegerType>()) zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, elemTy, builder_.getIntegerAttr(elemTy, 0));
+        else zeroVal = builder_.create<mlir::arith::ConstantOp>(loc_, elemTy, builder_.getFloatAttr(elemTy, 0.0));
+        
+        builder_.create<mlir::memref::StoreOp>(loc_, zeroVal, outVar.value, mlir::ValueRange{rowIdx, colIdx});
+
+        // Inner loop k: 0..K
+        auto kLoop = builder_.create<mlir::scf::ForOp>(loc_, zeroIdx, K, oneIdx);
+        builder_.setInsertionPointToStart(kLoop.getBody());
+        auto kIdx = kLoop.getInductionVar();
+
+        // Load Left[i][k], Right[k][j]
+        mlir::Value lVal = builder_.create<mlir::memref::LoadOp>(loc_, leftInfo.value, mlir::ValueRange{rowIdx, kIdx});
+        mlir::Value rVal = builder_.create<mlir::memref::LoadOp>(loc_, rightInfo.value, mlir::ValueRange{kIdx, colIdx});
+        mlir::Value acc = builder_.create<mlir::memref::LoadOp>(loc_, outVar.value, mlir::ValueRange{rowIdx, colIdx});
+
+        // Mul
+        mlir::Value prod;
+        if (elemTy.isa<mlir::IntegerType>()) prod = builder_.create<mlir::arith::MulIOp>(loc_, lVal, rVal);
+        else prod = builder_.create<mlir::arith::MulFOp>(loc_, lVal, rVal);
+
+        // Add
+        mlir::Value sum;
+        if (elemTy.isa<mlir::IntegerType>()) sum = builder_.create<mlir::arith::AddIOp>(loc_, acc, prod);
+        else sum = builder_.create<mlir::arith::AddFOp>(loc_, acc, prod);
+
+        builder_.create<mlir::memref::StoreOp>(loc_, sum, outVar.value, mlir::ValueRange{rowIdx, colIdx});
+
+        // Terminate loops (scf.for implicitly yields if no values carried)
+        builder_.setInsertionPointAfter(kLoop);
+        builder_.setInsertionPointAfter(colLoop);
+        builder_.setInsertionPointAfter(rowLoop);
+
+        outVar.identifier = "";
+        pushValue(outVar);
+        return;
+    }
+
+    if (is1D) {
+        // Ensure storage exists
+        if (!leftInfo.value) allocaVar(&leftInfo, node->line);
+        if (!rightInfo.value) allocaVar(&rightInfo, node->line);
+
+        // Get runtime lengths (dim 0)
+        mlir::Value Llen, Rlen;
+        
+        // Left length
+        if (!leftInfo.type.dims.empty() && leftInfo.type.dims[0] >= 0) {
+            Llen = builder_.create<mlir::arith::ConstantOp>(loc_, builder_.getIndexType(), builder_.getIntegerAttr(builder_.getIndexType(), leftInfo.type.dims[0]));
+        } else {
+            Llen = builder_.create<mlir::memref::DimOp>(loc_, leftInfo.value, 0);
         }
-        if (Llen != Rlen) {
-            throw SizeError(node->line, "MLIRGen: vector lengths must match for dot product");
+
+        // Right length
+        if (!rightInfo.type.dims.empty() && rightInfo.type.dims[0] >= 0) {
+            Rlen = builder_.create<mlir::arith::ConstantOp>(loc_, builder_.getIndexType(), builder_.getIntegerAttr(builder_.getIndexType(), rightInfo.type.dims[0]));
+        } else {
+            Rlen = builder_.create<mlir::memref::DimOp>(loc_, rightInfo.value, 0);
         }
+
+        // Runtime check: Llen == Rlen
+        mlir::Value lenMismatch = builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::ne, Llen, Rlen);
+        auto ifOp = builder_.create<mlir::scf::IfOp>(loc_, lenMismatch, /*withElseRegion=*/false);
+        
+        builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
+        {
+            auto sizeErrorFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("SizeError");
+            if (sizeErrorFunc) {
+                 std::string errorMsgStr = "Runtime Error: Dot product vector length mismatch";
+                 std::string errorMsgName = "dot_size_err_str";
+                 if (!module_.lookupSymbol<mlir::LLVM::GlobalOp>(errorMsgName)) {
+                      mlir::OpBuilder moduleBuilder(module_.getBodyRegion());
+                      mlir::Type charType = builder_.getI8Type();
+                      auto strRef = mlir::StringRef(errorMsgStr.c_str(), errorMsgStr.length() + 1);
+                      auto strType = mlir::LLVM::LLVMArrayType::get(charType, strRef.size());
+                      moduleBuilder.create<mlir::LLVM::GlobalOp>(loc_, strType, true,
+                                              mlir::LLVM::Linkage::Internal, errorMsgName,
+                                              builder_.getStringAttr(strRef), 0);
+                 }
+                 auto globalErrorMsg = module_.lookupSymbol<mlir::LLVM::GlobalOp>(errorMsgName);
+                 mlir::Value errorMsgPtr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalErrorMsg);
+                 builder_.create<mlir::LLVM::CallOp>(loc_, sizeErrorFunc, mlir::ValueRange{errorMsgPtr});
+            }
+        }
+        builder_.setInsertionPointAfter(ifOp);
 
         // Create accumulator (scalar) of the node's result type
         VarInfo acc(node->type);
@@ -663,16 +799,21 @@ void MLIRGen::visit(DotExpr *node){
 
         // Initialize accumulator to zero
         mlir::Type accSSAType = getLLVMType(node->type);
-        mlir::Value zeroConst = builder_.create<mlir::arith::ConstantOp>(loc_, accSSAType, builder_.getZeroAttr(accSSAType));
+        mlir::Value zeroConst;
+        if (accSSAType.isa<mlir::IntegerType>()) {
+             zeroConst = builder_.create<mlir::arith::ConstantOp>(loc_, accSSAType, builder_.getZeroAttr(accSSAType));
+        } else {
+             zeroConst = builder_.create<mlir::arith::ConstantOp>(loc_, accSSAType, builder_.getFloatAttr(accSSAType, 0.0));
+        }
         builder_.create<mlir::memref::StoreOp>(loc_, zeroConst, acc.value, mlir::ValueRange{});
 
         // Loop index type
         auto idxTy = builder_.getIndexType();
         mlir::Value lb = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, 0));
-        mlir::Value ub = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, Llen));
+        // Upper bound is Llen (guaranteed == Rlen if we pass the check)
         mlir::Value step = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, 1));
 
-        auto forOp = builder_.create<mlir::scf::ForOp>(loc_, lb, ub, step, mlir::ValueRange{});
+        auto forOp = builder_.create<mlir::scf::ForOp>(loc_, lb, Llen, step, mlir::ValueRange{});
 
         // Insert loop body
         builder_.setInsertionPointToStart(forOp.getBody());
@@ -692,11 +833,10 @@ void MLIRGen::visit(DotExpr *node){
             CompleteType targetElemCT = node->type; // scalar promoted type
 
             VarInfo lElemVar(leftElemCT);
-            allocaLiteral(&lElemVar, node->line);
-            builder_.create<mlir::memref::StoreOp>(loc_, lElem, lElemVar.value, mlir::ValueRange{});
+            lElemVar.value = lElem; lElemVar.isLValue = false; // Use SSA values directly if possible
+            
             VarInfo rElemVar(rightElemCT);
-            allocaLiteral(&rElemVar, node->line);
-            builder_.create<mlir::memref::StoreOp>(loc_, rElem, rElemVar.value, mlir::ValueRange{});
+            rElemVar.value = rElem; rElemVar.isLValue = false;
 
             VarInfo lProm = promoteType(&lElemVar, &targetElemCT, node->line);
             VarInfo rProm = promoteType(&rElemVar, &targetElemCT, node->line);
@@ -720,7 +860,6 @@ void MLIRGen::visit(DotExpr *node){
             }
 
             builder_.create<mlir::memref::StoreOp>(loc_, sum, acc.value, mlir::ValueRange{});
-            builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{});
         }
 
         // Move insertion point after loop
