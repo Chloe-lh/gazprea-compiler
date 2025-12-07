@@ -161,6 +161,8 @@ private:
                                  CompleteType *toType,
                                  int line);
 
+    void syncRuntimeDims(VarInfo* var); // Update runtimeDims
+
     VarInfo popValue();
     void pushValue(VarInfo& value);
     void emitPrintScalar(const CompleteType &type, mlir::Value value);

@@ -89,7 +89,9 @@ void MLIRGen::visit(IdNode* node) {
         throw std::runtime_error("visit(IdNode*): Variable '" + node->id +
                                  "' has no value after allocation");
     }
-    
+
+    syncRuntimeDims(varInfo);
+
     pushValue(*varInfo); 
 }
 

@@ -18,6 +18,37 @@ mlir::Value MLIRGen::getSSAValue(const VarInfo &v){
     // if a memref type - convert to a SSA type
     return builder_.create<mlir::memref::LoadOp>(loc_, v.value, mlir::ValueRange{}).getResult();
 }
+
+void MLIRGen::syncRuntimeDims(VarInfo* var) {
+    if (!var) return;
+
+    BaseType bt = var->type.baseType;
+    if (bt != BaseType::ARRAY && bt != BaseType::VECTOR && bt != BaseType::MATRIX) {
+        return;
+    }
+
+    auto &staticDims = var->type.dims;
+    auto &rtDims = var->runtimeDims;
+
+    // If we have no static dimension info, leave runtimeDims as-is.
+    if (staticDims.empty()) {
+        return;
+    }
+
+    // If ranks differ, trust the static shape.
+    if (rtDims.size() != staticDims.size()) {
+        rtDims = staticDims;
+        return;
+    }
+
+    // For each dimension, if runtime is unknown/zero but static is
+    // concrete and positive, adopt the static dimension.
+    for (size_t i = 0; i < rtDims.size(); ++i) {
+        if ((rtDims[i] <= 0) && staticDims[i] > 0) {
+            rtDims[i] = staticDims[i];
+        }
+    }
+}
 // Declarations / Globals helpers
 mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
     switch (type.baseType) {
@@ -260,13 +291,8 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
     if (!lhs->value) allocaVar(lhs, line);
     if (!rhs->value) allocaVar(rhs, line);
 
-    // Fallback on compile time dims if runtimeDims not resolved
-    if (lhs->runtimeDims.empty()) {
-        lhs->runtimeDims = lhs->type.dims;
-    }
-    if (rhs->runtimeDims.empty()) {
-        rhs->runtimeDims = rhs->type.dims;
-    }
+    syncRuntimeDims(lhs);
+    syncRuntimeDims(rhs);
 
     // Ensure same dimension count
     if (lhs->runtimeDims.size() != rhs->runtimeDims.size()) {
