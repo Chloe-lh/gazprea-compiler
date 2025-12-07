@@ -9,6 +9,27 @@
 #include <stdlib.h>
 
 namespace gazprea{
+std::any ASTBuilder::visitBuiltin_func(GazpreaParser::Builtin_funcContext *ctx){
+  std::string arg = ctx->ID()->getText();
+  std::string funcName;
+  if(ctx->LENGTH()){
+    funcName = ctx->LENGTH()->toString();
+  }else if(ctx->SHAPE()){
+    funcName = ctx->SHAPE()->toString();
+  }else if(ctx->FORMAT()){
+    funcName = ctx->FORMAT()->toString();
+  }else if(ctx->REVERSE()){
+    funcName = ctx->REVERSE()->toString();
+  }
+  auto node = std::make_shared<BuiltInFuncNode>(funcName, arg);
+  setLocationFromCtx(node, ctx);
+  return node_any(node);
+}
+
+// Grammar now allows builtin_func as an expression alternative (BuiltInFuncExpr)
+std::any ASTBuilder::visitBuiltInFuncExpr(GazpreaParser::BuiltInFuncExprContext *ctx) {
+  return visitBuiltin_func(ctx->builtin_func());
+}
 //  | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr
 // Also used as struct_literal in the grammar, but always lowered to a
 // FuncCallExprOrStructLiteral AST node.

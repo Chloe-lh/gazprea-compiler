@@ -42,6 +42,10 @@ void ASTPrinter::visit(BlockNode *node) {
   }
   indent--;
 }
+
+void ASTPrinter::visit(BuiltInFuncNode *node) {
+  printTreeLine("BuiltInFunc", "name: " + node->funcName + ", arg: " + node->id);
+}
 void ASTPrinter::visit(ArrayStrideExpr *node){
   printTreeLine("ArrayStrideExpr", "id: " + node->id);
   indent++;

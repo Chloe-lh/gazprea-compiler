@@ -272,7 +272,7 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                     CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
 
                     result.subTypes.push_back(subtypeResult);
-                    result.dims = to.dims;
+                    result.dims = from.dims;
 
                     return result;
                 }

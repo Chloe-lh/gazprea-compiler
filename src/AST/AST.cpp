@@ -78,6 +78,9 @@ void ExprListNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArrayLiteralNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void RangeExprNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
+// Builtins
+void BuiltInFuncNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+
 // ─────────────────────────────────────────────────────────────
 // Constructors
 // ─────────────────────────────────────────────────────────────

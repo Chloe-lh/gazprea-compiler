@@ -71,10 +71,12 @@ public:
       gazprea::GazpreaParser::ProcedureBlockContext *ctx) override;
   std::any
   visitFunctionStat(gazprea::GazpreaParser::FunctionStatContext *ctx) override;
+  std::any visitBuiltin_func(gazprea::GazpreaParser::Builtin_funcContext *ctx) override;
 
   // Expressions (various grammar alternatives)
   std::any
   visitFuncCallExpr(gazprea::GazpreaParser::FuncCallExprContext *ctx) override;
+  std::any visitBuiltInFuncExpr(gazprea::GazpreaParser::BuiltInFuncExprContext *ctx) override;
   std::any
   visitParenExpr(gazprea::GazpreaParser::ParenExprContext *ctx) override;
   std::any
