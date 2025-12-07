@@ -222,7 +222,10 @@ void MLIRGen::visit(ArrayAccessAssignStatNode *node) {
     VarInfo promoted = promoteType(&from, &elemType, node->line);
     mlir::Value val = getSSAValue(promoted);
 
-    // Visit index expression
+    // Visit first index expression
+    if (!target->indexExpr) {
+        throw std::runtime_error("ArrayAccessAssignStat node: missing index expression");
+    }
     target->indexExpr->accept(*this);
     VarInfo indexVarInfo = popValue();
     mlir::Value indexVal = getSSAValue(indexVarInfo);
@@ -233,10 +236,26 @@ void MLIRGen::visit(ArrayAccessAssignStatNode *node) {
     auto one = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
     mlir::Value zeroBasedIndex = builder_.create<mlir::arith::SubIOp>(loc_, indexValAsIndex, one);
 
-    // Build index and store
-    builder_.create<mlir::memref::StoreOp>(
-        loc_, val, arrayVar->value, mlir::ValueRange{zeroBasedIndex}
-    );
+    // Check if this is a 2D access
+    if (target->indexExpr2) {
+        // Visit second index expression for 2D arrays
+        target->indexExpr2->accept(*this);
+        VarInfo indexVarInfo2 = popValue();
+        mlir::Value indexVal2 = getSSAValue(indexVarInfo2);
+        
+        mlir::Value indexValAsIndex2 = builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, indexVal2);
+        mlir::Value zeroBasedIndex2 = builder_.create<mlir::arith::SubIOp>(loc_, indexValAsIndex2, one);
+        
+        // Store with two indices for 2D array
+        builder_.create<mlir::memref::StoreOp>(
+            loc_, val, arrayVar->value, mlir::ValueRange{zeroBasedIndex, zeroBasedIndex2}
+        );
+    } else {
+        // Store with single index for 1D array
+        builder_.create<mlir::memref::StoreOp>(
+            loc_, val, arrayVar->value, mlir::ValueRange{zeroBasedIndex}
+        );
+    }
 }
 
 void MLIRGen::visit(ArrayAccessNode *node) {
@@ -256,7 +275,10 @@ void MLIRGen::visit(ArrayAccessNode *node) {
     }
     if (!arrVarInfo->value) throw std::runtime_error("ArrayAccessNode: array has no storage");
 
-    // Visit index expression
+    // Visit first index expression
+    if (!node->indexExpr) {
+        throw std::runtime_error("ArrayAccessNode: missing index expression");
+    }
     node->indexExpr->accept(*this);
     VarInfo indexVarInfo = popValue();
     mlir::Value indexVal = getSSAValue(indexVarInfo);
@@ -267,8 +289,24 @@ void MLIRGen::visit(ArrayAccessNode *node) {
     auto one = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
     mlir::Value zeroBasedIndex = builder_.create<mlir::arith::SubIOp>(loc_, indexValAsIndex, one);
 
-    // memref.load element
-    mlir::Value elemVal = builder_.create<mlir::memref::LoadOp>(loc_, arrVarInfo->value, mlir::ValueRange{zeroBasedIndex});
+    mlir::Value elemVal;
+    
+    // Check if this is a 2D access
+    if (node->indexExpr2) {
+        // Visit second index expression for 2D arrays
+        node->indexExpr2->accept(*this);
+        VarInfo indexVarInfo2 = popValue();
+        mlir::Value indexVal2 = getSSAValue(indexVarInfo2);
+        
+        mlir::Value indexValAsIndex2 = builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, indexVal2);
+        mlir::Value zeroBasedIndex2 = builder_.create<mlir::arith::SubIOp>(loc_, indexValAsIndex2, one);
+        
+        // Load element from 2D array
+        elemVal = builder_.create<mlir::memref::LoadOp>(loc_, arrVarInfo->value, mlir::ValueRange{zeroBasedIndex, zeroBasedIndex2});
+    } else {
+        // Load element from 1D array
+        elemVal = builder_.create<mlir::memref::LoadOp>(loc_, arrVarInfo->value, mlir::ValueRange{zeroBasedIndex});
+    }
 
     // Create scalar VarInfo with element's CompleteType.
     // For homogeneous arrays, element type is the single subtype.
@@ -365,7 +403,7 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
     } else {
         allStatic = false;
     }
-    
+
     if (allStatic) {
         if (!declaredVar->value) {
             allocaVar(declaredVar, node->line);
@@ -449,30 +487,62 @@ void MLIRGen::visit(ArrayLiteralNode *node){
         throw std::runtime_error("ArrayLiteralNode: failed to allocate array storage.");
     }
 
-    for (size_t i = 0; i < node->list->list.size(); ++i) {
-        node->list->list[i]->accept(*this);
-        VarInfo elem = popValue();
+    // Handle 2D array/matrix literals
+    if (node->type.dims.size() == 2) {
+        int rows = node->type.dims[0];
+        int cols = node->type.dims[1];
         
-        mlir::Value val = getSSAValue(elem);
-        
-        if (!val) {
-            throw std::runtime_error("ArrayLiteralNode: element value is null at index " + std::to_string(i));
+        for (size_t i = 0; i < node->list->list.size(); ++i) {
+            // Each element is itself an ArrayLiteralNode
+            auto innerArray = std::dynamic_pointer_cast<ArrayLiteralNode>(node->list->list[i]);
+            if (!innerArray) {
+                throw std::runtime_error("ArrayLiteralNode: expected nested array for 2D literal");
+            }
+            
+            // Visit inner array elements directly (don't visit the inner ArrayLiteralNode)
+            for (size_t j = 0; j < innerArray->list->list.size(); ++j) {
+                innerArray->list->list[j]->accept(*this);
+                VarInfo elem = popValue();
+                mlir::Value val = getSSAValue(elem);
+                
+                auto rowIdx = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, builder_.getIndexType(), 
+                    builder_.getIntegerAttr(builder_.getIndexType(), static_cast<int64_t>(i)));
+                auto colIdx = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, builder_.getIndexType(), 
+                    builder_.getIntegerAttr(builder_.getIndexType(), static_cast<int64_t>(j)));
+                    
+                builder_.create<mlir::memref::StoreOp>(
+                    loc_, val, arrVarInfo.value, mlir::ValueRange{rowIdx, colIdx});
+            }
         }
-        
-        if (!arrVarInfo.value) {
-            throw std::runtime_error("ArrayLiteralNode: array storage is null at index " + std::to_string(i));
+    } else {
+        // Handle 1D array literals
+        for (size_t i = 0; i < node->list->list.size(); ++i) {
+            node->list->list[i]->accept(*this);
+            VarInfo elem = popValue();
+            
+            mlir::Value val = getSSAValue(elem);
+            
+            if (!val) {
+                throw std::runtime_error("ArrayLiteralNode: element value is null at index " + std::to_string(i));
+            }
+            
+            if (!arrVarInfo.value) {
+                throw std::runtime_error("ArrayLiteralNode: array storage is null at index " + std::to_string(i));
+            }
+            
+            // MLIR memref uses 0-based index
+            auto idxConst = builder_.create<mlir::arith::ConstantOp>(
+                loc_, builder_.getIndexType(), builder_.getIntegerAttr(builder_.getIndexType(), static_cast<int64_t>(i))
+            );
+            
+            if (!idxConst) {
+                throw std::runtime_error("ArrayLiteralNode: failed to create index constant at index " + std::to_string(i));
+            }
+            
+            builder_.create<mlir::memref::StoreOp>(loc_, val, arrVarInfo.value, mlir::ValueRange{idxConst});
         }
-        
-        // MLIR memref uses 0-based index
-        auto idxConst = builder_.create<mlir::arith::ConstantOp>(
-            loc_, builder_.getIndexType(), builder_.getIntegerAttr(builder_.getIndexType(), static_cast<int64_t>(i))
-        );
-        
-        if (!idxConst) {
-            throw std::runtime_error("ArrayLiteralNode: failed to create index constant at index " + std::to_string(i));
-        }
-        
-        builder_.create<mlir::memref::StoreOp>(loc_, val, arrVarInfo.value, mlir::ValueRange{idxConst});
     }
     
     pushValue(arrVarInfo);

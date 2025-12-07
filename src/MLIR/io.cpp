@@ -1,5 +1,6 @@
 #include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
+#include "Types.h"
 
 void MLIRGen::emitPrintScalar(const CompleteType &type, mlir::Value value) {
     const char* formatStrName = nullptr;
@@ -66,6 +67,99 @@ void MLIRGen::emitPrintScalar(const CompleteType &type, mlir::Value value) {
         loc_,
         printfFunc,
         mlir::ValueRange{formatStringPtr, valueToPrint});
+}
+void MLIRGen::emitPrintMatrix(const VarInfo &matrixVarInfo) {
+    if (matrixVarInfo.type.baseType != BaseType::MATRIX) {
+        throw std::runtime_error("emitPrintMatrix: non-matrix type");
+    }
+    if (!matrixVarInfo.value || !matrixVarInfo.value.getType().isa<mlir::MemRefType>()) {
+        throw std::runtime_error("emitPrintMatrix: matrix has no memref storage");
+    }
+    if (matrixVarInfo.type.dims.size() != 2 || matrixVarInfo.type.dims[0] < 0) {
+        throw std::runtime_error("emitPrintMatrix: only static 2D arrays supported for printing");
+    }
+
+    int64_t rows = matrixVarInfo.type.dims[0];
+    int64_t cols = matrixVarInfo.type.dims[1];
+    CompleteType elemType = matrixVarInfo.type.subTypes.empty()
+                                ? CompleteType(BaseType::UNKNOWN)
+                                : matrixVarInfo.type.subTypes[0];
+
+    auto idxTy = builder_.getIndexType();
+    auto i8Ty = builder_.getI8Type();
+
+    // Print outer '['
+    {
+        auto c = builder_.create<mlir::arith::ConstantOp>(
+            loc_, i8Ty,
+            builder_.getIntegerAttr(i8Ty, static_cast<int>('['))
+        );
+        emitPrintScalar(CompleteType(BaseType::CHARACTER), c.getResult());
+    }
+
+    // Print each row
+    for (int64_t r = 0; r < rows; ++r) {
+        // Print inner '['
+        {
+            auto c = builder_.create<mlir::arith::ConstantOp>(
+                loc_, i8Ty,
+                builder_.getIntegerAttr(i8Ty, static_cast<int>('['))
+            );
+            emitPrintScalar(CompleteType(BaseType::CHARACTER), c.getResult());
+        }
+
+        // Print row elements
+        for (int64_t col = 0; col < cols; ++col) {
+            // Print space before all but first element
+            if (col > 0) {
+                auto space = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, i8Ty,
+                    builder_.getIntegerAttr(i8Ty, static_cast<int>(' '))
+                );
+                emitPrintScalar(CompleteType(BaseType::CHARACTER), space.getResult());
+            }
+
+            auto rConst = builder_.create<mlir::arith::ConstantOp>(
+                loc_, idxTy, builder_.getIntegerAttr(idxTy, r)
+            );
+            auto cConst = builder_.create<mlir::arith::ConstantOp>(
+                loc_, idxTy, builder_.getIntegerAttr(idxTy, col)
+            );
+
+            auto elem = builder_.create<mlir::memref::LoadOp>(
+                loc_, matrixVarInfo.value, mlir::ValueRange{rConst, cConst}
+            );
+
+            emitPrintScalar(elemType, elem.getResult());
+        }
+
+        // Print inner ']'
+        {
+            auto c = builder_.create<mlir::arith::ConstantOp>(
+                loc_, i8Ty,
+                builder_.getIntegerAttr(i8Ty, static_cast<int>(']'))
+            );
+            emitPrintScalar(CompleteType(BaseType::CHARACTER), c.getResult());
+        }
+
+        // Print space between rows (except after last row)
+        if (r < rows - 1) {
+            auto space = builder_.create<mlir::arith::ConstantOp>(
+                loc_, i8Ty,
+                builder_.getIntegerAttr(i8Ty, static_cast<int>(' '))
+            );
+            emitPrintScalar(CompleteType(BaseType::CHARACTER), space.getResult());
+        }
+    }
+
+    // Print outer ']'
+    {
+        auto c = builder_.create<mlir::arith::ConstantOp>(
+            loc_, i8Ty,
+            builder_.getIntegerAttr(i8Ty, static_cast<int>(']'))
+        );
+        emitPrintScalar(CompleteType(BaseType::CHARACTER), c.getResult());
+    }
 }
 
 void MLIRGen::emitPrintArray(const VarInfo &arrayVarInfo) {
@@ -340,8 +434,10 @@ void MLIRGen::visit(OutputStatNode* node) {
     node->expr->accept(*this);
     VarInfo exprVarInfo = popValue();
     
-
-    if (exprVarInfo.type.baseType == BaseType::ARRAY) {
+    if (exprVarInfo.type.baseType == BaseType::MATRIX){
+        emitPrintMatrix(exprVarInfo);
+        return;
+    } else if (exprVarInfo.type.baseType == BaseType::ARRAY) {
         emitPrintArray(exprVarInfo);
         return;
     } else if (exprVarInfo.type.baseType == BaseType::VECTOR) {

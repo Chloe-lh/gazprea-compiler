@@ -15,15 +15,27 @@ namespace gazprea{
     GazpreaParser::Array_accessContext *ac = ctx->array_access();
     std::string id;
     std::shared_ptr<ExprNode> indexExpr = nullptr;
+    std::shared_ptr<ExprNode> indexExpr2 = nullptr;
     if(ac){
       if(ac->ID()) id = ac->ID()->getText();
-      if(ac->expr()){
-        auto indexAny = visit(ac->expr());
+      auto exprs = ac->expr();
+      if(!exprs.empty()){
+        auto indexAny = visit(exprs[0]);
         indexExpr = safe_any_cast_ptr<ExprNode>(indexAny);
+        
+        if(exprs.size() >= 2){
+          auto indexAny2 = visit(exprs[1]);
+          indexExpr2 = safe_any_cast_ptr<ExprNode>(indexAny2);
+        }
       }
     }
     
-    auto lhs = std::make_shared<ArrayAccessNode>(id, indexExpr);
+    std::shared_ptr<ArrayAccessNode> lhs;
+    if(indexExpr2){
+      lhs = std::make_shared<ArrayAccessNode>(id, indexExpr, indexExpr2);
+    } else {
+      lhs = std::make_shared<ArrayAccessNode>(id, indexExpr);
+    }
     auto rhsAny = visit(ctx->expr());
     auto rhs = safe_any_cast_ptr<ExprNode>(rhsAny);
     auto node = std::make_shared<ArrayAccessAssignStatNode>(std::move(lhs), std::move(rhs));
@@ -36,16 +48,31 @@ namespace gazprea{
   std::any ASTBuilder::visitArrayAccessExpr(GazpreaParser::ArrayAccessExprContext *ctx){
     std::string id="";
     std::shared_ptr<ExprNode> indexExpr = nullptr;
+    std::shared_ptr<ExprNode> indexExpr2 = nullptr;
     auto aa = ctx->array_access();
     if(aa->ID()){
-      id =aa->ID()->getText();
+      id=aa->ID()->getText();
     }
-    if (aa->expr()) {
-      auto indexAny = visit(aa->expr());
+    // Get all index expressions - there may be two for matrices
+    auto exprs = aa->expr();
+    if(!exprs.empty()){
+      auto indexAny = visit(exprs[0]);
       indexExpr = safe_any_cast_ptr<ExprNode>(indexAny);
+      
+      if(exprs.size() >= 2){
+        auto indexAny2 = visit(exprs[1]);
+        indexExpr2 = safe_any_cast_ptr<ExprNode>(indexAny2);
+      }
     }
-    auto node = std::make_shared<ArrayAccessNode>(id, indexExpr);
-    node->type = CompleteType(BaseType::ARRAY);
+    
+    std::shared_ptr<ArrayAccessNode> node;
+    if(indexExpr2){
+      node = std::make_shared<ArrayAccessNode>(id, indexExpr, indexExpr2);
+      node->type = CompleteType(BaseType::MATRIX);
+    } else {
+      node = std::make_shared<ArrayAccessNode>(id, indexExpr);
+      node->type = CompleteType(BaseType::ARRAY);
+    }
     setLocationFromCtx(node, ctx);
     return expr_any(std::move(node));
   }
@@ -78,7 +105,7 @@ namespace gazprea{
     setLocationFromCtx(node, ctx);
     return expr_any(std::move(node));
   };
-
+  // no need to check array literal for matrix
   std::any ASTBuilder::visitArray_literal(GazpreaParser::Array_literalContext *ctx){
     std::shared_ptr<ExprListNode> list = nullptr; //optional expression list
     if (ctx->exprList()) {

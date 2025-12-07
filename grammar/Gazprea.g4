@@ -117,7 +117,7 @@ struct_access: ID '.' ID;
 
 // Arrays
 array_literal : SQLEFT exprList? SQRIGHT;
-array_access :  ID SQLEFT expr SQRIGHT;
+array_access :  ID SQLEFT expr SQRIGHT (SQLEFT expr SQRIGHT)?; // Support expressions as indices and 2D arrays
 
 exprList : expr (COMMA expr)* ;
 rangeExpr : RANGE expr

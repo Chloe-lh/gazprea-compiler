@@ -16,6 +16,7 @@ std::string toString(BaseType type) {
         case BaseType::ARRAY:      return "array";
         case BaseType::MATRIX:     return "matrix";
         case BaseType::UNRESOLVED: return "unresolved";
+        case BaseType::EMPTY:      return "empty";
     }
     throw std::runtime_error("toString: FATAL: No string representation found for type");
 }
@@ -113,6 +114,7 @@ BaseType promote(BaseType from, BaseType to)
                 case BaseType::MATRIX:     return BaseType::MATRIX;   // only valid if same len - special case with multiplication.
             }
             break;
+        case BaseType::EMPTY: return BaseType::EMPTY;
     }
     return BaseType::UNKNOWN;
 }
@@ -330,14 +332,46 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
             }
             break;
         case BaseType::MATRIX:
+            if (from.subTypes.size() != 1) {
+                throw std::runtime_error(
+                    "promote(): from matrix with subtype len " +
+                    std::to_string(from.subTypes.size()));
+            }
+
             switch (to.baseType) {
-                case BaseType::MATRIX:     return BaseType::MATRIX;   // only valid if same len - special case with multiplication.
+                case BaseType::MATRIX: {
+                    if (to.subTypes.size() != 1) {
+                        throw std::runtime_error(
+                            "promote(): to matrix with subtype len " +
+                            std::to_string(to.subTypes.size()));
+                    }
+
+                    // ensure dimensions match
+                    if (from.dims.size() != 2 || to.dims.size() != 2) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+                    if (from.dims[0] != to.dims[0] || from.dims[1] != to.dims[1]) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+
+                    CompleteType result(BaseType::MATRIX);
+                    CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
+                    if (subtypeResult.baseType == BaseType::UNKNOWN) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+
+                    result.subTypes.push_back(subtypeResult);
+                    result.dims = to.dims;
+
+                    return result;
+                }
                 default: break;
             }
             break;
         case BaseType::UNRESOLVED:
             throw std::runtime_error("Types::Promote: UNRESOLVED Type found");
             break;
+        case BaseType::EMPTY: return BaseType::EMPTY;
     }
     return CompleteType(BaseType::UNKNOWN);
 }
@@ -369,12 +403,12 @@ void validateSubtypes(CompleteType completeType) {
 
         // Dimension constraints:
         //  - VECTOR: 1 dimension
-        //  - ARRAY: 1 dimension
+        //  - ARRAY: 1  dimension
         //  - MATRIX: 2 dimensions
         // else: should not carry dimensions
         if (completeType.baseType == BaseType::VECTOR && completeType.dims.size() != 1) {
             throw std::runtime_error("Semantic Validation: Type" + toString(completeType) + " cannot have " + std::to_string(completeType.dims.size()) + " dimensions.");
-        } else if (completeType.baseType == BaseType::ARRAY && completeType.dims.size() != 1) {
+        } else if (completeType.baseType == BaseType::ARRAY && completeType.dims.size()>2) { //! this is a little brute
             throw std::runtime_error("Semantic Validation: Type" + toString(completeType) + " cannot have " + std::to_string(completeType.dims.size()) + " dimensions.");
         } else if (completeType.baseType == BaseType::MATRIX && completeType.dims.size() != 2) {
             throw std::runtime_error("Semantic Validation: Type" + toString(completeType) + " cannot have " + std::to_string(completeType.dims.size()) + " dimensions.");

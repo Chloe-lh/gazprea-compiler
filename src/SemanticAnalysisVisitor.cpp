@@ -3,6 +3,7 @@
 #include "CompileTimeExceptions.h"
 #include "Types.h"
 #include "run_time_errors.h"
+#include <memory>
 #include <optional>
 #include <cstdio>
 #include <iostream>
@@ -213,17 +214,37 @@ void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
         throw TypeError(node->line, "Semantic Analysis: index operator applied to non-array type.");
     }
 
-    //  Perform compile-time bounds check if possible
+    // Perform compile-time bounds check if possible (for integer literals)
     if (auto intLiteral = std::dynamic_pointer_cast<IntNode>(node->indexExpr)) {
         if (!var->type.dims.empty() && var->type.dims[0] >= 0) {
             int indexValue = intLiteral->value;
             int arraySize = var->type.dims[0];
-            // Assuming 1-based indexing for this check based on previous code.
-            // If the language is 0-based, this check should be `indexValue >= arraySize`.
-            if (indexValue <= 0 || indexValue > arraySize) {
-                 IndexError(("Index " + std::to_string(indexValue) + " out of range for array of length " +
+            // Using 1-based indexing - index must be between 1 and arraySize (or negative for reverse indexing)
+            if (indexValue == 0 || indexValue > arraySize || indexValue < -arraySize) {
+                IndexError(("Index " + std::to_string(indexValue) + " out of range for array of length " +
                     std::to_string(arraySize)).c_str());
-                 return;
+                return;
+            }
+        }
+    }
+    
+    // Handle 2D array access - check second index if present
+    if (node->indexExpr2) {
+        node->indexExpr2->accept(*this);
+        if (node->indexExpr2->type.baseType != BaseType::INTEGER) {
+            throw TypeError(node->line, "Semantic Analysis: second array index must be an integer expression.");
+        }
+        
+        // Perform compile-time bounds check for second dimension if possible
+        if (auto intLiteral2 = std::dynamic_pointer_cast<IntNode>(node->indexExpr2)) {
+            if (var->type.dims.size() >= 2 && var->type.dims[1] >= 0) {
+                int indexValue2 = intLiteral2->value;
+                int arraySize2 = var->type.dims[1];
+                if (indexValue2 == 0 || indexValue2 > arraySize2 || indexValue2 < -arraySize2) {
+                    IndexError(("Second index " + std::to_string(indexValue2) + " out of range for dimension of length " +
+                        std::to_string(arraySize2)).c_str());
+                    return;
+                }
             }
         }
     }
@@ -250,7 +271,11 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
 
     // Resolve any aliases inside the declared type.
     CompleteType declaredType = resolveUnresolvedType(current_, node->type, node->line);
-    if (declaredType.baseType != BaseType::ARRAY && declaredType.baseType != BaseType::VECTOR) {
+    // Permit ARRAY, VECTOR, and MATRIX declarations here; 2D arrays/matrices
+    // share the same declaration node shape.
+    if (declaredType.baseType != BaseType::ARRAY &&
+        declaredType.baseType != BaseType::VECTOR &&
+        declaredType.baseType != BaseType::MATRIX) {
         throw TypeError(node->line,
             "ArrayTypedDecNode cannot be used for type '" + toString(declaredType) + "', at declaration '" + node->name + "'.");
     }
@@ -280,9 +305,23 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
         // 1. Handle array literals as initializer
         if (auto lit = std::dynamic_pointer_cast<ArrayLiteralNode>(node->init)) {
             int64_t litSize = lit->list ? lit->list->list.size() : 0;
-
-            if (declaredType.dims.empty()) throw std::runtime_error("SemanticAnalysis::ArrayTypedDecNode: empty dims field");
-
+            // If dims not provided, infer from literal (1D or nested 2D)
+            if (declaredType.dims.empty()) {
+                bool isNested = lit->list && !lit->list->list.empty() &&
+                                 std::dynamic_pointer_cast<ArrayLiteralNode>(lit->list->list[0]);
+                if (isNested) {
+                    int64_t lit2Size = 0;
+                    if (auto innerLit = std::dynamic_pointer_cast<ArrayLiteralNode>(lit->list->list[0])) {
+                        lit2Size = innerLit->list ? innerLit->list->list.size() : 0;
+                    }
+                    declaredType.dims = {static_cast<int>(litSize), static_cast<int>(lit2Size)};
+                } else {
+                    declaredType.dims = {static_cast<int>(litSize)};
+                }
+                declared->type.dims = declaredType.dims;
+                node->type.dims = declaredType.dims;
+            }
+            //TODO add matrix dimensions
             // If `lhs` is array, then ensure its dims match + determine any inferred dimensions 
             if (declaredType.baseType == BaseType::ARRAY) {
                 if (declaredType.dims[0] >= 0 && declaredType.dims[0] != litSize) {
@@ -297,16 +336,96 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                     declared->type.dims = declaredType.dims;
                     node->type.dims = declaredType.dims;
                 }
+                //! currently not helping empty array case
+                // // If the initializer is an empty array literal, it currently
+                // // carries an EMPTY subtype and no element type information.
+                // // Propagate the declared element subtype into the literal so
+                // // subsequent promotion/type checks succeed (e.g. when the
+                // // declared element type is numeric and the literal is empty).
+                // if (litSize == 0) {
+                //     lit->type = declaredType;
+                // }
             }
-        // Handle initializer as identifier
-        } else if (auto rhsId = std::dynamic_pointer_cast<IdNode>(node->init)) {
-            // 1b. Identifier initializer: permit only array/vector on RHS 
-            // TODO: Implement scalar initializer support
-            if (initType.baseType != BaseType::ARRAY &&
-                initType.baseType != BaseType::VECTOR) {
-                throw std::runtime_error(
-                    "SemanticAnalysis::ArrayTypedDecNode: Unsupported identifier initializer type '" +
-                    toString(initType) + "' for '" + node->id + "'.");
+            
+            // Handle 2D array/matrix dimensions
+            if (declaredType.baseType == BaseType::MATRIX){
+                // Ensure dims has two slots; fill missing with -1 (wildcard)
+                if (declaredType.dims.size() < 2) {
+                    declaredType.dims.resize(2, -1);
+                }
+
+                // integer[3][2] B = [[1, 2], [4, 5], [7, 8]];
+                // Validate or infer first dimension (rows) (number of literals)
+                if (declaredType.dims[0] >= 0) {
+                    // Dimension explicitly declared - must match unless wildcard (*) == -1
+                    if (declaredType.dims[0] != litSize) {
+                        throw TypeError(node->line,
+                            "Matrix initializer row count (" + std::to_string(litSize) + 
+                            ") does not match declared size (" + std::to_string(declaredType.dims[0]) + ")");
+                    }
+                } else {
+                    // Inferred dimension - set from literal size
+                    declaredType.dims[0] = static_cast<int>(litSize);
+                }
+
+                int64_t lit2Size = 0;
+                if (litSize > 0) {
+                    auto innerLit = std::dynamic_pointer_cast<ArrayLiteralNode>(lit->list->list[0]);
+                    if (!innerLit) {
+                        throw TypeError(node->line, "Matrix initializer must use nested array literals for rows.");
+                    }
+                    lit2Size = innerLit->list ? static_cast<int64_t>(innerLit->list->list.size()) : 0;
+                }
+                // Validate or infer second dimension (columns = number of elements inside 1st array)
+                if (declaredType.dims[1] >= 0) {
+                    // Dimension explicitly declared - must match unless wildcard (*) == -1
+                    if (declaredType.dims[1] != lit2Size) {
+                        throw TypeError(node->line,
+                            "Matrix initializer column count (" + std::to_string(lit2Size) + 
+                            ") does not match declared size (" + std::to_string(declaredType.dims[1]) + ")");
+                    }
+                } else {
+                    // Inferred dimension - set from literal
+                    declaredType.dims[1] = static_cast<int>(lit2Size);
+                }
+                
+                
+                // Validate all rows have same column count
+                for (size_t i = 1; i < lit->list->list.size(); ++i) {
+                    if (auto innerLit = std::dynamic_pointer_cast<ArrayLiteralNode>(lit->list->list[i])) {
+                        int64_t rowSize = innerLit->list ? innerLit->list->list.size() : 0;
+                        if (rowSize != lit2Size) {
+                            throw TypeError(node->line,
+                                "Matrix initializer has inconsistent row lengths: row 0 has " + 
+                                std::to_string(lit2Size) + " elements, row " + std::to_string(i) + 
+                                " has " + std::to_string(rowSize) + " elements");
+                        }
+                    }
+                }
+                // Update declared variable with validated dimensions
+                declared->type.dims = declaredType.dims;
+                node->type.dims = declaredType.dims;
+                
+                // std::cerr << "[DEBUG] Before normalization: lit->type.dims.size()=" << lit->type.dims.size() << std::endl;
+                // std::cerr << "[DEBUG] declaredType.baseType=" << toString(declaredType.baseType) << std::endl;
+                // std::cerr << "[DEBUG] declaredType.dims.size()=" << declaredType.dims.size() << std::endl;
+                
+                // Normalize the initializer type to match declared type
+                // (matrix and 2D array are semantically equivalent)
+                // IMPORTANT: Only normalize the TOP-LEVEL literal, not nested row arrays
+                if (declaredType.baseType == BaseType::MATRIX) {
+                    // Update the literal node's type to match
+                    if (lit->type.dims != declaredType.dims) {
+                        SizeError("Initializer dimensions do not match declared matrix dimensions");
+                    }
+                    
+                    // Do NOT modify inner array types - they should remain as ARRAY with 1D
+                } else if (declaredType.baseType == BaseType::ARRAY && declaredType.dims.size() == 2) {
+                    // 2D array - ensure dims are set on both sides
+                    initType.dims = declaredType.dims;
+                    lit->type.dims = declaredType.dims;
+                    // std::cerr << "[DEBUG] Set lit->type to ARRAY with dims.size()=" << lit->type.dims.size() << std::endl;
+                }
             }
         // Handle array slice expression as initializer
         } else if (auto sliceExpr = std::dynamic_pointer_cast<ArraySliceExpr>(node->init)) {
@@ -317,18 +436,37 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                 throw std::runtime_error(
                     "SemanticAnalysis::ArrayTypedDecNode: ArraySliceExpr initializer must result in array/vector type for '" + node->id + "'.");
             }
+        // Handle initializer as identifier or general expression
         } else {
-            throw std::runtime_error("SemanticAnalysis::ArrayTypedDecNode: Unknown initializer for array '" + node->id + "'.");
+            // Permit any expression initializer (including IdNode, DotExpr, etc.)
+            // The type checking will be done below via promotion and handleAssignError
+            if (initType.baseType == BaseType::UNKNOWN) {
+                throw std::runtime_error(
+                    "SemanticAnalysis::ArrayTypedDecNode: Expression initializer has UNKNOWN type for '" + node->id + "'.");
+            }
         }
-
-
         handleGlobalErrors(node);
 
-        // 2. Resolve vectors
-        CompleteType resolvedInit = resolveUnresolvedType(current_, initType, node->line);
-        CompleteType promoted = promote(resolvedInit, declaredType);
+        // 2. For 2D arrays/matrices with validated literals, skip promotion and use validated type directly
+        //! might need to facor in casting/promotion - but assign error was getting called on a matrix<T> matrix<T> and was failing
+        CompleteType promoted;
+        if (auto lit = std::dynamic_pointer_cast<ArrayLiteralNode>(node->init)) {
+            if (declaredType.dims.size() == 2) {
+                // Dimension validation already passed above; dimensions match
+                promoted = declaredType;
+            } else {
+                // 1D array: standard promotion
+                CompleteType resolvedInit = resolveUnresolvedType(current_, initType, node->line);
+                promoted = promote(resolvedInit, declaredType);
+            }
+        } else {
+            // Non-literal initializer: standard promotion
+            CompleteType resolvedInit = resolveUnresolvedType(current_, initType, node->line);
+            promoted = promote(resolvedInit, declaredType);
+        }
+        
         node->type = promoted;
-        handleAssignError(node->id, declaredType, promoted, node->line);
+        if(declaredType != promoted) handleAssignError(node->id, declaredType, promoted, node->line);
     } else if (declaredType.dims.empty()) {
         throw std::runtime_error("SemanticAnalysis::ArrayTypedDecNode: Empty dims for '" + node->id + "'.");
     } else if (declaredType.dims[0] == -1 && node->type.baseType == BaseType::ARRAY) {
@@ -390,7 +528,7 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
         if(Llen != Rlen) SizeError("Semantic Analysis: vectors/arrays must have the same dimensions in order to calculate dot product");
         node->type = promoted;
         return;
-    }else if(LM && RM){ // matrix ** matrix = vector
+    }else if(LM && RM){ // matrix ** matrix = matrix
          /*
         the number of columns of the first operand must equal the number of rows of the second operand, e.g. an 
         mxn matrix multiplied by an nxp matrix will produce an mxp matrix. If the dimensions are not correct a 
@@ -401,10 +539,16 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
         int Rrow = getDim(rightType.dims, 0);
         int Rcol = getDim(rightType.dims, 1);
         if(Lrow<0||Lcol<0||Rrow<0||Rcol<0) SizeError("Semantic Analysis: invalid matrix dimensions");
-        if(Lrow!=Rcol || Lcol!=Rrow) SizeError("Semantic Analysis: invalid matrix dimensions for dot product");
+        if(Lcol != Rrow) SizeError(("Semantic Analysis: invalid matrix dimensions for matrix multiplication - left columns (" + std::to_string(Lcol) + ") must equal right rows (" + std::to_string(Rrow) + ")").c_str());
+        
+        // Ensure element type promotion succeeded
+        if(promoted.baseType == BaseType::UNKNOWN) {
+            throw TypeError(node->line, "Semantic Analysis: incompatible element types for matrix multiplication");
+        }
+        
         int outRows = Lrow;
         int outCols = Rcol;
-        node->type = CompleteType(BaseType::VECTOR, promoted, {outRows, outCols});
+        node->type = CompleteType(BaseType::MATRIX, promoted, {outRows, outCols});
         return;
     }
     // maybe vector and matrix
@@ -412,26 +556,71 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
 }
 
 void SemanticAnalysisVisitor::visit(ArrayLiteralNode *node) {
-    // std::cerr << "[DEBUG]: visiting ArrayLiteralNode" << std::endl;
-    // If no elements, set to special type EMPTY so it is assignable
+    // If no elements, represent as ARRAY with UNKNOWN element subtype so later passes can infer.
     if (!node->list || node->list->list.empty()) {
-        node->type = CompleteType(BaseType::ARRAY, BaseType::EMPTY, {0});
+        node->type = CompleteType(BaseType::ARRAY, CompleteType(BaseType::UNKNOWN), {0});
         return;
     }
 
-    // Handle potentially mixed types (as long as they are promotable)
+    // Visit children first
+    for (auto &elem : node->list->list) {
+        elem->accept(*this);
+    }
+
+    // Detect nested array literal (matrix-like)
+    auto firstArray = std::dynamic_pointer_cast<ArrayLiteralNode>(node->list->list[0]);
+    if (firstArray) {
+        // All elements must be arrays
+        int64_t cols = firstArray->list ? static_cast<int64_t>(firstArray->list->list.size()) : 0;
+        CompleteType elementType = CompleteType(BaseType::UNKNOWN);
+
+        for (size_t i = 0; i < node->list->list.size(); ++i) {
+            auto inner = std::dynamic_pointer_cast<ArrayLiteralNode>(node->list->list[i]);
+            if (!inner) {
+                throw LiteralError(node->line, "Semantic Analysis: mixed scalar and array elements in array literal.");
+            }
+
+            CompleteType innerType = resolveUnresolvedType(current_, inner->type, node->line);
+            if (innerType.baseType != BaseType::ARRAY || innerType.subTypes.empty()) {
+                throw LiteralError(node->line, "Semantic Analysis: nested array literal missing element type.");
+            }
+
+            // Track element type across rows
+            CompleteType innerElem = innerType.subTypes[0];
+            if (i == 0) {
+                elementType = innerElem;
+            } else {
+                CompleteType promoted = promote(innerElem, elementType);
+                if (promoted.baseType == BaseType::UNKNOWN) promoted = promote(elementType, innerElem);
+                if (promoted.baseType == BaseType::UNKNOWN) {
+                    throw LiteralError(node->line, "Semantic Analysis: incompatible element types in nested array literal.");
+                }
+                elementType = promoted;
+            }
+
+            // Ensure consistent column counts
+            int64_t rowCols = inner->list ? static_cast<int64_t>(inner->list->list.size()) : 0;
+            if (rowCols != cols) {
+                throw TypeError(node->line, "Matrix initializer has inconsistent row lengths.");
+            }
+        }
+
+        int64_t rows = static_cast<int64_t>(node->list->list.size());
+        node->type = CompleteType(BaseType::ARRAY, elementType, {static_cast<int>(rows), static_cast<int>(cols)});
+        // std::cerr << "[DEBUG SEMANTIC] ArrayLiteralNode EXIT: 2D ARRAY with dims={" << rows << "," << cols << "}" << std::endl;
+        return;
+    }
+
+    // 1D array literal
     CompleteType common = CompleteType(BaseType::UNKNOWN);
     for (size_t i = 0; i < node->list->list.size(); ++i) {
         auto &elem = node->list->list[i];
-        elem->accept(*this);
         CompleteType et = resolveUnresolvedType(current_, elem->type, node->line);
         if (i == 0) {
             common = et;
         } else {
             CompleteType promoted = promote(et, common);
-            if (promoted.baseType == BaseType::UNKNOWN) {
-                promoted = promote(common, et);
-            }
+            if (promoted.baseType == BaseType::UNKNOWN) promoted = promote(common, et);
             if (promoted.baseType == BaseType::UNKNOWN) {
                 throw LiteralError(node->line, "Semantic Analysis: incompatible element types in array literal.");
             }
@@ -440,6 +629,7 @@ void SemanticAnalysisVisitor::visit(ArrayLiteralNode *node) {
     }
 
     node->type = CompleteType(BaseType::ARRAY, common, {static_cast<int>(node->list->list.size())});
+    // std::cerr << "[DEBUG SEMANTIC] ArrayLiteralNode EXIT: 1D ARRAY with dims={" << node->list->list.size() << "}" << std::endl;
 }
 
 void SemanticAnalysisVisitor::visit(RangeExprNode *node) {
