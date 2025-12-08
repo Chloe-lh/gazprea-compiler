@@ -383,26 +383,23 @@ std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
 std::any
 ASTBuilder::visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) {
   // Grammar: TYPEALIAS type ID
-  std::string referenced = ctx->type()->getText();
+  // Allow aliasing any `type` including array/vector/matrix types
   std::string aliasName = ctx->ID()->getText();
 
   CompleteType aliasedType(BaseType::UNKNOWN);
-  if (referenced == "integer")
-    aliasedType = CompleteType(BaseType::INTEGER);
-  else if (referenced == "real")
-    aliasedType = CompleteType(BaseType::REAL);
-  else if (referenced == "boolean")
-    aliasedType = CompleteType(BaseType::BOOL);
-  else if (referenced == "character")
-    aliasedType = CompleteType(BaseType::CHARACTER);
-  else
-    throw std::runtime_error("aliasing an alias not implemented for alias '" + aliasName + "' with type '" + referenced + "'.");
+  if (ctx->type()) {
+    auto anyType = visit(ctx->type());
+    if (anyType.has_value() && anyType.type() == typeid(CompleteType)) {
+      aliasedType = std::any_cast<CompleteType>(anyType);
+    } else {
+      // Fallback: keep UNKNOWN, semantic analysis will diagnose if used.
+      aliasedType = CompleteType(BaseType::UNKNOWN);
+    }
+  }
 
   auto node = std::make_shared<TypeAliasDecNode>(aliasName, aliasedType);
   setLocationFromCtx(node, ctx);
-  // Records the original referenced name so later passes can resolve it
-  // if aliasedType was left as UNKNOWN.
-  node->declTypeName = referenced;
+  // For legacy UNKNOWN-based aliases we used declTypeName
   return node_any(std::move(node));
 }
 std::any ASTBuilder::visitAssignStat(GazpreaParser::AssignStatContext *ctx) {
