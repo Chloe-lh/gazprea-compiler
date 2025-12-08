@@ -236,9 +236,26 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                 default: break;
             }
             break;
-        case BaseType::STRING: // TODO: handle comprehensive promotions for strings
+        case BaseType::STRING:
             switch (to.baseType) {
-                case BaseType::STRING:     return BaseType::STRING;   // not the same as vector<char>.
+                case BaseType::STRING:     return BaseType::STRING;
+                case BaseType::ARRAY: {
+                    // STRING promotes to character[*] given length match
+                    if (to.subTypes.size() != 1 || to.subTypes[0].baseType != BaseType::CHARACTER) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+                    if (to.dims[0] != from.dims[0]) return CompleteType(BaseType::UNKNOWN);
+
+                    return to; 
+                }
+                case BaseType::VECTOR: {
+                    // STRING promotes to vector<char>
+                    if (to.subTypes.size() != 1 || to.subTypes[0].baseType != BaseType::CHARACTER) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+                    return to; 
+                }
+
                 default: break;
             }
             break;
@@ -566,7 +583,8 @@ void validateContainmentHierarchy(const CompleteType& completeType, int line) {
             break;
         }
         case BaseType::STRING: {
-            if (completeType.subTypes.size() != 1 || completeType.subTypes[0].baseType != BaseType::CHARACTER) {
+            // Strings can be declared as 'string', no subtypes allowed
+            if (!completeType.subTypes.empty()) {
                 throw TypeError(
                     line,
                     "Semantic Analysis: Invalid declared string element type: " + toString(completeType));
