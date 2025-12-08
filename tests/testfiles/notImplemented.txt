@@ -1,0 +1,10 @@
+[E-FAIL] dynamic_dot_product.in
+[E-FAIL] explicit_broadcast_cast.in
+[E-FAIL] generators.in
+[E-FAIL] slice_stride.in
+[E-FAIL] vector_basic_append.in
+[E-FAIL] vector_dot_dynamic.in
+[E-FAIL] vectorBoolArrayAssign.in
+[E-FAIL] vectorCastToArray.in
+[E-FAIL] vectorDecComposite.in
+[E-FAIL] structArrays.in
