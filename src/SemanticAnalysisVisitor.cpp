@@ -283,12 +283,12 @@ void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
             int size = baseType.dims[0];
             if (size != -1) {
                 if (indexVal > size || indexVal < 1) { // 1-based indexing check at compile time
-                     IndexError(("Index " + std::to_string(indexVal) + " out of range for array/vector of len " + std::to_string(size)).c_str());
+                     throw IndexError(node->line, "Index " + std::to_string(indexVal) + " out of range for array/vector of len " + std::to_string(size));
                 }
             } else {
                 // Dynamic size (-1): check for < 1 at compile time?
                 if (indexVal < 1) {
-                     IndexError(("Index " + std::to_string(indexVal) + " out of range (must be >= 1)").c_str());
+                     throw IndexError(node->line, "Index " + std::to_string(indexVal) + " out of range (must be >= 1)");
                 }
             }
         }
@@ -311,11 +311,11 @@ void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
             int size2 = baseType.dims[1];
             if (size2 != -1) {
                 if (indexVal2 > size2 || indexVal2 < 1) {
-                    IndexError(("Second index " + std::to_string(indexVal2) + " out of range for dimension of length " + std::to_string(size2)).c_str());
+                    throw IndexError(node->line, "Second index " + std::to_string(indexVal2) + " out of range for dimension of length " + std::to_string(size2));
                 }
             } else {
                 if (indexVal2 < 1) {
-                     IndexError(("Second index " + std::to_string(indexVal2) + " out of range (must be >= 1)").c_str());
+                     throw IndexError(node->line, "Second index " + std::to_string(indexVal2) + " out of range (must be >= 1)");
                 }
             }
         }
@@ -557,7 +557,7 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
             }
 
             if (declaredType.dims.size() != initType.dims.size()) {
-                SizeError(("Semantic Analysis: Initializer dimension rank mismatch for '" + node->id + "'.").c_str());
+                throw SizeError(node->line, "Semantic Analysis: Initializer dimension rank mismatch for '" + node->id + "'.");
             }
 
             // Skip lhs dims inference if rhs is also dynamic (-1)
@@ -569,8 +569,8 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                     if (lhsDim < 0) {
                         if (rhsDim < 0) {
                             // Still no concrete dimension to lock onto.
-                            SizeError(("Semantic Analysis: Cannot infer array length from initializer for '" +
-                                        node->id + "'.").c_str());
+                            throw SizeError(node->line, "Semantic Analysis: Cannot infer array length from initializer for '" +
+                                        node->id + "'.");
                         }
                         // Only infer dimensions for non-vector types (arrays)
                         // Vectors remain dynamic (-1)
@@ -579,8 +579,8 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                         }
                     } else {
                         if (rhsDim >= 0 && rhsDim != lhsDim) {
-                            SizeError(("Semantic Analysis: Initializer dimensions do not match declared size for '" +
-                                        node->id + "'.").c_str());
+                            throw SizeError(node->line, "Semantic Analysis: Initializer dimensions do not match declared size for '" +
+                                        node->id + "'.");
                         }
                     }
                 }
@@ -687,7 +687,7 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
         int Rlen = getDim(rightType.dims, 0);
         // Only enforce equality if both dimensions are known statically.
         if (Llen >= 0 && Rlen >= 0 && Llen != Rlen) {
-            throw SizeError(node->line, ("Semantic Analysis: vectors/arrays must have the same dimensions in order to calculate dot product. Got " + std::to_string(Llen) + " and " + std::to_string(Rlen)).c_str());
+            throw SizeError(node->line, "Semantic Analysis: vectors/arrays must have the same dimensions in order to calculate dot product. Got " + std::to_string(Llen) + " and " + std::to_string(Rlen));
         }
         node->type = promoted;
         return;
@@ -704,8 +704,8 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
         
         // Only enforce compatibility if inner dimensions are known statically.
         if (Lcol >= 0 && Rrow >= 0 && Lcol != Rrow) {
-            throw SizeError(node->line, ("Semantic Analysis: invalid matrix dimensions for matrix multiplication - left columns (" +
-                       std::to_string(Lcol) + ") must equal right rows (" + std::to_string(Rrow) + ")").c_str());
+            throw SizeError(node->line, "Semantic Analysis: invalid matrix dimensions for matrix multiplication - left columns (" +
+                       std::to_string(Lcol) + ") must equal right rows (" + std::to_string(Rrow) + ")");
         }
         
         // Ensure element type promotion succeeded
