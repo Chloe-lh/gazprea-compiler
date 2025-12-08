@@ -1,5 +1,9 @@
 #include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMTypes.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "llvm/ADT/SmallVector.h"
 
 void MLIRGen::visit(StructTypedDecNode* node) {
     // StructTypedDecNode behaves like a typed declaration from the
@@ -58,14 +62,27 @@ void MLIRGen::visit(StructAccessNode* node) {
     llvm::SmallVector<int64_t, 1> pos{static_cast<int64_t>(node->fieldIndex)};
     mlir::Value elemVal = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, structVal, pos);
 
-    // Wrap element into scalar VarInfo and push
+    // Wrap element into VarInfo and push, handling array/vector/matrix fields as descriptors
     CompleteType elemType = structVarInfo->type.subTypes[node->fieldIndex];
-    VarInfo elementVarInfo(elemType);
-    allocaLiteral(&elementVarInfo, node->line);
-    builder_.create<mlir::memref::StoreOp>(
-        loc_, elemVal, elementVarInfo.value, mlir::ValueRange{}
-    );
-    pushValue(elementVarInfo);
+
+    if (elemType.baseType == BaseType::ARRAY ||
+        elemType.baseType == BaseType::VECTOR ||
+        elemType.baseType == BaseType::MATRIX) {
+        // For composite array-like fields, treat the extracted value as an LLVM descriptor.
+        VarInfo elementVarInfo(elemType);
+        elementVarInfo.value = elemVal;      // LLVM struct descriptor {ptr, len}/ {ptr, rows, cols}
+        elementVarInfo.isLValue = false;
+        // runtimeDims can be inferred lazily by helpers like computeArraySize.
+        pushValue(elementVarInfo);
+    } else {
+        // Scalar / non-array-like field: keep existing behavior.
+        VarInfo elementVarInfo(elemType);
+        allocaLiteral(&elementVarInfo, node->line);
+        builder_.create<mlir::memref::StoreOp>(
+            loc_, elemVal, elementVarInfo.value, mlir::ValueRange{}
+        );
+        pushValue(elementVarInfo);
+    }
 }
 
 void MLIRGen::visit(StructAccessAssignStatNode* node) {
@@ -80,13 +97,76 @@ void MLIRGen::visit(StructAccessAssignStatNode* node) {
     if (!lhsVarInfo) throw std::runtime_error("MLIRGen::StructAccessAssignStatNode: null VarInfo for lhs");
     if (lhsVarInfo->type.baseType != BaseType::STRUCT) throw std::runtime_error("MLIRGen::StructAccessAssignStatNode: Non-struct lhs");
 
-    // Alloc struct storage if not exists
-    if (!rhsVarInfo.value) allocaVar(&rhsVarInfo, node->line);
-
-    // Get field type of lhs and promoted rhs
+    // Get field type of lhs
     CompleteType* fieldType = &lhsVarInfo->type.subTypes[node->target->fieldIndex];
-    VarInfo promoted = promoteType(&rhsVarInfo, fieldType, node->line);
-    mlir::Value elemVal = getSSAValue(promoted);
+
+    mlir::Value elemVal;
+    if (fieldType->baseType == BaseType::ARRAY ||
+        fieldType->baseType == BaseType::VECTOR ||
+        fieldType->baseType == BaseType::MATRIX) {
+        // For array-like fields, expect rhsVarInfo.value to already be a descriptor
+        // with the same LLVM type as the field.
+        if (!rhsVarInfo.value) {
+            throw std::runtime_error("StructAccessAssignStatNode: rhs has no value for array-like field assignment");
+        }
+        mlir::Type fieldLLVMTy = getLLVMType(*fieldType);
+
+        if (rhsVarInfo.value.getType() != fieldLLVMTy) {
+             // Promote RHS to match LHS field type (this handles int->real, etc. and ensures we have a memref)
+             VarInfo promoted = promoteType(&rhsVarInfo, fieldType, node->line);
+             mlir::Value memref = promoted.value;
+
+             if (!memref.getType().isa<mlir::MemRefType>()) {
+                  throw std::runtime_error("StructAccessAssignStatNode: promoted value is not a memref (and not a descriptor).");
+             }
+
+             // Convert memref to descriptor
+             // 1. Extract pointer
+             mlir::Value ptrAsIdx = builder_.create<mlir::memref::ExtractAlignedPointerAsIndexOp>(loc_, memref);
+             mlir::Value ptrI64 = builder_.create<mlir::arith::IndexCastOp>(loc_, builder_.getI64Type(), ptrAsIdx);
+             mlir::Value ptr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, mlir::LLVM::LLVMPointerType::get(&context_), ptrI64);
+
+             // 2. Create descriptor
+             mlir::Value desc = builder_.create<mlir::LLVM::UndefOp>(loc_, fieldLLVMTy);
+             llvm::SmallVector<int64_t, 1> ptrPos{0};
+             desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, ptr, ptrPos);
+
+             // 3. Insert dims
+             int rank = memref.getType().cast<mlir::MemRefType>().getRank();
+             auto i64Ty = builder_.getI64Type();
+             
+             if (rank == 1) {
+                 mlir::Value zero = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+                 mlir::Value dim0 = builder_.create<mlir::memref::DimOp>(loc_, memref, zero);
+                 mlir::Value dim0I64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, dim0);
+                 llvm::SmallVector<int64_t, 1> lenPos{1};
+                 desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, dim0I64, lenPos);
+             } else if (rank == 2) {
+                 mlir::Value zero = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+                 mlir::Value dim0 = builder_.create<mlir::memref::DimOp>(loc_, memref, zero);
+                 mlir::Value dim0I64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, dim0);
+                 llvm::SmallVector<int64_t, 1> rowPos{1};
+                 desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, dim0I64, rowPos);
+
+                 mlir::Value one = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
+                 mlir::Value dim1 = builder_.create<mlir::memref::DimOp>(loc_, memref, one);
+                 mlir::Value dim1I64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, dim1);
+                 llvm::SmallVector<int64_t, 1> colPos{2};
+                 desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, dim1I64, colPos);
+             }
+             
+             elemVal = desc;
+        } else {
+             elemVal = rhsVarInfo.value;
+        }
+    } else {
+        // Scalar / non-array-like field: keep existing promotion path.
+        if (!rhsVarInfo.value) {
+            allocaVar(&rhsVarInfo, node->line);
+        }
+        VarInfo promoted = promoteType(&rhsVarInfo, fieldType, node->line);
+        elemVal = getSSAValue(promoted);
+    }
 
     // load in lhs
     mlir::Type structType = getLLVMType(lhsVarInfo->type);
