@@ -1,1 +1,4 @@
-TypeError on line 3: Semantic Analysis: Invalid declared array element type
+42
+[1 2 3]
+[1.1 2.2]
+[[10 11] [12 13]]
