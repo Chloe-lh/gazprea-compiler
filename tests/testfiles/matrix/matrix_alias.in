@@ -1,0 +1,9 @@
+typealias integer[2][2] MyMatrix;
+
+procedure main() returns integer {
+    MyMatrix mat = [[1, 2], [3, 4]];
+    mat -> std_output;
+    "\n" -> std_output;
+    return 0;
+}
+//CHECK_FILE:matrix_alias.out
