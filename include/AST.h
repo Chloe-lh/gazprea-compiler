@@ -479,6 +479,27 @@ public:
                               std::vector<std::shared_ptr<ExprNode>>);
   void accept(ASTVisitor &v) override;
 };
+
+class MethodCallExpr : public ExprNode {
+public:
+    std::string objectName;
+    std::string methodName;
+    std::vector<std::shared_ptr<ExprNode>> args;
+    MethodCallExpr(const std::string &obj, const std::string &method, std::vector<std::shared_ptr<ExprNode>> args)
+        : objectName(obj), methodName(method), args(std::move(args)) {}
+    void accept(ASTVisitor &v) override;
+};
+
+class MethodCallStatNode : public StatNode {
+public:
+    std::string objectName;
+    std::string methodName;
+    std::vector<std::shared_ptr<ExprNode>> args;
+    MethodCallStatNode(const std::string &obj, const std::string &method, std::vector<std::shared_ptr<ExprNode>> args)
+        : objectName(obj), methodName(method), args(std::move(args)) {}
+    void accept(ASTVisitor &v) override;
+};
+
 // can be used in statements
 class CallStatNode : public StatNode {
 public:

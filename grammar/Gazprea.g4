@@ -38,6 +38,7 @@ stat
     | CONTINUE END                                            #ContinueStat
     | RETURN expr? END                                        #ReturnStat
     | CALL ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT END  #CallStat
+    | struct_access PARENLEFT (expr (COMMA expr)*)? PARENRIGHT END #MethodCallStat
     | if_stat                             #IfStat
     | loop_stat                           #LoopStat
     ;
@@ -84,6 +85,7 @@ expr
     | ID SQLEFT rangeExpr SQRIGHT                       #ArraySliceExpr
     | ID BY expr                                        #ArrayStrideExpr
     | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr // Also used as struct_literal
+    | struct_access PARENLEFT (expr (COMMA expr)*)? PARENRIGHT #MethodCallExpr
     | builtin_func                                      #BuiltInFuncExpr
     | PARENLEFT expr PARENRIGHT                         #ParenExpr
     | STRING_LIT                                        #StringExpr

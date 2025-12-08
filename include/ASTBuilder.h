@@ -77,10 +77,10 @@ public:
   std::any
   visitFuncCallExpr(gazprea::GazpreaParser::FuncCallExprContext *ctx) override;
   std::any visitBuiltInFuncExpr(gazprea::GazpreaParser::BuiltInFuncExprContext *ctx) override;
-  std::any
-  visitParenExpr(gazprea::GazpreaParser::ParenExprContext *ctx) override;
-  std::any
-  visitUnaryExpr(gazprea::GazpreaParser::UnaryExprContext *ctx) override;
+  std::any visitParenExpr(GazpreaParser::ParenExprContext *ctx) override;
+  std::any visitMethodCallExpr(GazpreaParser::MethodCallExprContext *ctx) override;
+  std::any visitMethodCallStat(GazpreaParser::MethodCallStatContext *ctx) override;
+  std::any visitUnaryExpr(GazpreaParser::UnaryExprContext *ctx) override;
 std::any visitDotExpr(gazprea::GazpreaParser::DotExprContext *ctx) override;
   std::any visitNotExpr(gazprea::GazpreaParser::NotExprContext *ctx) override;
   std::any visitCompExpr(gazprea::GazpreaParser::CompExprContext *ctx) override;

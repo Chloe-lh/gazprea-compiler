@@ -704,6 +704,45 @@ std::any ASTBuilder::visitParenExpr(GazpreaParser::ParenExprContext *ctx) {
   return expr_any(std::move(node));
 }
 
+std::any ASTBuilder::visitMethodCallExpr(GazpreaParser::MethodCallExprContext *ctx) {
+  // Rule: struct_access PARENLEFT (expr (COMMA expr)*)? PARENRIGHT #MethodCallExpr
+  
+  // Parse struct_access to get object and method name
+  auto saCtx = ctx->struct_access();
+  // struct_access: ID '.' ID
+  std::string objName = saCtx->ID(0)->getText();
+  std::string methodName = saCtx->ID(1)->getText();
+
+  // Collect arguments
+  std::vector<GazpreaParser::ExprContext *> exprCtxs;
+  for (auto e : ctx->expr()) {
+    exprCtxs.push_back(e);
+  }
+  auto args = collectArgs(*this, exprCtxs);
+
+  auto node = std::make_shared<MethodCallExpr>(objName, methodName, std::move(args));
+  setLocationFromCtx(node, ctx);
+  return expr_any(std::move(node));
+}
+
+std::any ASTBuilder::visitMethodCallStat(GazpreaParser::MethodCallStatContext *ctx) {
+  // Rule: struct_access PARENLEFT (expr (COMMA expr)*)? PARENRIGHT END #MethodCallStat
+  
+  auto saCtx = ctx->struct_access();
+  std::string objName = saCtx->ID(0)->getText();
+  std::string methodName = saCtx->ID(1)->getText();
+
+  std::vector<GazpreaParser::ExprContext *> exprCtxs;
+  for (auto e : ctx->expr()) {
+    exprCtxs.push_back(e);
+  }
+  auto args = collectArgs(*this, exprCtxs);
+
+  auto node = std::make_shared<MethodCallStatNode>(objName, methodName, std::move(args));
+  setLocationFromCtx(node, ctx);
+  return stat_any(std::move(node));
+}
+
 std::any ASTBuilder::visitRealExpr(GazpreaParser::RealExprContext *ctx) {
   std::string text = ctx->real()->getText();
   // apply leading zero

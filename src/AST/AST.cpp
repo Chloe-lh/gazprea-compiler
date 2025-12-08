@@ -12,6 +12,8 @@ void BlockNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
 // Expressions
 void ParenExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void MethodCallExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void MethodCallStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void UnaryExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ExpExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void MultExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
