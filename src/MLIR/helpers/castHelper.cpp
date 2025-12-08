@@ -41,8 +41,7 @@ mlir::Value MLIRGen::loadElementByFlatIndex(VarInfo *from, int64_t flatIndex, in
 
         mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
             loc_, idxTy, builder_.getIntegerAttr(idxTy, flatIndex));
-        return builder_.create<mlir::memref::LoadOp>(
-            loc_, from->value, mlir::ValueRange{idx});
+        return accessElement(from, mlir::ValueRange{idx});
     }
 
     if (srcRank == 2) {
@@ -69,8 +68,7 @@ mlir::Value MLIRGen::loadElementByFlatIndex(VarInfo *from, int64_t flatIndex, in
             loc_, idxTy, builder_.getIntegerAttr(idxTy, row));
         mlir::Value cIdx = builder_.create<mlir::arith::ConstantOp>(
             loc_, idxTy, builder_.getIntegerAttr(idxTy, col));
-        return builder_.create<mlir::memref::LoadOp>(
-            loc_, from->value, mlir::ValueRange{rIdx, cIdx});
+        return accessElement(from, mlir::ValueRange{rIdx, cIdx});
     }
 
     // Unsupported rank
@@ -118,8 +116,7 @@ void MLIRGen::expandScalarToAggregate(VarInfo *from,
             mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
                 loc_, idxTy,
                 builder_.getIntegerAttr(idxTy, static_cast<int64_t>(i)));
-            builder_.create<mlir::memref::StoreOp>(
-                loc_, elemVal, to.value, mlir::ValueRange{idx});
+            accessElement(&to, mlir::ValueRange{idx}, elemVal);
         }
         return;
     }
@@ -142,8 +139,7 @@ void MLIRGen::expandScalarToAggregate(VarInfo *from,
             VarInfo elemVar = castType(from, const_cast<CompleteType*>(&elemType), line);
             mlir::Value elemVal = getSSAValue(elemVar);
 
-            builder_.create<mlir::memref::StoreOp>(
-                loc_, elemVal, to.value, mlir::ValueRange{idx});
+            accessElement(&to, mlir::ValueRange{idx}, elemVal);
         }
     } else if (toType->dims.size() == 2) {
         int64_t rows = toType->dims[0];
@@ -162,8 +158,7 @@ void MLIRGen::expandScalarToAggregate(VarInfo *from,
                 VarInfo elemVar = castType(from, const_cast<CompleteType*>(&elemType), line);
                 mlir::Value elemVal = getSSAValue(elemVar);
 
-                builder_.create<mlir::memref::StoreOp>(
-                    loc_, elemVal, to.value, mlir::ValueRange{rowIdx, colIdx});
+                accessElement(&to, mlir::ValueRange{rowIdx, colIdx}, elemVal);
             }
         }
     } else {
@@ -299,8 +294,12 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType, int line) {
                     // Wrap element in a VarInfo so we can reuse scalar casting
                     VarInfo fromElem(from->type.subTypes[i]);
                     allocaLiteral(&fromElem, line);
-                    builder_.create<mlir::memref::StoreOp>(
-                        loc_, srcElem, fromElem.value, mlir::ValueRange{});
+                    if (fromElem.value.getType().isa<mlir::MemRefType>()) {
+                        builder_.create<mlir::memref::StoreOp>(
+                            loc_, srcElem, fromElem.value, mlir::ValueRange{});
+                    } else {
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, srcElem, fromElem.value);
+                    }
 
                     VarInfo castedElem =
                         castType(&fromElem, &toType->subTypes[i], line);
@@ -358,8 +357,12 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType, int line) {
                     // Wrap element in a VarInfo so we can reuse scalar casting
                     VarInfo fromElem(from->type.subTypes[i]);
                     allocaLiteral(&fromElem, line);
-                    builder_.create<mlir::memref::StoreOp>(
-                        loc_, srcElem, fromElem.value, mlir::ValueRange{});
+                    if (fromElem.value.getType().isa<mlir::MemRefType>()) {
+                        builder_.create<mlir::memref::StoreOp>(
+                            loc_, srcElem, fromElem.value, mlir::ValueRange{});
+                    } else {
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, srcElem, fromElem.value);
+                    }
 
                     VarInfo castedElem =
                         castType(&fromElem, &toType->subTypes[i], line);
@@ -559,6 +562,27 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType, int line) {
             }
             break;
         }
+        case (BaseType::STRING): {
+            if (toType->baseType == BaseType::STRING) {
+                if (!from->value) allocaVar(from, line);
+                if (!to.value) allocaVar(&to, line);
+                
+                mlir::Value val = getSSAValue(*from);
+                if (val.getType() != getLLVMType(*toType)) {
+                    throw std::runtime_error("MLIRGen:castType: mismatched LLVM 'from' and 'to' types");
+                }
+                
+                // Just store value to destination
+                if (to.value.getType().isa<mlir::MemRefType>()) {
+                     builder_.create<mlir::memref::StoreOp>(loc_, val, to.value, mlir::ValueRange{});
+                } else {
+                     builder_.create<mlir::LLVM::StoreOp>(loc_, val, to.value);
+                }
+                break;
+            }
+
+            throw TypeError(line, std::string("Codegen: cannot cast from '") + toString(from->type) + "' to '" + toString(*toType) + "'.");
+        }
         case (BaseType::ARRAY):
         case (BaseType::VECTOR):
         case (BaseType::MATRIX):
@@ -647,17 +671,30 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType, int line) {
                         // Wrap source element to reuse castType recursively
                         VarInfo srcElemVar(fromElemCT);
                         allocaLiteral(&srcElemVar, line);
-                        builder_.create<mlir::memref::StoreOp>(
-                            loc_, srcVal, srcElemVar.value, mlir::ValueRange{});
+                        if (srcElemVar.value.getType().isa<mlir::MemRefType>()) {
+                            builder_.create<mlir::memref::StoreOp>(
+                                loc_, srcVal, srcElemVar.value, mlir::ValueRange{});
+                        } else {
+                            builder_.create<mlir::LLVM::StoreOp>(loc_, srcVal, srcElemVar.value);
+                        }
 
                         VarInfo castedElem =
                             castType(&srcElemVar, const_cast<CompleteType*>(&toElemCT), line);
                         mlir::Value elemVal = getSSAValue(castedElem);
 
-                        builder_.create<mlir::memref::StoreOp>(
-                            loc_, elemVal, to.value, mlir::ValueRange{destIdx});
+                        accessElement(&to, mlir::ValueRange{destIdx}, elemVal);
                     } else {
-                        storeZeroElement(to.value, toElemCT, mlir::ValueRange{destIdx});
+                        // storeZeroElement logic also needs update for descriptors?
+                        // storeZeroElement assumes memref.
+                        // We can manually create zero and store using accessElement
+                        mlir::Type elemTy = getLLVMType(toElemCT);
+                        mlir::Value zero = builder_.create<mlir::arith::ConstantOp>(
+                            loc_, elemTy, builder_.getIntegerAttr(elemTy, 0)); // assuming int/bool/char/real 0 is ok
+                        if (elemTy.isa<mlir::FloatType>()) {
+                             zero = builder_.create<mlir::arith::ConstantOp>(
+                                loc_, elemTy, builder_.getFloatAttr(elemTy, 0.0));
+                        }
+                        accessElement(&to, mlir::ValueRange{destIdx}, zero);
                     }
                 }
             } else {                                        // 2. Handle matrix destination
@@ -723,18 +760,28 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType, int line) {
                         if (hasSrc) {
                             VarInfo srcElemVar(fromElemCT);
                             allocaLiteral(&srcElemVar, line);
-                            builder_.create<mlir::memref::StoreOp>(
-                                loc_, srcVal, srcElemVar.value, mlir::ValueRange{});
+                            if (srcElemVar.value.getType().isa<mlir::MemRefType>()) {
+                                builder_.create<mlir::memref::StoreOp>(
+                                    loc_, srcVal, srcElemVar.value, mlir::ValueRange{});
+                            } else {
+                                builder_.create<mlir::LLVM::StoreOp>(loc_, srcVal, srcElemVar.value);
+                            }
 
                             VarInfo castedElem =
                                 castType(&srcElemVar, const_cast<CompleteType*>(&toElemCT), line);
                             mlir::Value elemVal = getSSAValue(castedElem);
 
-                            builder_.create<mlir::memref::StoreOp>(
-                                loc_, elemVal, to.value,
-                                mlir::ValueRange{rowIdx, colIdx});
+                            accessElement(&to, mlir::ValueRange{rowIdx, colIdx}, elemVal);
                         } else {
-                            storeZeroElement(to.value, toElemCT, mlir::ValueRange{rowIdx, colIdx});
+                            // Manual zero store
+                            mlir::Type elemTy = getLLVMType(toElemCT);
+                            mlir::Value zero = builder_.create<mlir::arith::ConstantOp>(
+                                loc_, elemTy, builder_.getIntegerAttr(elemTy, 0));
+                            if (elemTy.isa<mlir::FloatType>()) {
+                                 zero = builder_.create<mlir::arith::ConstantOp>(
+                                    loc_, elemTy, builder_.getFloatAttr(elemTy, 0.0));
+                            }
+                            accessElement(&to, mlir::ValueRange{rowIdx, colIdx}, zero);
                         }
                     }
                 }
