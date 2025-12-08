@@ -359,10 +359,20 @@ mlir::Value MLIRGen::accessElement(VarInfo* var, mlir::ValueRange indices, mlir:
         } else {
             return builder_.create<mlir::memref::LoadOp>(loc_, var->value, indices);
         }
-    } else if (var->value.getType().isa<mlir::LLVM::LLVMStructType>()) {
+    }
+    
+    mlir::Value descriptor = var->value;
+    // If it's a pointer to descriptor (e.g. local mutable vector/string), load it first
+    if (var->value.getType().isa<mlir::LLVM::LLVMPointerType>()) {
+        // Load the descriptor
+        mlir::Type descTy = getLLVMType(var->type);
+        descriptor = builder_.create<mlir::LLVM::LoadOp>(loc_, descTy, var->value);
+    }
+    
+    if (descriptor.getType().isa<mlir::LLVM::LLVMStructType>()) {
         // Descriptor logic
         llvm::SmallVector<int64_t, 1> ptrPos{0};
-        mlir::Value ptr = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, var->value, ptrPos);
+        mlir::Value ptr = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, descriptor, ptrPos);
         
         mlir::Value linearIdx;
         auto i64Ty = builder_.getI64Type();
@@ -374,7 +384,7 @@ mlir::Value MLIRGen::accessElement(VarInfo* var, mlir::ValueRange indices, mlir:
             mlir::Value j = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, indices[1]);
             
             llvm::SmallVector<int64_t, 1> colsPos{2};
-            mlir::Value cols = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, var->value, colsPos);
+            mlir::Value cols = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, descriptor, colsPos);
             
             mlir::Value rowOffset = builder_.create<mlir::arith::MulIOp>(loc_, i, cols);
             linearIdx = builder_.create<mlir::arith::AddIOp>(loc_, rowOffset, j);
@@ -384,9 +394,20 @@ mlir::Value MLIRGen::accessElement(VarInfo* var, mlir::ValueRange indices, mlir:
         
         // For GEP, we need the element type.
         if (var->type.subTypes.empty()) {
-             throw std::runtime_error("accessElement: variable has no subtype");
+             // Implicit string subtype (technically is empty)
+             if (var->type.baseType == BaseType::STRING) {
+                 // Implicit char type
+             } else {
+                 throw std::runtime_error("accessElement: variable has no subtype");
+             }
         }
-        mlir::Type elemTy = getLLVMType(var->type.subTypes[0]);
+        
+        mlir::Type elemTy;
+        if (var->type.baseType == BaseType::STRING) {
+            elemTy = builder_.getI8Type();
+        } else {
+            elemTy = getLLVMType(var->type.subTypes[0]);
+        }
         
         mlir::Value gep = builder_.create<mlir::LLVM::GEPOp>(
             loc_, mlir::LLVM::LLVMPointerType::get(&context_),
@@ -666,70 +687,78 @@ void MLIRGen::assignToVector(VarInfo* literal, VarInfo* variable, int line) {
     if (!variable->value.getType().isa<mlir::LLVM::LLVMPointerType>()) {
          throw std::runtime_error("assignToVector: variable must be a mutable descriptor (LLVM pointer)");
     }
-    
-    // Ensure variable storage exists (vector is allocated with zero length initially)
-    if (!variable->value) {
-        allocaVar(variable, line);
-    }
-    
-    // Array literals should already have a value allocated by ArrayLiteralNode::visit()
-    // Vectors passed as literal should also already have a value
-    // If the literal doesn't have a value, this is an error
-    if (!literal->value) {
-        throw std::runtime_error("assignToVector: literal value is null - array/vector literal should already be allocated");
-    }
 
-    // Seed runtime dimensions from types where missing
-    if (literal->runtimeDims.empty()) {
-        literal->runtimeDims = literal->type.dims;
-    }
-
-    // Determine new runtime length from literal
-    if (literal->runtimeDims.empty() || literal->runtimeDims[0] < 0) {
-        throw std::runtime_error("MLIRGen::assignToVector: invalid literal runtime dimensions for vector assignment");
-    }
-    int newLen = literal->runtimeDims[0];
-    if (newLen < 0) {
-        throw std::runtime_error("MLIRGen::assignToVector: Runtime len of " + std::to_string(newLen) + " is invalid");
-    }
-    variable->runtimeDims = {newLen};
-
-    // resize the vector to the rhs
-    mlir::Value newVector = allocaVector(newLen, variable);
-    variable->value = newVector;
-
-    // Copy over elements to the new vector using compile-time loop
-    // (array literals have compile-time known sizes, so this is safe)
-    auto idxTy = builder_.getIndexType();
-    for (int t = 0; t < newLen; ++t) {
-        // index constant
-        mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
-            loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(t)));
-
-        // load source element
-        mlir::Value srcElemVal = accessElement(literal, mlir::ValueRange{idx});
-
-        // build a temp VarInfo for the source element
-        if (literal->type.subTypes.size() != 1) {
-            throw std::runtime_error("varHelper::assignTo: array literal type must have exactly one element subtype");
+    // determine length, handle both vector/struct rhs
+    mlir::Value newLenVal;
+    if (literal->type.baseType == BaseType::STRING) {        
+        // If literal is descriptor (struct)
+        if (literal->value.getType().isa<mlir::LLVM::LLVMStructType>()) {
+             llvm::SmallVector<int64_t, 1> lenPos{1};
+             newLenVal = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, literal->value, lenPos);
+             // Convert to index for alloc
+             newLenVal = builder_.create<mlir::arith::IndexCastOp>(loc_, builder_.getIndexType(), newLenVal);
+        } else {
+             // Assume memref
+             newLenVal = computeArraySize(literal, line);
         }
-        CompleteType srcElemCT = literal->type.subTypes[0];
-        VarInfo srcElemVar(srcElemCT);
-        srcElemVar.value = srcElemVal;
-        srcElemVar.isLValue = false;
-
-        // destination element type
-        if (variable->type.subTypes.size() != 1) {
-            throw std::runtime_error("varHelper::assignTo: array variable type must have exactly one element subtype");
+    } else {
+        // Vector/Array
+        // Resolve dims
+        if (literal->runtimeDims.empty()) literal->runtimeDims = literal->type.dims;
+        if (!literal->runtimeDims.empty() && literal->runtimeDims[0] >= 0) {
+             newLenVal = builder_.create<mlir::arith::ConstantIndexOp>(loc_, literal->runtimeDims[0]);
+        } else {
+             newLenVal = computeArraySize(literal, line);
         }
-        CompleteType dstElemCT = variable->type.subTypes[0];
-
-        // promote/cast
-        VarInfo promoted = promoteType(&srcElemVar, &dstElemCT, line);
-        mlir::Value storeVal = getSSAValue(promoted);
-
-        // store into destination
-        accessElement(variable, mlir::ValueRange{idx}, storeVal);
+    }
+    
+    // Alloca new memory
+    mlir::Type elemTy;
+    if (isString) elemTy = builder_.getI8Type();
+    else elemTy = getLLVMType(variable->type.subTypes[0]);
+    
+    auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, elemTy);
+    mlir::Value newMemRef = builder_.create<mlir::memref::AllocaOp>(loc_, memTy, newLenVal);
+    
+    // Copy data to new memory
+    auto c0 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+    auto c1 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
+    
+    builder_.create<mlir::scf::ForOp>(
+        loc_, c0, newLenVal, c1, mlir::ValueRange{},
+        [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value iv, mlir::ValueRange args) {
+            // Load from source
+            mlir::Value elem = accessElement(literal, mlir::ValueRange{iv});
+            
+            // Store to new buffer
+            b.create<mlir::memref::StoreOp>(l, elem, newMemRef, mlir::ValueRange{iv});
+            
+            b.create<mlir::scf::YieldOp>(l);
+        }
+    );
+    
+    // 4. Update descriptor
+    // Extract ptr from newMemRef
+    mlir::Value ptrAsIdx = builder_.create<mlir::memref::ExtractAlignedPointerAsIndexOp>(loc_, newMemRef);
+    auto i64Ty = builder_.getI64Type();
+    mlir::Value ptrI64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, ptrAsIdx);
+    auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+    mlir::Value ptr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptrTy, ptrI64);
+    
+    mlir::Value lenI64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, newLenVal);
+    
+    mlir::Type descTy = getLLVMType(variable->type);
+    mlir::Value undef = builder_.create<mlir::LLVM::UndefOp>(loc_, descTy);
+    mlir::Value desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, undef, ptr, llvm::SmallVector<int64_t, 1>{0});
+    desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, lenI64, llvm::SmallVector<int64_t, 1>{1});
+    
+    builder_.create<mlir::LLVM::StoreOp>(loc_, desc, variable->value);
+    
+    // Try to update runtime size, if can't then assuem dynamic
+    if (auto constLen = newLenVal.getDefiningOp<mlir::arith::ConstantIndexOp>()) {
+        variable->runtimeDims = {static_cast<int>(constLen.value())};
+    } else {
+        variable->runtimeDims = {-1}; 
     }
 }
 
@@ -929,26 +958,26 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
             break;
         }
 
-        case BaseType::VECTOR: {
-            if (varInfo->type.subTypes.size() != 1) {
-                throw std::runtime_error("allocaVar: Vector with size != 1 found");
-            }
-
-            mlir::Type elemTy = getLLVMType(varInfo->type.subTypes[0]);
-            auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, elemTy);
-
-
-            auto idxTy = builder_.getIndexType();
-            mlir::Value zeroLen = entryBuilder.create<mlir::arith::ConstantOp>(
-                loc_, idxTy, builder_.getIntegerAttr(idxTy, 0));
-
-            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
-                loc_,
-                memTy,
-                mlir::ValueRange{zeroLen}, // one dynamic size operand
-                mlir::ValueRange{},
-                builder_.getIntegerAttr(builder_.getI64Type(), 16)
-            );
+        case BaseType::VECTOR:
+        case BaseType::STRING: {
+            mlir::Type descTy = getLLVMType(varInfo->type);
+            auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+            auto i64Ty = builder_.getI64Type();
+            auto oneAttr = builder_.getIntegerAttr(i64Ty, 1);
+            mlir::Value one = entryBuilder.create<mlir::arith::ConstantOp>(loc_, i64Ty, oneAttr);
+            varInfo->value = entryBuilder.create<mlir::LLVM::AllocaOp>(loc_, ptrTy, descTy, one, 0u);
+            
+            // Initialize with {null, 0}
+            mlir::Value undef = entryBuilder.create<mlir::LLVM::UndefOp>(loc_, descTy);
+            mlir::Value nullPtr = entryBuilder.create<mlir::LLVM::ZeroOp>(loc_, ptrTy);
+            mlir::Value zero = entryBuilder.create<mlir::arith::ConstantOp>(loc_, i64Ty, builder_.getIntegerAttr(i64Ty, 0));
+            
+            llvm::SmallVector<int64_t, 1> ptrPos{0};
+            mlir::Value desc = entryBuilder.create<mlir::LLVM::InsertValueOp>(loc_, undef, nullPtr, ptrPos);
+            llvm::SmallVector<int64_t, 1> lenPos{1};
+            desc = entryBuilder.create<mlir::LLVM::InsertValueOp>(loc_, desc, zero, lenPos);
+            
+            entryBuilder.create<mlir::LLVM::StoreOp>(loc_, desc, varInfo->value);
             break;
         }
 
