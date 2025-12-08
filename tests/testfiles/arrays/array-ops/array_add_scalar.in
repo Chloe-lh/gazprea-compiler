@@ -1,11 +1,12 @@
 procedure main() returns integer {
     
-    integer[*] arr = [1, 2, 3];
+    var integer[*] arr = [1, 2, 3];
     arr[2-1+1-(1*0)] = 4;
     arr -> std_output;
+    "\n" -> std_output;
     arr = arr + 1;
     arr -> std_output;
-
+    "\n" -> std_output;
     return 0;
 }
 //CHECK_FILE:array_add_scalar.out
