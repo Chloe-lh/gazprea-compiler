@@ -184,8 +184,6 @@ VarInfo MLIRGen::promoteType(VarInfo* from, CompleteType* toType, int line) {
         return *from;
     }
 
-    // TODO: support scalar -> array/matrix promotion
-
     // Only support integer -> real promotion
     if (from->type.baseType == BaseType::INTEGER && toType->baseType == BaseType::REAL) {
         VarInfo to = VarInfo(*toType);
@@ -194,7 +192,67 @@ VarInfo MLIRGen::promoteType(VarInfo* from, CompleteType* toType, int line) {
         mlir::Value fVal = builder_.create<mlir::arith::SIToFPOp>(loc_, builder_.getF32Type(), i32Val);
         builder_.create<mlir::memref::StoreOp>(loc_, fVal, to.value, mlir::ValueRange{});
         return to;
+    } else if ((from->type.baseType == BaseType::ARRAY ||
+                from->type.baseType == BaseType::VECTOR ||
+                from->type.baseType == BaseType::MATRIX) &&
+               (toType->baseType == BaseType::ARRAY ||
+                toType->baseType == BaseType::VECTOR ||
+                toType->baseType == BaseType::MATRIX)) {
+        // Composite promotion: ARRAY/VECTOR/MATRIX with matching shape and promotable element types.
+        // 1. Validate element subtypes
+        if (from->type.subTypes.size() != 1 || toType->subTypes.size() != 1) {
+            throw AssignError(
+                line,
+                std::string("Codegen: unsupported composite promotion from '") +
+                    toString(from->type) + "' to '" + toString(*toType) +
+                    "': expected exactly one element subtype.");
+        }
+        const CompleteType &fromElem = from->type.subTypes[0];
+        const CompleteType &toElem   = toType->subTypes[0];
+        if (!isScalarType(fromElem.baseType) || !isScalarType(toElem.baseType)) {
+            throw AssignError(
+                line,
+                std::string("Codegen: composite promotion only supports scalar element types, got '") +
+                    toString(fromElem) + "' -> '" + toString(toElem) + "'.");
+        }
+        // 2. Check scalar promotability using the existing promotion lattice
+        BaseType promotedElem = promote(fromElem.baseType, toElem.baseType);
+        if (promotedElem == BaseType::UNKNOWN) {
+            throw AssignError(
+                line,
+                std::string("Codegen: unsupported element promotion from '") +
+                    toString(fromElem) + "' to '" + toString(toElem) + "'.");
+        }
+        // 3. Check dimension compatibility (rank and extents)
+        std::vector<int> fromDims =
+            !from->runtimeDims.empty() ? from->runtimeDims : from->type.dims;
+        const std::vector<int> &toDims = toType->dims;
+        auto trimTrailingMinus1 = [](std::vector<int> &dims) {
+            while (!dims.empty() && dims.back() == -1) {
+                dims.pop_back();
+            }
+        };
+        trimTrailingMinus1(fromDims);
+        if (fromDims.size() != toDims.size()) {
+            throw AssignError(
+                line,
+                std::string("Codegen: cannot promote composite type with mismatched rank from '") +
+                    toString(from->type) + "' to '" + toString(*toType) + "'.");
+        }
+        for (size_t i = 0; i < toDims.size(); ++i) {
+            int dst = toDims[i];
+            int src = (i < fromDims.size() ? fromDims[i] : -1);
+            if (dst >= 0 && src >= 0 && src != dst) {
+                throw AssignError(
+                    line,
+                    std::string("Codegen: cannot promote composite type with mismatched dimensions from '") +
+                        toString(from->type) + "' to '" + toString(*toType) + "'.");
+            }
+        }
+        // 4. All checks passed: reuse the general cast machinery to build the promoted value
+        return castType(from, toType, line);
     }
+
 
     throw AssignError(line, std::string("Codegen: unsupported promotion from '") +
         toString(from->type) + "' to '" + toString(*toType) + "'.");
