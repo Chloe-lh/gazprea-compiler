@@ -244,15 +244,27 @@ void MLIRGen::visit(GeneratorExprNode* node) {
     };
 
     std::vector<mlir::Value> dynLens;
+    auto computeLenFromExpr = [&](std::shared_ptr<ExprNode> expr) -> mlir::Value {
+        // Evaluate the domain expression and compute its runtime length (array/vector/slice).
+        expr->accept(*this);
+        VarInfo v = popValue();
+        mlir::Value idxLen = computeArraySize(&v, node->line); // index type
+        return idxLen;
+    };
+
     if (!node->type.dims.empty() && !node->domains.empty()) {
         if (node->type.dims[0] < 0) {
             if (auto rangeDom = std::dynamic_pointer_cast<RangeExprNode>(node->domains[0].second)) {
                 dynLens.push_back(computeLenFromRange(rangeDom));
+            } else {
+                dynLens.push_back(computeLenFromExpr(node->domains[0].second));
             }
         }
         if (node->type.dims.size() > 1 && node->type.dims[1] < 0 && node->domains.size() > 1) {
             if (auto rangeDom1 = std::dynamic_pointer_cast<RangeExprNode>(node->domains[1].second)) {
                 dynLens.push_back(computeLenFromRange(rangeDom1));
+            } else {
+                dynLens.push_back(computeLenFromExpr(node->domains[1].second));
             }
         }
     }
