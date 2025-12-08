@@ -5,5 +5,5 @@ procedure main() returns integer {
 
     vec1 -> std_output;
 
-    return 1;
+    return 0;
 }

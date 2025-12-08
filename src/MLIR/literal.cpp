@@ -80,7 +80,7 @@ void MLIRGen::visit(IdNode* node) {
                 return;
             }
         } else {
-            throw std::runtime_error("MLIRGen::IdNode: Unsupported type in alloc");
+            throw std::runtime_error("MLIRGen::IdNode: Unsupported type " + toString(varInfo->type) + " for variable '" + node->id + "' in alloc");
         }
     }
 
@@ -89,7 +89,9 @@ void MLIRGen::visit(IdNode* node) {
         throw std::runtime_error("visit(IdNode*): Variable '" + node->id +
                                  "' has no value after allocation");
     }
-    
+
+    syncRuntimeDims(varInfo);
+
     pushValue(*varInfo); 
 }
 

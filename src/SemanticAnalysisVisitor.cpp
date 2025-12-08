@@ -272,36 +272,50 @@ void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
         throw TypeError(node->line, "Semantic Analysis: index operator applied to non-array/matrix type.");
     }
 
-    // Perform compile-time bounds check if possible (for integer literals)
-    if (auto intLiteral = std::dynamic_pointer_cast<IntNode>(node->indexExpr)) {
-        if (!var->type.dims.empty() && var->type.dims[0] >= 0) {
-            int indexValue = intLiteral->value;
-            int arraySize = var->type.dims[0];
-            // Using 1-based indexing - index must be between 1 and arraySize (or negative for reverse indexing)
-            if (indexValue == 0 || indexValue > arraySize || indexValue < -arraySize) {
-                throw SizeError(node->line, "Index " + std::to_string(indexValue) + " out of range for array of length " +
-                    std::to_string(arraySize));
-                return;
+    // ! INDEX CAN BE NEGATIVE (dynamic check)
+    // Compile-time check if dimension is known
+    if (baseType.dims.empty()) {
+        // Should have dimensions if it's ARRAY/VECTOR
+    } else {
+        // Check first index
+        if (auto intLit = std::dynamic_pointer_cast<IntNode>(node->indexExpr)) {
+            int indexVal = intLit->value;
+            int size = baseType.dims[0];
+            if (size != -1) {
+                if (indexVal > size || indexVal < 1) { // 1-based indexing check at compile time
+                     IndexError(("Index " + std::to_string(indexVal) + " out of range for array/vector of len " + std::to_string(size)).c_str());
+                }
+            } else {
+                // Dynamic size (-1): check for < 1 at compile time?
+                if (indexVal < 1) {
+                     IndexError(("Index " + std::to_string(indexVal) + " out of range (must be >= 1)").c_str());
+                }
             }
         }
     }
     
     // Handle 2D array access - check second index if present
-    if (node->indexExpr2) {
+    if (node->indexExpr2) { // non-null implies present
         node->indexExpr2->accept(*this);
         if (node->indexExpr2->type.baseType != BaseType::INTEGER) {
             throw TypeError(node->line, "Semantic Analysis: second array index must be an integer expression.");
         }
+
+        // If 2D access, verify baseType is MATRIX or 2D ARRAY
+        if (baseType.dims.size() < 2) {
+             throw TypeError(node->line, "Semantic Analysis: 2D index used on 1D array/vector.");
+        }
         
-        // Perform compile-time bounds check for second dimension if possible
-        if (auto intLiteral2 = std::dynamic_pointer_cast<IntNode>(node->indexExpr2)) {
-            if (var->type.dims.size() >= 2 && var->type.dims[1] >= 0) {
-                int indexValue2 = intLiteral2->value;
-                int arraySize2 = var->type.dims[1];
-                if (indexValue2 == 0 || indexValue2 > arraySize2 || indexValue2 < -arraySize2) {
-                    throw SizeError(node->line, "Second index " + std::to_string(indexValue2) + " out of range for dimension of length " +
-                        std::to_string(arraySize2));
-                    return;
+        if (auto intLit2 = std::dynamic_pointer_cast<IntNode>(node->indexExpr2)) {
+            int indexVal2 = intLit2->value;
+            int size2 = baseType.dims[1];
+            if (size2 != -1) {
+                if (indexVal2 > size2 || indexVal2 < 1) {
+                    IndexError(("Second index " + std::to_string(indexVal2) + " out of range for dimension of length " + std::to_string(size2)).c_str());
+                }
+            } else {
+                if (indexVal2 < 1) {
+                     IndexError(("Second index " + std::to_string(indexVal2) + " out of range (must be >= 1)").c_str());
                 }
             }
         }
@@ -422,8 +436,13 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                 //     lit->type = declaredType;
                 // }
             }
-            if(declaredType.baseType == BaseType::VECTOR){
-                declaredType.dims[0] = static_cast<int>(litSize);
+            // If `lhs` is a vector and its length is unspecified (dims[0] < 0)
+            // or dims are empty, ensure it remains dynamic (-1).
+            if (declaredType.baseType == BaseType::VECTOR) {
+                if (declaredType.dims.empty()) {
+                    declaredType.dims = {-1};
+                }
+                // Do not overwrite runtime len (-1) with literal size
                 declared->type.dims = declaredType.dims;
                 node->type.dims = declaredType.dims;
             }
@@ -520,11 +539,56 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
         // Handle initializer as identifier or general expression
         } else {
             // Permit any expression initializer (including IdNode, DotExpr, etc.)
-            // The type checking will be done below via promotion and handleAssignError
+            // The type checking will be done below via promotion and handleAssignError,
+            // but we also need to resolve inferred dimensions from rhs.
             if (initType.baseType == BaseType::UNKNOWN) {
                 throw std::runtime_error(
                     "SemanticAnalysis::ArrayTypedDecNode: Expression initializer has UNKNOWN type for '" + node->id + "'.");
             }
+
+            // Infer dimensions from initializer - first compile time dimension we see will be set as the lhs dimension. If dimension cannot be inferred, then SizeError.
+
+            // Ensure dims is populated for array/vector/matrix
+            if (declaredType.dims.empty() && (declaredType.baseType == BaseType::ARRAY || declaredType.baseType == BaseType::VECTOR)) throw std::runtime_error("SemanticAnalysis::ArrayTypedDecNode: Empty dims for type '" + toString(node->init->type));
+
+            bool hasWildcard = false;
+            for (int d : declaredType.dims) {
+                if (d < 0) { hasWildcard = true; break; }
+            }
+
+            if (declaredType.dims.size() != initType.dims.size()) {
+                SizeError(("Semantic Analysis: Initializer dimension rank mismatch for '" + node->id + "'.").c_str());
+            }
+
+            // Skip lhs dims inference if rhs is also dynamic (-1)
+            if (hasWildcard && initType.dims[0] != -1) {
+                for (size_t i = 0; i < declaredType.dims.size(); ++i) {
+                    int lhsDim = declaredType.dims[i];
+                    int rhsDim = initType.dims[i];
+
+                    if (lhsDim < 0) {
+                        if (rhsDim < 0) {
+                            // Still no concrete dimension to lock onto.
+                            SizeError(("Semantic Analysis: Cannot infer array length from initializer for '" +
+                                        node->id + "'.").c_str());
+                        }
+                        // Only infer dimensions for non-vector types (arrays)
+                        // Vectors remain dynamic (-1)
+                        if (declaredType.baseType != BaseType::VECTOR) {
+                            declaredType.dims[i] = rhsDim;
+                        }
+                    } else {
+                        if (rhsDim >= 0 && rhsDim != lhsDim) {
+                            SizeError(("Semantic Analysis: Initializer dimensions do not match declared size for '" +
+                                        node->id + "'.").c_str());
+                        }
+                    }
+                }
+
+                // Propagate inferred dims to the declared VarInfo and node type
+                declared->type.dims = declaredType.dims;
+                node->type.dims = declaredType.dims;
+                }
         }
 
         // If initializer is a matrix with concrete dimensions (e.g., generator)
@@ -621,8 +685,10 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
     if(L1 && R1){ // vector ** vector = scalar
         int Llen = getDim(leftType.dims, 0);
         int Rlen = getDim(rightType.dims, 0);
-        if(Llen < 0 || Rlen < 0) throw SizeError(node->line, "Semantic Analysis: invalid vector/array dimensions");
-        if(Llen != Rlen) throw SizeError(node->line, "Semantic Analysis: vectors/arrays must have the same dimensions in order to calculate dot product");
+        // Only enforce equality if both dimensions are known statically.
+        if (Llen >= 0 && Rlen >= 0 && Llen != Rlen) {
+            throw SizeError(node->line, ("Semantic Analysis: vectors/arrays must have the same dimensions in order to calculate dot product. Got " + std::to_string(Llen) + " and " + std::to_string(Rlen)).c_str());
+        }
         node->type = promoted;
         return;
     }else if(LM && RM){ // matrix ** matrix = matrix
@@ -635,14 +701,19 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
         int Lcol = getDim(leftType.dims, 1);
         int Rrow = getDim(rightType.dims, 0);
         int Rcol = getDim(rightType.dims, 1);
-        if(Lrow<0||Lcol<0||Rrow<0||Rcol<0) throw SizeError(node->line, "Semantic Analysis: invalid matrix dimensions");
-        if(Lcol != Rrow) throw SizeError(node->line, ("Semantic Analysis: invalid matrix dimensions for matrix multiplication - left columns (" + std::to_string(Lcol) + ") must equal right rows (" + std::to_string(Rrow) + ")"));
+        
+        // Only enforce compatibility if inner dimensions are known statically.
+        if (Lcol >= 0 && Rrow >= 0 && Lcol != Rrow) {
+            throw SizeError(node->line, ("Semantic Analysis: invalid matrix dimensions for matrix multiplication - left columns (" +
+                       std::to_string(Lcol) + ") must equal right rows (" + std::to_string(Rrow) + ")").c_str());
+        }
         
         // Ensure element type promotion succeeded
         if(promoted.baseType == BaseType::UNKNOWN) {
             throw TypeError(node->line, "Semantic Analysis: incompatible element types for matrix multiplication");
         }
         
+        // Output dimensions propagate wildcards
         int outRows = Lrow;
         int outCols = Rcol;
         node->type = CompleteType(BaseType::MATRIX, promoted, {outRows, outCols});
@@ -1205,7 +1276,7 @@ void SemanticAnalysisVisitor::visit(AssignStatNode* node) {
     // std::cerr << "Visiting AssignNode";
     // handles if undeclared
     VarInfo* varInfo = current_->resolveVar(node->name, node->line);
-    
+
     if (varInfo->isConst) {
         throw AssignError(node->line, "Semantic Analysis: cannot assign to const variable '" + node->name + "'."); // TODO add line num
     }
@@ -1324,6 +1395,35 @@ void SemanticAnalysisVisitor::visit(CallStatNode* node) {
     node->type = CompleteType(BaseType::UNKNOWN);
 }
 
+void SemanticAnalysisVisitor::visit(ArrayAccessAssignStatNode *node) {
+    if (!node->target || !node->expr) {
+        throw AssignError(node->line, "Semantic Analysis: malformed array access assignment.");
+    }
+
+    // Analyse LHS array access first (binds array variable + element type)
+    node->target->accept(*this);
+
+    if (!node->target->binding) {
+        throw std::runtime_error("Semantic Analysis: FATAL: ArrayAccessNode missing binding in assignment.");
+    }
+
+    VarInfo* arrayVar = node->target->binding;
+    if (arrayVar->isConst) {
+        throw AssignError(node->line, "Semantic Analysis: cannot assign to element of const array '" +
+                                 node->target->id + "'.");
+    }
+
+    // visit rhs
+    node->expr->accept(*this);
+
+    CompleteType elemType = resolveUnresolvedType(current_, node->target->type, node->line);
+    CompleteType exprType = resolveUnresolvedType(current_, node->expr->type, node->line);
+
+    handleAssignError(node->target->id, elemType, exprType, node->line);
+
+    node->type = CompleteType(BaseType::UNKNOWN);
+}
+
 void SemanticAnalysisVisitor::visit(TupleAccessAssignStatNode* node) {
     if (!node->target || !node->expr) {
         throw AssignError(node->line, "Semantic Analysis: malformed tuple access assignment.");
@@ -1378,37 +1478,7 @@ void SemanticAnalysisVisitor::visit(StructAccessAssignStatNode *node) {
     node->type = CompleteType(BaseType::UNKNOWN);
 }
 
-void SemanticAnalysisVisitor::visit(ArrayAccessAssignStatNode* node) {
-    if (!node->target || !node->expr) {
-        throw std::runtime_error("ArrayAccessAssignStat node: missing target or expression");
-    }
 
-    // 1. Visit the target to set its binding and determine its type
-    node->target->accept(*this);
-
-    if (!node->target->binding) {
-        // This check is good practice, though accept() should have set it or thrown.
-        throw std::runtime_error("Semantic Analysis: FATAL: ArrayAccessNode missing binding in assignment.");
-    }
-    
-    // 2. Check for assignment to const array
-    VarInfo* arrayVar = node->target->binding;
-    if (arrayVar->isConst) {
-        throw AssignError(node->line, "Semantic Analysis: cannot assign to element of const array '" +
-                                 node->target->id + "'.");
-    }
-
-    // 3. Visit the expression on the RHS
-    node->expr->accept(*this);
-
-    // 4. Type check the assignment
-    CompleteType elemType = resolveUnresolvedType(current_, node->target->type, node->line);
-    CompleteType exprType = resolveUnresolvedType(current_, node->expr->type, node->line);
-    
-    handleAssignError(node->target->id, elemType, exprType, node->line);
-
-    node->type = CompleteType(BaseType::UNKNOWN);
-}
 
 void SemanticAnalysisVisitor::visit(FuncCallExprOrStructLiteral* node) {
     // Evaluate argument expressions and build a signature to resolve the callee
@@ -1518,6 +1588,22 @@ void SemanticAnalysisVisitor::visit(IfNode* node) {
 void SemanticAnalysisVisitor::visit(BlockNode* node) {
     // New lexical scope; inherit loop/return context
     enterScopeFor(node, current_->isInLoop(), current_->getReturnType());
+
+    // Enforce declrs before stats by checking: any declaration with a line greater than the first statement line is illegal.
+    int firstStatLine = std::numeric_limits<int>::max();
+    for (const auto& s : node->stats) {
+        if (s) {
+            firstStatLine = std::min(firstStatLine, s->line);
+        }
+    }
+    if (firstStatLine != std::numeric_limits<int>::max()) {
+        for (const auto& d : node->decs) {
+            if (d && d->line > firstStatLine) {
+                throw SymbolError(d->line,
+                    "Semantic Analysis: Declarations must appear at the top of a block.");
+            }
+        }
+    }
 
     // Visit declarations, then statements
     for (const auto& d : node->decs) {

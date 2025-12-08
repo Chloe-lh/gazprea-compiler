@@ -162,9 +162,9 @@ void MLIRGen::emitPrintMatrix(const VarInfo &matrixVarInfo) {
     }
 }
 
-void MLIRGen::emitPrintArray(const VarInfo &arrayVarInfo) {
+void MLIRGen::emitPrintArray(int line, const VarInfo &arrayVarInfo) {
     if (arrayVarInfo.type.baseType != BaseType::ARRAY) {
-        throw std::runtime_error("emitPrintArray: non-array type");
+        throw TypeError(line, "MLIRGen::emitPrintArray: Called with non-array type");
     }
     if (!arrayVarInfo.value) {
         throw std::runtime_error("emitPrintArray: array has no storage");
@@ -197,7 +197,7 @@ void MLIRGen::emitPrintArray(const VarInfo &arrayVarInfo) {
     } else if (arrayVarInfo.value.getType().isa<mlir::MemRefType>()) {
         // Get size from memref (static or dynamic)
         if (arrayVarInfo.type.dims.size() != 1) {
-            throw std::runtime_error("emitPrintArray: only 1D arrays supported for printing");
+            throw std::runtime_error("emitPrintArray: Called with non-1D array");
         }
         
         auto idxTy = builder_.getIndexType();
@@ -438,7 +438,7 @@ void MLIRGen::visit(OutputStatNode* node) {
         emitPrintMatrix(exprVarInfo);
         return;
     } else if (exprVarInfo.type.baseType == BaseType::ARRAY) {
-        emitPrintArray(exprVarInfo);
+        emitPrintArray(node->line, exprVarInfo);
         return;
     } else if (exprVarInfo.type.baseType == BaseType::VECTOR) {
         throw TypeError(node->line, "Cannot print vectors");

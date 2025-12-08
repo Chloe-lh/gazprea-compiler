@@ -1,10 +1,12 @@
-procedure main(){ returns integer
+procedure main() returns integer {
     integer[3] a = [1, 2, 3];
     integer[3] b = [4, 5, 6];
     integer[3] sum = a + b;
     integer[3] scaled = a * 2;
-    print(sum);
-    print(scaled);
+    sum -> std_output;
+    "\n" -> std_output;
+    scaled -> std_output;
+    "\n" -> std_output;
     return 0;
 }
 //CHECK_FILE:array_ops.out
