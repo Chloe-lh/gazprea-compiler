@@ -169,7 +169,7 @@ private:
     VarInfo popValue();
     void pushValue(VarInfo& value);
     void emitPrintScalar(const CompleteType &type, mlir::Value value);
-    void emitPrintArray(const VarInfo &arrayVarInfo);
+    void emitPrintArray(int line, const VarInfo &arrayVarInfo);
     void emitPrintMatrix(const VarInfo &matrixVarInfo);
 
     BackEnd& backend_;
