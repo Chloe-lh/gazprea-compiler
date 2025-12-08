@@ -160,6 +160,12 @@ mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
         case BaseType::CHARACTER: return builder_.getI8Type();
         case BaseType::INTEGER: return builder_.getI32Type();
         case BaseType::REAL: return builder_.getF32Type();
+        case BaseType::STRING: {
+            auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+            auto i64Ty = builder_.getI64Type();
+            llvm::SmallVector<mlir::Type, 2> fields{ptrTy, i64Ty};
+            return mlir::LLVM::LLVMStructType::getLiteral(&context_, fields);
+        }
         case BaseType::TUPLE:
         case BaseType::STRUCT: {
             if (type.subTypes.empty()) {
@@ -426,7 +432,7 @@ void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
     } else if (variable->type.baseType == BaseType::ARRAY){
         assignToArray(literal, variable, line);
         return;
-    } else if (variable->type.baseType == BaseType::VECTOR) {
+    } else if (variable->type.baseType == BaseType::VECTOR || variable->type.baseType == BaseType::STRING) {
         assignToVector(literal, variable, line);
         return;
     } else if (variable->type.baseType == BaseType::STRUCT) {
@@ -647,14 +653,18 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
 }
 
 void MLIRGen::assignToVector(VarInfo* literal, VarInfo* variable, int line) {
-    if (literal->type.baseType != BaseType::VECTOR && literal->type.baseType != BaseType::ARRAY) {
-        throw TypeError(line, "MLIRGen::assignToVector: Literal of type '" + toString(literal->type) + "' being assigned to vector variable");
-        // TODO: Implement int -> vector
+    // Check types
+    bool isString = (variable->type.baseType == BaseType::STRING);
+    bool isVector = (variable->type.baseType == BaseType::VECTOR);
+    
+    if (!isString && !isVector) {
+        throw TypeError(line, "assignToVector: target must be STRING or VECTOR");
     }
     
-    // Validate literal has correct structure
-    if (literal->type.subTypes.size() != 1) {
-        throw std::runtime_error("assignToVector: literal type must have exactly one element subtype");
+    // Check if variable is a mutable descriptor (pointer to LLVM struct)
+    // Local variables allocated via allocaVar (for VECTOR/STRING) are pointers to descriptors.
+    if (!variable->value.getType().isa<mlir::LLVM::LLVMPointerType>()) {
+         throw std::runtime_error("assignToVector: variable must be a mutable descriptor (LLVM pointer)");
     }
     
     // Ensure variable storage exists (vector is allocated with zero length initially)
