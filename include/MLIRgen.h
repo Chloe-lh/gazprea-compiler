@@ -103,7 +103,12 @@ public:
     void assignToArray(VarInfo* literal, VarInfo* variable, int line);
     void assignToVector(VarInfo* literal, VarInfo* variable, int line);
     void allocaLiteral(VarInfo* varInfo, int line);
-    void allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue = nullptr);
+    void allocaVar(VarInfo* varInfo, int line, const std::vector<mlir::Value>& sizeValues = {});
+    inline void allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
+        std::vector<mlir::Value> sizes;
+        if (sizeValue) sizes.push_back(sizeValue);
+        allocaVar(varInfo, line, sizes);
+    }
     mlir::Value computeArraySize(VarInfo* source, int line);
     mlir::Value allocaVector(int len, VarInfo *varInfo);
     void zeroInitializeVar(VarInfo* varInfo);

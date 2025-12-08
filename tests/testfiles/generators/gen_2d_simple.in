@@ -1,0 +1,7 @@
+procedure main() returns integer {
+    integer[2][3] M = [i in 1..2, j in 1..3 | i * j];
+    M -> std_output;
+    return 0;
+}
+//CHECK_FILE:gen_2d_simple.out
+

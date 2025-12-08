@@ -260,8 +260,8 @@ void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
     }
 
     CompleteType baseType = resolveUnresolvedType(current_, var->type, node->line);
-    if (baseType.baseType != BaseType::ARRAY && baseType.baseType != BaseType::VECTOR) {
-        throw TypeError(node->line, "Semantic Analysis: index operator applied to non-array type.");
+    if (baseType.baseType != BaseType::ARRAY && baseType.baseType != BaseType::VECTOR && baseType.baseType != BaseType::MATRIX) {
+        throw TypeError(node->line, "Semantic Analysis: index operator applied to non-array/matrix type.");
     }
 
     // Perform compile-time bounds check if possible (for integer literals)
@@ -352,6 +352,11 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
         // std::cerr << "[DEBUG] Initializer present for " << node->id << "\n";
         node->init->accept(*this);
         CompleteType initType = resolveUnresolvedType(current_, node->init->type, node->line);
+        // If a generator produced UNKNOWN (e.g., dynamic matrix), fall back to declared type
+        if (initType.baseType == BaseType::UNKNOWN) {
+            initType = declaredType;
+            node->init->type = declaredType;
+        }
         // std::cerr << "[DEBUG] Initializer type: " << toString(initType) << "\n";
 
         // 1. Handle array literals as initializer
@@ -511,6 +516,22 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
             if (initType.baseType == BaseType::UNKNOWN) {
                 throw std::runtime_error(
                     "SemanticAnalysis::ArrayTypedDecNode: Expression initializer has UNKNOWN type for '" + node->id + "'.");
+            }
+        }
+
+        // If initializer is a matrix with concrete dimensions (e.g., generator)
+        // and the declared matrix uses wildcards, adopt the concrete dims so
+        // downstream allocation/codegen knows the real shape.
+        if (declaredType.baseType == BaseType::MATRIX && initType.baseType == BaseType::MATRIX) {
+            if (declaredType.dims.size() < 2) declaredType.dims.resize(2, -1);
+            if (initType.dims.size() == 2) {
+                for (size_t i = 0; i < 2; ++i) {
+                    if (declaredType.dims[i] < 0 && initType.dims[i] >= 0) {
+                        declaredType.dims[i] = initType.dims[i];
+                    }
+                }
+                declared->type.dims = declaredType.dims;
+                node->type.dims = declaredType.dims;
             }
         }
         handleGlobalErrors(node);
@@ -1655,71 +1676,79 @@ void SemanticAnalysisVisitor::visit(GeneratorExprNode* node) {
         throw TypeError(node->line, "Generator must have 1 or 2 domain variables.");
     }
 
-    // For 1D only in this milestone
     size_t arity = node->domains.size();
-    if (arity != 1) {
-        throw TypeError(node->line, "2D generators not yet implemented.");
+    if (arity == 0 || arity > 2) {
+        throw TypeError(node->line, "Generator must have 1 or 2 domain variables.");
     }
 
-    // Domain normalization: visit domain expr (allows range, array, nested generator)
-    auto &domPair = node->domains[0];
-    if (!domPair.second) {
-        throw TypeError(node->line, "Generator domain is null.");
-    }
-    domPair.second->accept(*this);
-    CompleteType domType = resolveUnresolvedType(current_, domPair.second->type, node->line);
-    if (domType.baseType != BaseType::ARRAY && domType.baseType != BaseType::VECTOR && domType.baseType != BaseType::MATRIX && domType.baseType != BaseType::UNKNOWN) {
-        throw TypeError(node->line, "Generator domain must be array/vector/matrix or range.");
-    }
-
-    // Determine length for 1D
-    int len = -1; // -1 dynamic
-    if (!domType.dims.empty() && domType.dims[0] >= 0) {
-        len = domType.dims[0];
-    }
-    // If domain is RangeExprNode, try to compute static len; else keep dynamic
-    if (auto rangeDom = std::dynamic_pointer_cast<RangeExprNode>(domPair.second)) {
-        // Best-effort static length if start/end/step are int literals
-        int startLit = 1;
-        int endLit = -1;
-        int stepLit = 1;
-        bool startIsLit = false, endIsLit = false, stepIsLit = false;
-        if (rangeDom->start) {
-            if (auto s = std::dynamic_pointer_cast<IntNode>(rangeDom->start)) { startLit = s->value; startIsLit = true; }
-        } else { startIsLit = true; startLit = 1; }
-        if (rangeDom->end) {
-            if (auto e = std::dynamic_pointer_cast<IntNode>(rangeDom->end)) { endLit = e->value; endIsLit = true; }
+    auto analyzeDomain = [&](std::pair<std::string, std::shared_ptr<ExprNode>>& domPair, int idx) -> std::tuple<CompleteType,int,CompleteType> {
+        if (!domPair.second) {
+            throw TypeError(node->line, "Generator domain is null.");
         }
-        if (rangeDom->step) {
-            if (auto st = std::dynamic_pointer_cast<IntNode>(rangeDom->step)) { stepLit = st->value; stepIsLit = true; }
-        } else { stepIsLit = true; stepLit = 1; }
-        if (stepLit <= 0 && stepIsLit) throw StrideError(node->line, "Iterator loop range stride must be positive.");
-        if (startIsLit && endIsLit && stepIsLit) {
-            if (endLit < startLit) len = 0;
-            else len = static_cast<int>((static_cast<int64_t>(endLit - startLit) / stepLit) + 1);
+        domPair.second->accept(*this);
+        CompleteType domType = resolveUnresolvedType(current_, domPair.second->type, node->line);
+        if (domType.baseType != BaseType::ARRAY && domType.baseType != BaseType::VECTOR && domType.baseType != BaseType::MATRIX && domType.baseType != BaseType::UNKNOWN) {
+            throw TypeError(node->line, "Generator domain must be array/vector/matrix or range.");
         }
+        int len = -1;
+        if (!domType.dims.empty() && domType.dims[0] >= 0) len = domType.dims[0];
+        if (auto rangeDom = std::dynamic_pointer_cast<RangeExprNode>(domPair.second)) {
+            int startLit = 1;
+            int endLit = -1;
+            int stepLit = 1;
+            bool startIsLit = false, endIsLit = false, stepIsLit = false;
+            if (rangeDom->start) {
+                if (auto s = std::dynamic_pointer_cast<IntNode>(rangeDom->start)) { startLit = s->value; startIsLit = true; }
+            } else { startIsLit = true; startLit = 1; }
+            if (rangeDom->end) {
+                if (auto e = std::dynamic_pointer_cast<IntNode>(rangeDom->end)) { endLit = e->value; endIsLit = true; }
+            }
+            if (rangeDom->step) {
+                if (auto st = std::dynamic_pointer_cast<IntNode>(rangeDom->step)) { stepLit = st->value; stepIsLit = true; }
+            } else { stepIsLit = true; stepLit = 1; }
+            if (stepLit <= 0 && stepIsLit) throw StrideError(node->line, "Iterator loop range stride must be positive.");
+            if (startIsLit && endIsLit && stepIsLit) {
+                if (endLit < startLit) len = 0;
+                else len = static_cast<int>((static_cast<int64_t>(endLit - startLit) / stepLit) + 1);
+            }
+        }
+        CompleteType iterType(BaseType::UNKNOWN);
+        if (domType.baseType == BaseType::ARRAY || domType.baseType == BaseType::VECTOR || domType.baseType == BaseType::MATRIX) {
+            if (!domType.subTypes.empty()) iterType = domType.subTypes[0];
+        } else {
+            iterType = CompleteType(BaseType::INTEGER);
+        }
+        return {domType, len, iterType};
+    };
+
+    auto domInfo0 = analyzeDomain(node->domains[0], 0);
+    CompleteType domType0; int len0; CompleteType iterType0;
+    std::tie(domType0, len0, iterType0) = domInfo0;
+
+    CompleteType domType1; int len1 = -1; CompleteType iterType1(BaseType::UNKNOWN);
+    if (arity == 2) {
+        auto domInfo1 = analyzeDomain(node->domains[1], 1);
+        std::tie(domType1, len1, iterType1) = domInfo1;
     }
 
-    // Determine element type: use domain element type where possible
-    CompleteType iterType(BaseType::UNKNOWN);
-    if (domType.baseType == BaseType::ARRAY || domType.baseType == BaseType::VECTOR || domType.baseType == BaseType::MATRIX) {
-        if (!domType.subTypes.empty()) iterType = domType.subTypes[0];
-    } else {
-        // Range domain -> integer
-        iterType = CompleteType(BaseType::INTEGER);
-    }
-
-    // Bind iterator with inferred element type in a child scope, then visit RHS to refine
+    // Bind iterator(s) with inferred element type(s) in a child scope, then visit RHS to refine
     enterScopeFor(node, current_->isInLoop(), current_->getReturnType());
-    current_->declareVar(domPair.first, iterType, true, node->line);
+    current_->declareVar(node->domains[0].first, iterType0, true, node->line);
+    if (arity == 2) {
+        current_->declareVar(node->domains[1].first, iterType1, true, node->line);
+    }
     if (node->rhs) node->rhs->accept(*this);
     CompleteType elemType = resolveUnresolvedType(current_, node->rhs ? node->rhs->type : CompleteType(BaseType::UNKNOWN), node->line);
     exitScope();
 
-    // Build result type
-    CompleteType resultType(BaseType::ARRAY);
+    // Build result type (2D uses MATRIX for clarity)
+    CompleteType resultType(arity == 2 ? BaseType::MATRIX : BaseType::ARRAY);
     resultType.subTypes.push_back(elemType);
-    resultType.dims = {len};
+    if (arity == 1) {
+        resultType.dims = {len0};
+    } else {
+        resultType.dims = {len0, len1};
+    }
     node->type = resultType;
 
     // Allocate result var (in lowered block) with computed len (static or dynamic)
@@ -1730,61 +1759,129 @@ void SemanticAnalysisVisitor::visit(GeneratorExprNode* node) {
     // Declare in current scope so downstream passes can resolve it
     current_->declareVar(resName, resultType, false, node->line);
 
-    // Build iterator loop to fill result: loop idx in domain { res[w]=rhs; w++ }
-    // Write index declaration (var w = 1)
     auto one = std::make_shared<IntNode>(1); one->line = node->line;
-    auto wName = "__gen_w_" + std::to_string(genTempCounter);
-    auto wDec = std::make_shared<InferredDecNode>(wName, "var", one);
-    wDec->line = node->line;
-    current_->declareVar(wName, CompleteType(BaseType::INTEGER), false, node->line);
 
-    // Iterator binding inside loop: const iter = domain element (handled by IteratorLoopNode)
-    // Body: res[w] = rhs; w = w + 1;
-    // Build assign res[w] = rhs
-    auto resId = std::make_shared<IdNode>(resName); resId->line = node->line;
-    auto wIdForStore = std::make_shared<IdNode>(wDec->name); wIdForStore->line = node->line;
-    auto arrAccess = std::make_shared<ArrayAccessNode>(resId->id, wIdForStore);
-    arrAccess->line = node->line;
-    // RHS: use original rhs with iterator binding resolved in loop scope; just reuse node->rhs
-    auto storeStat = std::make_shared<ArrayAccessAssignStatNode>(arrAccess, node->rhs);
-    storeStat->line = node->line;
+    if (arity == 1) {
+        // Write index declaration (var w = 1)
+        auto wName = "__gen_w_" + std::to_string(genTempCounter);
+        auto wDec = std::make_shared<InferredDecNode>(wName, "var", one);
+        wDec->line = node->line;
+        current_->declareVar(wName, CompleteType(BaseType::INTEGER), false, node->line);
 
-    // Increment w
-    auto wIdForInc = std::make_shared<IdNode>(wDec->name); wIdForInc->line = node->line;
-    auto incExpr = std::make_shared<AddExpr>("+", wIdForInc, one);
-    incExpr->line = node->line;
-    auto incStat = std::make_shared<AssignStatNode>(wDec->name, incExpr);
-    incStat->line = node->line;
+        // res[w] = rhs; w++
+        auto resId = std::make_shared<IdNode>(resName); resId->line = node->line;
+        auto wIdForStore = std::make_shared<IdNode>(wDec->name); wIdForStore->line = node->line;
+        auto arrAccess = std::make_shared<ArrayAccessNode>(resId->id, wIdForStore);
+        arrAccess->line = node->line;
+        auto storeStat = std::make_shared<ArrayAccessAssignStatNode>(arrAccess, node->rhs);
+        storeStat->line = node->line;
 
-    // Loop body block: store RHS into result[w], then increment w
-    std::vector<std::shared_ptr<DecNode>> loopDecs;
-    std::vector<std::shared_ptr<StatNode>> loopStats;
-    loopStats.push_back(storeStat);
-    loopStats.push_back(incStat);
-    auto loopBody = std::make_shared<BlockNode>(std::move(loopDecs), std::move(loopStats));
-    loopBody->line = node->line;
+        auto wIdForInc = std::make_shared<IdNode>(wDec->name); wIdForInc->line = node->line;
+        auto incExpr = std::make_shared<AddExpr>("+", wIdForInc, one);
+        incExpr->line = node->line;
+        auto incStat = std::make_shared<AssignStatNode>(wDec->name, incExpr);
+        incStat->line = node->line;
 
-    // Iterator loop over domain
-    auto iterLoop = std::make_shared<IteratorLoopNode>(domPair.first, domPair.second, loopBody);
-    iterLoop->line = node->line;
+        std::vector<std::shared_ptr<DecNode>> loopDecs;
+        std::vector<std::shared_ptr<StatNode>> loopStats;
+        loopStats.push_back(storeStat);
+        loopStats.push_back(incStat);
+        auto loopBody = std::make_shared<BlockNode>(std::move(loopDecs), std::move(loopStats));
+        loopBody->line = node->line;
 
-    // Lowered block: [resDec, wDec] then iter loop
-    std::vector<std::shared_ptr<DecNode>> loweredDecs;
-    loweredDecs.push_back(resDec);
-    loweredDecs.push_back(wDec);
-    std::vector<std::shared_ptr<StatNode>> loweredStats;
-    loweredStats.push_back(iterLoop);
-    auto lowered = std::make_shared<BlockNode>(std::move(loweredDecs), std::move(loweredStats));
-    lowered->line = node->line;
+        auto iterLoop = std::make_shared<IteratorLoopNode>(node->domains[0].first, node->domains[0].second, loopBody);
+        iterLoop->line = node->line;
 
-    node->lowered = lowered;
-    node->loweredResultName = resName;
+        std::vector<std::shared_ptr<DecNode>> loweredDecs;
+        loweredDecs.push_back(resDec);
+        loweredDecs.push_back(wDec);
+        std::vector<std::shared_ptr<StatNode>> loweredStats;
+        loweredStats.push_back(iterLoop);
+        auto lowered = std::make_shared<BlockNode>(std::move(loweredDecs), std::move(loweredStats));
+        lowered->line = node->line;
 
-    // Visit lowered STATS ONLY to resolve references without creating new scope/shadowing vars
-    // We skip visiting decs in SA because we manually declared them in the current scope above.
-    // MLIRGen will still visit the declarations to handle allocation/initialization.
-    for (const auto& s : lowered->stats) {
-        if (s) s->accept(*this);
+        node->lowered = lowered;
+        node->loweredResultName = resName;
+
+        for (const auto& s : lowered->stats) {
+            if (s) s->accept(*this);
+        }
+    } else {
+        // 2D: write indices wRow, wCol
+        auto wRowName = "__gen_w_row_" + std::to_string(genTempCounter);
+        auto wColName = "__gen_w_col_" + std::to_string(genTempCounter);
+        auto wRowDec = std::make_shared<InferredDecNode>(wRowName, "var", one);
+        wRowDec->line = node->line;
+        auto wColDec = std::make_shared<InferredDecNode>(wColName, "var", one);
+        wColDec->line = node->line;
+        current_->declareVar(wRowName, CompleteType(BaseType::INTEGER), false, node->line);
+        current_->declareVar(wColName, CompleteType(BaseType::INTEGER), false, node->line);
+
+        // Store: res[wRow][wCol] = rhs
+        auto resId = std::make_shared<IdNode>(resName); resId->line = node->line;
+        auto wRowId = std::make_shared<IdNode>(wRowName); wRowId->line = node->line;
+        auto wColId = std::make_shared<IdNode>(wColName); wColId->line = node->line;
+        auto arrAccess = std::make_shared<ArrayAccessNode>(resId->id, wRowId, wColId);
+        arrAccess->line = node->line;
+        auto storeStat = std::make_shared<ArrayAccessAssignStatNode>(arrAccess, node->rhs);
+        storeStat->line = node->line;
+
+        // wCol = wCol + 1
+        auto wColIdInc = std::make_shared<IdNode>(wColName); wColIdInc->line = node->line;
+        auto incColExpr = std::make_shared<AddExpr>("+", wColIdInc, one);
+        incColExpr->line = node->line;
+        auto incColStat = std::make_shared<AssignStatNode>(wColName, incColExpr);
+        incColStat->line = node->line;
+
+        // inner loop body
+        std::vector<std::shared_ptr<DecNode>> innerDecs;
+        std::vector<std::shared_ptr<StatNode>> innerStats;
+        innerStats.push_back(storeStat);
+        innerStats.push_back(incColStat);
+        auto innerBody = std::make_shared<BlockNode>(std::move(innerDecs), std::move(innerStats));
+        innerBody->line = node->line;
+
+        auto innerIter = std::make_shared<IteratorLoopNode>(node->domains[1].first, node->domains[1].second, innerBody);
+        innerIter->line = node->line;
+
+        // Reset wCol to 1 before inner loop
+        auto resetCol = std::make_shared<AssignStatNode>(wColName, one);
+        resetCol->line = node->line;
+
+        // wRow = wRow + 1 after inner loop
+        auto wRowIdInc = std::make_shared<IdNode>(wRowName); wRowIdInc->line = node->line;
+        auto incRowExpr = std::make_shared<AddExpr>("+", wRowIdInc, one);
+        incRowExpr->line = node->line;
+        auto incRowStat = std::make_shared<AssignStatNode>(wRowName, incRowExpr);
+        incRowStat->line = node->line;
+
+        // Outer loop body: reset col, inner iter, inc row
+        std::vector<std::shared_ptr<DecNode>> outerDecsInBody;
+        std::vector<std::shared_ptr<StatNode>> outerStatsInBody;
+        outerStatsInBody.push_back(resetCol);
+        outerStatsInBody.push_back(innerIter);
+        outerStatsInBody.push_back(incRowStat);
+        auto outerBody = std::make_shared<BlockNode>(std::move(outerDecsInBody), std::move(outerStatsInBody));
+        outerBody->line = node->line;
+
+        auto outerIter = std::make_shared<IteratorLoopNode>(node->domains[0].first, node->domains[0].second, outerBody);
+        outerIter->line = node->line;
+
+        std::vector<std::shared_ptr<DecNode>> loweredDecs;
+        loweredDecs.push_back(resDec);
+        loweredDecs.push_back(wRowDec);
+        loweredDecs.push_back(wColDec);
+        std::vector<std::shared_ptr<StatNode>> loweredStats;
+        loweredStats.push_back(outerIter);
+        auto lowered = std::make_shared<BlockNode>(std::move(loweredDecs), std::move(loweredStats));
+        lowered->line = node->line;
+
+        node->lowered = lowered;
+        node->loweredResultName = resName;
+
+        for (const auto& s : lowered->stats) {
+            if (s) s->accept(*this);
+        }
     }
 }
 

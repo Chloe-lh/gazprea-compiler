@@ -213,52 +213,63 @@ void MLIRGen::visit(GeneratorExprNode* node) {
     if (!node->lowered) {
         throw std::runtime_error("GeneratorExprNode: missing lowered form; semantic pass should have populated it.");
     }
-    // Try to pre-compute runtime length for dynamic range domains to allocate the result.
-    std::optional<mlir::Value> dynLen;
-    if (!node->type.dims.empty() && node->type.dims[0] < 0 && !node->domains.empty()) {
-        if (auto rangeDom = std::dynamic_pointer_cast<RangeExprNode>(node->domains[0].second)) {
-            auto getIntVal = [&](std::shared_ptr<ExprNode> expr, int fallback) -> mlir::Value {
-                if (!expr) {
-                    auto cstTy = builder_.getI32Type();
-                    return builder_.create<mlir::arith::ConstantOp>(loc_, cstTy, builder_.getIntegerAttr(cstTy, fallback));
-                }
-                expr->accept(*this);
-                VarInfo v = popValue();
-                return getSSAValue(v); // load if memref-backed
-            };
-            mlir::Value startV = getIntVal(rangeDom->start, 1);
-            mlir::Value endV   = getIntVal(rangeDom->end, 1); // end should exist; fallback safe
-            mlir::Value stepV  = getIntVal(rangeDom->step, 1);
+    // Try to pre-compute runtime length(s) for dynamic range domains to allocate the result.
+    auto computeLenFromRange = [&](std::shared_ptr<RangeExprNode> rangeDom) -> mlir::Value {
+        auto getIntVal = [&](std::shared_ptr<ExprNode> expr, int fallback) -> mlir::Value {
+            if (!expr) {
+                auto cstTy = builder_.getI32Type();
+                return builder_.create<mlir::arith::ConstantOp>(loc_, cstTy, builder_.getIntegerAttr(cstTy, fallback));
+            }
+            expr->accept(*this);
+            VarInfo v = popValue();
+            return getSSAValue(v); // load if memref-backed
+        };
+        mlir::Value startV = getIntVal(rangeDom->start, 1);
+        mlir::Value endV   = getIntVal(rangeDom->end, 1);
+        mlir::Value stepV  = getIntVal(rangeDom->step, 1);
 
-            auto cstTy = builder_.getI32Type();
-            mlir::Value zero = builder_.create<mlir::arith::ConstantOp>(loc_, cstTy, builder_.getIntegerAttr(cstTy, 0));
-            mlir::Value one  = builder_.create<mlir::arith::ConstantOp>(loc_, cstTy, builder_.getIntegerAttr(cstTy, 1));
+        auto cstTy = builder_.getI32Type();
+        mlir::Value zero = builder_.create<mlir::arith::ConstantOp>(loc_, cstTy, builder_.getIntegerAttr(cstTy, 0));
+        mlir::Value one  = builder_.create<mlir::arith::ConstantOp>(loc_, cstTy, builder_.getIntegerAttr(cstTy, 1));
 
-            // len = (end - start) / step + 1, but clamp to 0 if end < start
-            mlir::Value diff    = builder_.create<mlir::arith::SubIOp>(loc_, endV, startV);
-            mlir::Value div     = builder_.create<mlir::arith::DivSIOp>(loc_, diff, stepV);
-            mlir::Value lenVal  = builder_.create<mlir::arith::AddIOp>(loc_, div, one);
-            mlir::Value endLtStart = builder_.create<mlir::arith::CmpIOp>(
-                loc_, mlir::arith::CmpIPredicate::slt, endV, startV);
-            lenVal = builder_.create<mlir::arith::SelectOp>(loc_, endLtStart, zero, lenVal);
-            // cast to index for memref.alloca
-            auto idxTy = builder_.getIndexType();
-            dynLen = builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, lenVal);
+        // len = (end - start) / step + 1, but clamp to 0 if end < start
+        mlir::Value diff    = builder_.create<mlir::arith::SubIOp>(loc_, endV, startV);
+        mlir::Value div     = builder_.create<mlir::arith::DivSIOp>(loc_, diff, stepV);
+        mlir::Value lenVal  = builder_.create<mlir::arith::AddIOp>(loc_, div, one);
+        mlir::Value endLtStart = builder_.create<mlir::arith::CmpIOp>(
+            loc_, mlir::arith::CmpIPredicate::slt, endV, startV);
+        lenVal = builder_.create<mlir::arith::SelectOp>(loc_, endLtStart, zero, lenVal);
+        auto idxTy = builder_.getIndexType();
+        return builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, lenVal);
+    };
+
+    std::vector<mlir::Value> dynLens;
+    if (!node->type.dims.empty() && !node->domains.empty()) {
+        if (node->type.dims[0] < 0) {
+            if (auto rangeDom = std::dynamic_pointer_cast<RangeExprNode>(node->domains[0].second)) {
+                dynLens.push_back(computeLenFromRange(rangeDom));
+            }
+        }
+        if (node->type.dims.size() > 1 && node->type.dims[1] < 0 && node->domains.size() > 1) {
+            if (auto rangeDom1 = std::dynamic_pointer_cast<RangeExprNode>(node->domains[1].second)) {
+                dynLens.push_back(computeLenFromRange(rangeDom1));
+            }
         }
     }
 
     // Manually emit lowered decs/stats in the current scope (avoid new scope)
     for (const auto &d : node->lowered->decs) {
         if (!d) continue;
-        // Special-case the generated result array when dynamic length: allocate with computed size
+        // Special-case the generated result array when dynamic length(s): allocate with computed sizes
         if (auto arrDec = std::dynamic_pointer_cast<ArrayTypedDecNode>(d)) {
             if (arrDec->id == node->loweredResultName) {
                 VarInfo* var = currScope_->resolveVar(arrDec->id, arrDec->line);
                 if (!var) throw std::runtime_error("GeneratorExprNode: result var not found");
-                bool isDynamic = !var->type.dims.empty() && var->type.dims[0] < 0;
-                if (isDynamic && dynLen.has_value()) {
+                bool anyDynamic = false;
+                for (int dim : var->type.dims) { if (dim < 0) { anyDynamic = true; break; } }
+                if (anyDynamic && !dynLens.empty()) {
                     if (!var->value) {
-                        allocaVar(var, arrDec->line, *dynLen);
+                        allocaVar(var, arrDec->line, dynLens);
                     }
                     continue; // skip default visitor to avoid double alloc
                 }

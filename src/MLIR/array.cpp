@@ -262,8 +262,8 @@ void MLIRGen::visit(ArrayAccessNode *node) {
     if (!currScope_) throw std::runtime_error("ArrayAccessNode: no current scope");
     VarInfo* arrVarInfo = node->binding;
     if (!arrVarInfo) throw std::runtime_error("ArrayAccessNode: unresolved array '"+node->id+"'");
-    if (arrVarInfo->type.baseType != BaseType::ARRAY && arrVarInfo->type.baseType != BaseType::VECTOR)
-        throw std::runtime_error("ArrayAccessNode: Variable '" + node->id + "' is not an array or vector.");
+    if (arrVarInfo->type.baseType != BaseType::ARRAY && arrVarInfo->type.baseType != BaseType::VECTOR && arrVarInfo->type.baseType != BaseType::MATRIX)
+        throw std::runtime_error("ArrayAccessNode: Variable '" + node->id + "' is not an array, matrix, or vector.");
 
     if (!arrVarInfo->value) {
         auto globalOp = module_.lookupSymbol<mlir::LLVM::GlobalOp>(node->id);
@@ -311,7 +311,7 @@ void MLIRGen::visit(ArrayAccessNode *node) {
     // Create scalar VarInfo with element's CompleteType.
     // For homogeneous arrays, element type is the single subtype.
     if (arrVarInfo->type.subTypes.size() != 1) {
-        throw std::runtime_error("ArrayAccessNode: array type must have exactly one element subtype");
+        throw std::runtime_error("ArrayAccessNode: array/matrix type must have exactly one element subtype");
     }
     CompleteType elemType = arrVarInfo->type.subTypes[0];
     VarInfo out(elemType);
@@ -447,11 +447,26 @@ void MLIRGen::visit(ArrayTypedDecNode *node) {
         }
 
         mlir::Type idxTy = builder_.getIndexType();
-        for (size_t i = 0; i < n; ++i) {
-            mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
-                loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(i)));
-            builder_.create<mlir::memref::StoreOp>(
-                loc_, zeroVal, declaredVar->value, mlir::ValueRange{idx});
+        if (declaredVar->type.dims.size() == 2) {
+            int rows = declaredVar->type.dims[0];
+            int cols = declaredVar->type.dims[1];
+            for (int r = 0; r < rows; ++r) {
+                for (int c = 0; c < cols; ++c) {
+                    mlir::Value idxR = builder_.create<mlir::arith::ConstantOp>(
+                        loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(r)));
+                    mlir::Value idxC = builder_.create<mlir::arith::ConstantOp>(
+                        loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(c)));
+                    builder_.create<mlir::memref::StoreOp>(
+                        loc_, zeroVal, declaredVar->value, mlir::ValueRange{idxR, idxC});
+                }
+            }
+        } else {
+            for (size_t i = 0; i < n; ++i) {
+                mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(i)));
+                builder_.create<mlir::memref::StoreOp>(
+                    loc_, zeroVal, declaredVar->value, mlir::ValueRange{idx});
+            }
         }
     }
 }

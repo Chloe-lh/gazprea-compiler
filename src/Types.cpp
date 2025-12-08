@@ -362,13 +362,18 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                             std::to_string(to.subTypes.size()));
                     }
 
-                    // ensure dimensions match
+                    // ensure dimensions match, permitting wildcard (-1) compatibility
                     if (from.dims.size() != 2 || to.dims.size() != 2) {
                         return CompleteType(BaseType::UNKNOWN);
                     }
-                    if (from.dims[0] != to.dims[0] || from.dims[1] != to.dims[1]) {
-                        return CompleteType(BaseType::UNKNOWN);
-                    }
+                    // Dimension compatibility rules:
+                    //  - Exact match is always ok
+                    //  - Target wildcard (-1) accepts any source dim (static or dynamic)
+                    //  - Source wildcard (-1) can target a specific dim
+                    //  - Both wildcard is also ok
+                    bool dim0Ok = (to.dims[0] == -1) || (from.dims[0] == -1) || (from.dims[0] == to.dims[0]);
+                    bool dim1Ok = (to.dims[1] == -1) || (from.dims[1] == -1) || (from.dims[1] == to.dims[1]);
+                    if (!dim0Ok || !dim1Ok) return CompleteType(BaseType::UNKNOWN);
 
                     CompleteType result(BaseType::MATRIX);
                     CompleteType subtypeResult = promote(from.subTypes[0], to.subTypes[0]);
@@ -376,6 +381,7 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                         return CompleteType(BaseType::UNKNOWN);
                     }
 
+                    // Preserve the target's declared shape; semantic checks already validated compatibility.
                     result.subTypes.push_back(subtypeResult);
                     result.dims = to.dims;
 

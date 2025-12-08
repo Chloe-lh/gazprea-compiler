@@ -2,6 +2,7 @@
 #include "MLIRgen.h"
 #include "Types.h"
 #include "llvm/Support/raw_ostream.h" // For llvm::errs()
+#include "llvm/ADT/ArrayRef.h"
 #include <iostream> // For std::cerr
 
 VarInfo MLIRGen::popValue() {
@@ -678,7 +679,7 @@ mlir::func::FuncOp MLIRGen::getCurrentEnclosingFunction() {
     throw std::runtime_error("allocaVar: could not find parent function for allocation");
 }
 
-void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
+void MLIRGen::allocaVar(VarInfo* varInfo, int line, const std::vector<mlir::Value>& sizeValues) {
     mlir::func::FuncOp funcOp = getCurrentEnclosingFunction();
     mlir::Block &entry = funcOp.front();
     mlir::OpBuilder entryBuilder(&entry, entry.begin());
@@ -732,7 +733,7 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
                 varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
             } else if (varInfo->type.dims.size() == 1 && varInfo->type.dims[0] < 0) {
                 // Dynamic array size - requires sizeValue parameter
-                if (!sizeValue) {
+                if (sizeValues.size() != 1) {
                     throw std::runtime_error("allocaVar: dynamic array requires sizeValue parameter for variable '" +
                                              (varInfo->identifier.empty() ? std::string("<temporary>") : varInfo->identifier) + "'");
                 }
@@ -743,7 +744,7 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
                 varInfo->value = builder_.create<mlir::memref::AllocaOp>(
                     loc_,
                     memTy,
-                    mlir::ValueRange{sizeValue}, // dynamic size operand
+                    mlir::ValueRange{sizeValues[0]}, // dynamic size operand
                     mlir::ValueRange{},           // symbol operands
                     mlir::IntegerAttr()           // no alignment
                 );
@@ -753,6 +754,21 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
                 int64_t cols = varInfo->type.dims[1];
                 auto memTy = mlir::MemRefType::get({rows, cols}, elemTy);
                 varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
+            } else if (varInfo->type.dims.size() == 2 &&
+                       (varInfo->type.dims[0] < 0 || varInfo->type.dims[1] < 0)) {
+                // Dynamic 2D
+                if (sizeValues.size() != 2) {
+                    throw std::runtime_error("allocaVar: dynamic 2D array requires two size operands for variable '" +
+                                             (varInfo->identifier.empty() ? std::string("<temporary>") : varInfo->identifier) + "'");
+                }
+                auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic, mlir::ShapedType::kDynamic}, elemTy);
+                llvm::ArrayRef<mlir::Value> dynSizes(sizeValues);
+                varInfo->value = builder_.create<mlir::memref::AllocaOp>(
+                    loc_,
+                    memTy,
+                    dynSizes, // two dynamic sizes
+                    mlir::ValueRange{},
+                    mlir::IntegerAttr());
             } else {
                 throw std::runtime_error("allocaVar: unsupported array shape with dimension " + std::to_string(varInfo->type.dims.size()) + " for variable '" +
                                          (varInfo->identifier.empty() ? std::string("<unknown>") : varInfo->identifier) + "'");
@@ -773,16 +789,20 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
                                          (varInfo->identifier.empty() ? std::string("<unknown>") : varInfo->identifier) + "'");
             }
             if (varInfo->type.dims[0] < 0 || varInfo->type.dims[1] < 0) {
-                throw std::runtime_error("allocaVar: MATRIX dimensions cannot be inferred (dims: " + 
-                                         std::to_string(varInfo->type.dims[0]) + "," + std::to_string(varInfo->type.dims[1]) + 
-                                         ") for variable '" +
-                                         (varInfo->identifier.empty() ? std::string("<unknown>") : varInfo->identifier) + "'");
+                if (sizeValues.size() != 2) {
+                    throw std::runtime_error("allocaVar: MATRIX dynamic dimensions require two size operands for variable '" +
+                                             (varInfo->identifier.empty() ? std::string("<unknown>") : varInfo->identifier) + "'");
+                }
+                auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic, mlir::ShapedType::kDynamic}, elemTy);
+                llvm::ArrayRef<mlir::Value> dynSizes(sizeValues);
+                varInfo->value = builder_.create<mlir::memref::AllocaOp>(
+                    loc_, memTy, dynSizes, mlir::ValueRange{}, mlir::IntegerAttr());
+            } else {
+                int64_t rows = varInfo->type.dims[0];
+                int64_t cols = varInfo->type.dims[1];
+                auto memTy = mlir::MemRefType::get({rows, cols}, elemTy);
+                varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
             }
-            
-            int64_t rows = varInfo->type.dims[0];
-            int64_t cols = varInfo->type.dims[1];
-            auto memTy = mlir::MemRefType::get({rows, cols}, elemTy);
-            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
             break;
         }
 
@@ -843,6 +863,13 @@ mlir::Value MLIRGen::allocaVector(int len, VarInfo *varInfo) {
 
 void MLIRGen::zeroInitializeVar(VarInfo* var) {
     if (!var->value) return;
+
+    if (auto memrefTy = var->value.getType().dyn_cast<mlir::MemRefType>()) {
+        if (memrefTy.getRank() > 0) {
+            // Avoid emitting rank-mismatched store; skip zero-fill for shaped memrefs here.
+            return;
+        }
+    }
 
     mlir::Value zeroVal;
     
