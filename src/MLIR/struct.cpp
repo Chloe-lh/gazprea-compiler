@@ -67,7 +67,8 @@ void MLIRGen::visit(StructAccessNode* node) {
 
     if (elemType.baseType == BaseType::ARRAY ||
         elemType.baseType == BaseType::VECTOR ||
-        elemType.baseType == BaseType::MATRIX) {
+        elemType.baseType == BaseType::MATRIX ||
+        elemType.baseType == BaseType::STRING) {
         // For composite array-like fields, treat the extracted value as an LLVM descriptor.
         VarInfo elementVarInfo(elemType);
         elementVarInfo.value = elemVal;      // LLVM struct descriptor {ptr, len}/ {ptr, rows, cols}
@@ -103,7 +104,8 @@ void MLIRGen::visit(StructAccessAssignStatNode* node) {
     mlir::Value elemVal;
     if (fieldType->baseType == BaseType::ARRAY ||
         fieldType->baseType == BaseType::VECTOR ||
-        fieldType->baseType == BaseType::MATRIX) {
+        fieldType->baseType == BaseType::MATRIX ||
+        fieldType->baseType == BaseType::STRING) {
         // For array-like fields, expect rhsVarInfo.value to already be a descriptor
         // with the same LLVM type as the field.
         if (!rhsVarInfo.value) {
@@ -113,49 +115,58 @@ void MLIRGen::visit(StructAccessAssignStatNode* node) {
 
         if (rhsVarInfo.value.getType() != fieldLLVMTy) {
              // Promote RHS to match LHS field type (this handles int->real, etc. and ensures we have a memref)
+             // For STRING, promoteType might return memref (if literal) or descriptor (if var)
+             
              VarInfo promoted = promoteType(&rhsVarInfo, fieldType, node->line);
-             mlir::Value memref = promoted.value;
-
-             if (!memref.getType().isa<mlir::MemRefType>()) {
-                  throw std::runtime_error("StructAccessAssignStatNode: promoted value is not a memref (and not a descriptor).");
-             }
-
-             // Convert memref to descriptor
-             // 1. Extract pointer
-             mlir::Value ptrAsIdx = builder_.create<mlir::memref::ExtractAlignedPointerAsIndexOp>(loc_, memref);
-             mlir::Value ptrI64 = builder_.create<mlir::arith::IndexCastOp>(loc_, builder_.getI64Type(), ptrAsIdx);
-             mlir::Value ptr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, mlir::LLVM::LLVMPointerType::get(&context_), ptrI64);
-
-             // 2. Create descriptor
-             mlir::Value desc = builder_.create<mlir::LLVM::UndefOp>(loc_, fieldLLVMTy);
-             llvm::SmallVector<int64_t, 1> ptrPos{0};
-             desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, ptr, ptrPos);
-
-             // 3. Insert dims
-             int rank = memref.getType().cast<mlir::MemRefType>().getRank();
-             auto i64Ty = builder_.getI64Type();
              
-             if (rank == 1) {
-                 mlir::Value zero = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
-                 mlir::Value dim0 = builder_.create<mlir::memref::DimOp>(loc_, memref, zero);
-                 mlir::Value dim0I64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, dim0);
-                 llvm::SmallVector<int64_t, 1> lenPos{1};
-                 desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, dim0I64, lenPos);
-             } else if (rank == 2) {
-                 mlir::Value zero = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
-                 mlir::Value dim0 = builder_.create<mlir::memref::DimOp>(loc_, memref, zero);
-                 mlir::Value dim0I64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, dim0);
-                 llvm::SmallVector<int64_t, 1> rowPos{1};
-                 desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, dim0I64, rowPos);
+             if (promoted.value.getType().isa<mlir::LLVM::LLVMStructType>()) {
+                 // Already descriptor
+                 elemVal = promoted.value;
+             } else if (promoted.value.getType().isa<mlir::LLVM::LLVMPointerType>()) {
+                 // Pointer to descriptor (e.g. local variable)
+                 elemVal = builder_.create<mlir::LLVM::LoadOp>(loc_, fieldLLVMTy, promoted.value);
+             } else if (promoted.value.getType().isa<mlir::MemRefType>()) {
+                 mlir::Value memref = promoted.value;
+                 
+                 // Convert memref to descriptor
+                 // 1. Extract pointer
+                 mlir::Value ptrAsIdx = builder_.create<mlir::memref::ExtractAlignedPointerAsIndexOp>(loc_, memref);
+                 mlir::Value ptrI64 = builder_.create<mlir::arith::IndexCastOp>(loc_, builder_.getI64Type(), ptrAsIdx);
+                 mlir::Value ptr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, mlir::LLVM::LLVMPointerType::get(&context_), ptrI64);
 
-                 mlir::Value one = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
-                 mlir::Value dim1 = builder_.create<mlir::memref::DimOp>(loc_, memref, one);
-                 mlir::Value dim1I64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, dim1);
-                 llvm::SmallVector<int64_t, 1> colPos{2};
-                 desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, dim1I64, colPos);
+                 // 2. Create descriptor
+                 mlir::Value desc = builder_.create<mlir::LLVM::UndefOp>(loc_, fieldLLVMTy);
+                 llvm::SmallVector<int64_t, 1> ptrPos{0};
+                 desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, ptr, ptrPos);
+
+                 // 3. Insert dims
+                 int rank = memref.getType().cast<mlir::MemRefType>().getRank();
+                 auto i64Ty = builder_.getI64Type();
+                 
+                 if (rank == 1) {
+                     mlir::Value zero = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+                     mlir::Value dim0 = builder_.create<mlir::memref::DimOp>(loc_, memref, zero);
+                     mlir::Value dim0I64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, dim0);
+                     llvm::SmallVector<int64_t, 1> lenPos{1};
+                     desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, dim0I64, lenPos);
+                 } else if (rank == 2) {
+                     // matrix case
+                     mlir::Value zero = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+                     mlir::Value dim0 = builder_.create<mlir::memref::DimOp>(loc_, memref, zero);
+                     mlir::Value dim0I64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, dim0);
+                     llvm::SmallVector<int64_t, 1> rowPos{1};
+                     desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, dim0I64, rowPos);
+
+                     mlir::Value one = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
+                     mlir::Value dim1 = builder_.create<mlir::memref::DimOp>(loc_, memref, one);
+                     mlir::Value dim1I64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, dim1);
+                     llvm::SmallVector<int64_t, 1> colPos{2};
+                     desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, dim1I64, colPos);
+                 }
+                 elemVal = desc;
+             } else {
+                  throw std::runtime_error("StructAccessAssignStatNode: promoted value is not a memref/descriptor.");
              }
-             
-             elemVal = desc;
         } else {
              elemVal = rhsVarInfo.value;
         }
