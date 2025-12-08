@@ -1,0 +1,5 @@
+procedure main() returns integer {
+    vector<tuple(integer, integer)> illegal_vec_tuple;
+    return 0;
+}
+//CHECK_FILE:illegal_vector_tuple.out
