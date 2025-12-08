@@ -1,0 +1,27 @@
+struct User (
+    string name,
+    integer age
+);
+
+procedure main() returns integer {
+    var User u;
+    var tuple(string, integer) t;
+    
+    u.name = "Alice";
+    u.age = 30;
+    
+    t = ("Bob", 40);
+    
+    u.name -> std_output;
+    " is " -> std_output;
+    u.age -> std_output;
+    "\n" -> std_output;
+    
+    t.1 -> std_output;
+    " is " -> std_output;
+    t.2 -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:string_struct_tuple.out

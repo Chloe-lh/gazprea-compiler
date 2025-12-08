@@ -1,0 +1,30 @@
+procedure main() returns integer {
+    // Generator creates character array, assigned to string
+    var string s = [i in 0..5 | as<character>(as<integer>('a') + i)];
+    var string sliced;
+    var string strided;
+    var character[2] slice_arr;
+    
+    // s should be "abcdef"
+    
+    // Slice 2..4 (indices 2, 3) -> "bc"
+    // Assigning slice (array) to string
+    slice_arr = s[2..4];
+    sliced = slice_arr;
+    
+    // Stride by 2 -> "ace"
+    // Assigning strided array to string
+    strided = s by 2;
+    
+    s -> std_output;
+    "\n" -> std_output;
+    
+    sliced -> std_output;
+    "\n" -> std_output;
+    
+    strided -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:string_generator_slice.out

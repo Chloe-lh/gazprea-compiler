@@ -1,0 +1,18 @@
+procedure main() returns integer {
+    var string s1 = "Alice";
+    var string s2 = "Bob";
+    var string s3 = "Alice";
+    
+    // Test equality
+    if (s1 == s3) {
+        "Match\n" -> std_output;
+    }
+    
+    // Test inequality
+    if (s1 != s2) {
+        "Diff\n" -> std_output;
+    }
+    
+    return 0;
+}
+//CHECK_FILE:string_logic_compare.out
