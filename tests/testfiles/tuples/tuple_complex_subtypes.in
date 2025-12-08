@@ -1,0 +1,42 @@
+procedure main() returns integer {
+    // Tuple with subtypes: Vector, String, Array, Matrix, Scalar
+    // Using standard array initialization for vector and array fields
+    tuple(vector<integer>, string, integer[2], integer[2][2], real) complex_tuple;
+    
+    var vector<integer> v = [1, 2];
+    var string s = "hello";
+    var integer[2] arr = [3, 4];
+    var integer[2][2] mat = [[5, 6], [7, 8]];
+    var real scal = 9.9;
+
+    var integer[2] v_out; // Intermediate array for printing vector
+    
+    // Initialize tuple
+    complex_tuple = (v, s, arr, mat, scal);
+    
+    // Access and print elements
+    
+    // 1. Vector (via intermediate array for printing)
+    v_out = complex_tuple.1;
+    v_out -> std_output;
+    "\n" -> std_output;
+    
+    // 2. String
+    complex_tuple.2 -> std_output;
+    "\n" -> std_output;
+    
+    // 3. Array
+    complex_tuple.3 -> std_output;
+    "\n" -> std_output;
+    
+    // 4. Matrix
+    complex_tuple.4 -> std_output;
+    "\n" -> std_output;
+    
+    // 5. Scalar
+    complex_tuple.5 -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:tuple_complex_subtypes.out
