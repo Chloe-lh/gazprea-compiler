@@ -1,0 +1,18 @@
+procedure main() returns integer {
+    integer[4] base = [10, 20, 30, 40];
+
+    // Nested generator whose domain is an array slice
+    integer[*] inner = [x in base[2..3] | x / 10];
+
+    // Generator using another generator as its domain
+    integer[*] outer = [y in [x in base | x / 10] | y + 1];
+
+    loop v in outer {
+        v -> std_output;
+        " " -> std_output;
+    }
+    "\n" -> std_output;
+    return 0;
+}
+
+//CHECK_FILE:gen_nested_slice_simple.out
