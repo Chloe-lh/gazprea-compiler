@@ -145,6 +145,9 @@ public:
         Scope* &savedScope);
     mlir::Value getSSAValue(const VarInfo &v);
     mlir::Value lowerSizeExpr(std::shared_ptr<ExprNode> size);
+    
+    // Helper to access elements from MemRef or LLVM - to support vector/array/matrices, and other types respectively
+    mlir::Value accessElement(VarInfo* var, mlir::ValueRange indices, mlir::Value storeVal = nullptr);
 
 private:
     // Helper to find the enclosing function and its entry block for allocas

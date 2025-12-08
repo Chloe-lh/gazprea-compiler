@@ -1,6 +1,8 @@
 #include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
 #include "Types.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "llvm/Support/raw_ostream.h" // For llvm::errs()
 #include <iostream> // For std::cerr
 
@@ -166,10 +168,45 @@ mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
             return mlir::LLVM::LLVMStructType::getLiteral(&context_, elemTys);
         }
         case BaseType::ARRAY: {
-            throw std::runtime_error("getLLVMType: Arrays should not be called with this helper.");
+            // Descriptor support for array: { ptr, len } or { ptr, rows, cols }
+            if (type.subTypes.empty()) {
+                throw std::runtime_error("getLLVMType: ARRAY type must have at least one element subtype");
+            }
+            // Validate element type is representable in LLVM (don't need the value)
+            getLLVMType(type.subTypes[0]);
+            auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+            auto i64Ty = builder_.getI64Type();
+            if (type.dims.empty() || type.dims.size() == 1) {
+                llvm::SmallVector<mlir::Type, 2> fields{ptrTy, i64Ty};
+                return mlir::LLVM::LLVMStructType::getLiteral(&context_, fields);
+            } else if (type.dims.size() == 2) {
+                llvm::SmallVector<mlir::Type, 3> fields{ptrTy, i64Ty, i64Ty};
+                return mlir::LLVM::LLVMStructType::getLiteral(&context_, fields);
+            } else {
+                throw std::runtime_error("getLLVMType: ARRAY descriptor does not support rank > 2 (got dims.size() = " + std::to_string(type.dims.size()) + ")");
+            }
         }
         case BaseType::VECTOR: {
-            throw std::runtime_error("getLLVMType: Vectors should not be called with this helper.");
+            // Descriptor support for vector: { ptr, len }
+            if (type.subTypes.size() != 1) {
+                throw std::runtime_error("getLLVMType: VECTOR type must have exactly one element subtype");
+            }
+            getLLVMType(type.subTypes[0]);
+            auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+            auto i64Ty = builder_.getI64Type();
+            llvm::SmallVector<mlir::Type, 2> fields{ptrTy, i64Ty};
+            return mlir::LLVM::LLVMStructType::getLiteral(&context_, fields);
+        }
+        case BaseType::MATRIX: {
+            // Descriptor support for matrix: { ptr, rows, cols }
+            if (type.subTypes.size() != 1) {
+                throw std::runtime_error("getLLVMType: MATRIX type must have exactly one element subtype");
+            }
+            getLLVMType(type.subTypes[0]);
+            auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+            auto i64Ty = builder_.getI64Type();
+            llvm::SmallVector<mlir::Type, 3> fields{ptrTy, i64Ty, i64Ty};
+            return mlir::LLVM::LLVMStructType::getLiteral(&context_, fields);
         }
         default:
             throw std::runtime_error("getLLVMType: Unsupported type");
@@ -301,6 +338,58 @@ mlir::Value MLIRGen::createGlobalVariable(const std::string& name, const Complet
         loc_, globalTy, isConst, mlir::LLVM::Linkage::Internal, name, initValue, 0);
     moduleBuilder->restoreInsertionPoint(savedIP);
     return nullptr;
+}
+
+mlir::Value MLIRGen::accessElement(VarInfo* var, mlir::ValueRange indices, mlir::Value storeVal) {
+    if (var->value.getType().isa<mlir::MemRefType>()) {
+        if (storeVal) {
+            builder_.create<mlir::memref::StoreOp>(loc_, storeVal, var->value, indices);
+            return nullptr;
+        } else {
+            return builder_.create<mlir::memref::LoadOp>(loc_, var->value, indices);
+        }
+    } else if (var->value.getType().isa<mlir::LLVM::LLVMStructType>()) {
+        // Descriptor logic
+        llvm::SmallVector<int64_t, 1> ptrPos{0};
+        mlir::Value ptr = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, var->value, ptrPos);
+        
+        mlir::Value linearIdx;
+        auto i64Ty = builder_.getI64Type();
+        
+        if (indices.size() == 1) {
+            linearIdx = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, indices[0]);
+        } else if (indices.size() == 2) {
+            mlir::Value i = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, indices[0]);
+            mlir::Value j = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, indices[1]);
+            
+            llvm::SmallVector<int64_t, 1> colsPos{2};
+            mlir::Value cols = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, var->value, colsPos);
+            
+            mlir::Value rowOffset = builder_.create<mlir::arith::MulIOp>(loc_, i, cols);
+            linearIdx = builder_.create<mlir::arith::AddIOp>(loc_, rowOffset, j);
+        } else {
+             throw std::runtime_error("accessElement: unsupported index rank");
+        }
+        
+        // For GEP, we need the element type.
+        if (var->type.subTypes.empty()) {
+             throw std::runtime_error("accessElement: variable has no subtype");
+        }
+        mlir::Type elemTy = getLLVMType(var->type.subTypes[0]);
+        
+        mlir::Value gep = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, mlir::LLVM::LLVMPointerType::get(&context_),
+            elemTy, ptr, mlir::ValueRange{linearIdx}
+        );
+        
+        if (storeVal) {
+            builder_.create<mlir::LLVM::StoreOp>(loc_, storeVal, gep);
+            return nullptr;
+        } else {
+            return builder_.create<mlir::LLVM::LoadOp>(loc_, elemTy, gep);
+        }
+    }
+    throw std::runtime_error("accessElement: variable is neither MemRef nor Descriptor");
 }
 
 void MLIRGen::assignTo(VarInfo* literal, VarInfo* variable, int line) {
@@ -479,10 +568,8 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
                 mlir::Value idxJ = builder_.create<mlir::arith::ConstantOp>(
                     loc_, idxTy, builder_.getIntegerAttr(idxTy, j));
                 
-                mlir::Value srcVal = builder_.create<mlir::memref::LoadOp>(
-                    loc_, rhs->value, mlir::ValueRange{idxI, idxJ});
-                builder_.create<mlir::memref::StoreOp>(
-                    loc_, srcVal, lhs->value, mlir::ValueRange{idxI, idxJ});
+                mlir::Value srcVal = accessElement(rhs, mlir::ValueRange{idxI, idxJ});
+                accessElement(lhs, mlir::ValueRange{idxI, idxJ}, srcVal);
             }
         }
         return;
@@ -523,12 +610,12 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
             } else {
                 throw std::runtime_error("assignToArray: unsupported element type for zero padding");
             }
-            builder_.create<mlir::memref::StoreOp>(loc_, zero, lhs->value, mlir::ValueRange{idx});
+            accessElement(lhs, mlir::ValueRange{idx}, zero);
             continue;
         }
 
         // load source element
-        mlir::Value srcElemVal = builder_.create<mlir::memref::LoadOp>(loc_, rhs->value, mlir::ValueRange{idx});
+        mlir::Value srcElemVal = accessElement(rhs, mlir::ValueRange{idx});
 
         // build a temp VarInfo for the source element
         if (rhs->type.subTypes.size() != 1) {
@@ -550,7 +637,7 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
         mlir::Value storeVal = getSSAValue(promoted);
 
         // store into destination
-        builder_.create<mlir::memref::StoreOp>(loc_, storeVal, lhs->value, mlir::ValueRange{idx});
+        accessElement(lhs, mlir::ValueRange{idx}, storeVal);
     }
 }
 
@@ -605,7 +692,7 @@ void MLIRGen::assignToVector(VarInfo* literal, VarInfo* variable, int line) {
             loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(t)));
 
         // load source element
-        mlir::Value srcElemVal = builder_.create<mlir::memref::LoadOp>(loc_, literal->value, mlir::ValueRange{idx});
+        mlir::Value srcElemVal = accessElement(literal, mlir::ValueRange{idx});
 
         // build a temp VarInfo for the source element
         if (literal->type.subTypes.size() != 1) {
@@ -627,7 +714,7 @@ void MLIRGen::assignToVector(VarInfo* literal, VarInfo* variable, int line) {
         mlir::Value storeVal = getSSAValue(promoted);
 
         // store into destination
-        builder_.create<mlir::memref::StoreOp>(loc_, storeVal, variable->value, mlir::ValueRange{idx});
+        accessElement(variable, mlir::ValueRange{idx}, storeVal);
     }
 }
 
