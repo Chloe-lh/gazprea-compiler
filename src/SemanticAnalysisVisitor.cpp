@@ -130,8 +130,10 @@ void SemanticAnalysisVisitor::visit(ArrayStrideExpr *node) {
         throw SymbolError(node->line, "Semantic Analysis: unknown array '" + node->id + "'.");
     }
     CompleteType baseType = resolveUnresolvedType(current_, var->type, node->line);
-    if (baseType.baseType != BaseType::ARRAY) {
-        throw TypeError(node->line, "Semantic Analysis: stride operator applied to non-array type.");
+    if (baseType.baseType != BaseType::ARRAY && 
+        baseType.baseType != BaseType::VECTOR && 
+        baseType.baseType != BaseType::STRING) {
+        throw TypeError(node->line, "Semantic Analysis: stride operator applied to non-array/vector/string type.");
     }
     // stride expression must be integer
     if (node->expr) {
@@ -151,8 +153,10 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
         throw SymbolError(node->line, "Semantic Analysis: unknown array '" + node->id + "'.");
     }
     CompleteType baseType = resolveUnresolvedType(current_, var->type, node->line);
-    if (baseType.baseType != BaseType::ARRAY) {
-        throw TypeError(node->line, "Semantic Analysis: slice operator applied to non-array type.");
+    if (baseType.baseType != BaseType::ARRAY && 
+        baseType.baseType != BaseType::VECTOR && 
+        baseType.baseType != BaseType::STRING) {
+        throw TypeError(node->line, "Semantic Analysis: slice operator applied to non-array/vector/string type.");
     }
     // Validate range
     if (node->range) {
@@ -2275,4 +2279,105 @@ void SemanticAnalysisVisitor::handleGlobalErrors(DecNode *node) {
     if (!node->init) throw GlobalError(node->line, "Uninitialized global");
     if (!isScalarType(node->init->type.baseType)) throw GlobalError(node->line, "Non-scalar global variables are illegal");
     if (node->qualifier == "var") throw GlobalError(node->line, "'var' qualifier in global scope");
+}
+
+void SemanticAnalysisVisitor::visit(MethodCallExpr* node) {
+    // Resolve object
+    VarInfo* var = current_->resolveVar(node->objectName, node->line);
+    if (!var) throw SymbolError(node->line, "Unknown variable '" + node->objectName + "'");
+    
+    CompleteType objType = resolveUnresolvedType(current_, var->type, node->line);
+    
+    if (node->methodName == "len") {
+        if (objType.baseType != BaseType::STRING && 
+            objType.baseType != BaseType::VECTOR && 
+            objType.baseType != BaseType::ARRAY) {
+             throw TypeError(node->line, "len() only supported on string, vector, array");
+        }
+        // Check args: should be empty
+        if (!node->args.empty()) throw TypeError(node->line, "len() takes no arguments");
+        
+        node->type = CompleteType(BaseType::INTEGER);
+        return;
+    }
+    
+    throw SymbolError(node->line, "Unknown method '" + node->methodName + "' on type " + toString(objType));
+}
+
+void SemanticAnalysisVisitor::visit(MethodCallStatNode* node) {
+    // Similar logic but for statement context
+    VarInfo* var = current_->resolveVar(node->objectName, node->line);
+    if (!var) throw SymbolError(node->line, "Unknown variable '" + node->objectName + "'");
+    if (var->isConst) throw AssignError(node->line, "Cannot call mutating method on const variable");
+
+    CompleteType objType = resolveUnresolvedType(current_, var->type, node->line);
+
+    if (node->methodName == "push") {
+         if (objType.baseType == BaseType::STRING) {
+             if (node->args.size() != 1) throw TypeError(node->line, "push requires 1 argument");
+             node->args[0]->accept(*this);
+             if (node->args[0]->type.baseType != BaseType::CHARACTER) 
+                 throw TypeError(node->line, "push on string requires character argument");
+         } else if (objType.baseType == BaseType::VECTOR) {
+             if (node->args.size() != 1) throw TypeError(node->line, "push requires 1 argument");
+             node->args[0]->accept(*this);
+             
+             // Promote arg to element type
+             if (objType.subTypes.empty()) throw TypeError(node->line, "Vector has no element type");
+             CompleteType elemType = resolveUnresolvedType(current_, objType.subTypes[0], node->line);
+             CompleteType argType = resolveUnresolvedType(current_, node->args[0]->type, node->line);
+             
+             // Check compatibility using promotion
+             if (promote(argType, elemType) != elemType) {
+                 throw TypeError(node->line, "Cannot push type " + toString(argType) + " to vector<" + toString(elemType) + ">");
+             }
+         } else {
+             throw TypeError(node->line, "push not supported on " + toString(objType));
+         }
+    } else if (node->methodName == "append") {
+         if (objType.baseType == BaseType::STRING) {
+             if (node->args.size() != 1) throw TypeError(node->line, "append requires 1 argument");
+             node->args[0]->accept(*this);
+             
+             // Allow append(vector<char>) or append(array<char>)
+             CompleteType argType = resolveUnresolvedType(current_, node->args[0]->type, node->line);
+             bool isCharSeq = (argType.baseType == BaseType::VECTOR || argType.baseType == BaseType::ARRAY) &&
+                              !argType.subTypes.empty() &&
+                              argType.subTypes[0].baseType == BaseType::CHARACTER;
+                              
+             if (!isCharSeq) {
+                 throw TypeError(node->line, "append on string requires vector/array of characters");
+             }
+         } else if (objType.baseType == BaseType::VECTOR) {
+             // append(vector) - extend
+             if (node->args.size() != 1) throw TypeError(node->line, "append requires 1 argument");
+             node->args[0]->accept(*this);
+             
+             CompleteType argType = resolveUnresolvedType(current_, node->args[0]->type, node->line);
+             if (argType != objType && argType.baseType != BaseType::ARRAY) { 
+                 // Allow array with same element type
+                 if (argType.baseType == BaseType::ARRAY && !argType.subTypes.empty() && !objType.subTypes.empty() &&
+                     argType.subTypes[0] == objType.subTypes[0]) {
+                     // ok
+                 } else {
+                    throw TypeError(node->line, "append argument type mismatch");
+                 }
+             }
+         } else {
+             throw TypeError(node->line, "append not supported on " + toString(objType));
+         }
+    } else if (node->methodName == "concat") {
+         if (objType.baseType == BaseType::STRING) {
+             if (node->args.size() != 1) throw TypeError(node->line, "concat requires 1 argument");
+             node->args[0]->accept(*this);
+             if (node->args[0]->type.baseType != BaseType::STRING) 
+                 throw TypeError(node->line, "concat on string requires string argument");
+         } else {
+             throw TypeError(node->line, "concat not supported on " + toString(objType));
+         }
+    } else {
+         throw SymbolError(node->line, "Unknown method '" + node->methodName + "'");
+    }
+    
+    node->type = CompleteType(BaseType::UNKNOWN);
 }
