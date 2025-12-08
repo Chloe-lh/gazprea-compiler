@@ -162,5 +162,43 @@ void MLIRGen::visit(RealNode* node) {
 }
 
 void MLIRGen::visit(StringNode* node) {
-    throw std::runtime_error("String expressions not supported outside of output statements yet.");
+    // Create or reuse a global string constant
+    std::string symName = std::string("strlit_") + std::to_string(std::hash<std::string>{}(node->value));
+    auto existing = module_.lookupSymbol<mlir::LLVM::GlobalOp>(symName);
+    if (!existing) {
+        auto* moduleBuilder = backend_.getBuilder().get();
+        auto savedIP = moduleBuilder->saveInsertionPoint();
+        moduleBuilder->setInsertionPointToStart(module_.getBody());
+        mlir::Type charTy = builder_.getI8Type();
+        mlir::StringRef sref(node->value.c_str(), node->value.size() + 1); // +1 for null terminator (though len is explicit)
+        auto arrTy = mlir::LLVM::LLVMArrayType::get(charTy, sref.size());
+        moduleBuilder->create<mlir::LLVM::GlobalOp>(loc_, arrTy, /*constant=*/true,
+            mlir::LLVM::Linkage::Internal, symName, builder_.getStringAttr(sref), 0);
+        moduleBuilder->restoreInsertionPoint(savedIP);
+        existing = module_.lookupSymbol<mlir::LLVM::GlobalOp>(symName);
+    }
+
+    mlir::Value strPtr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, existing);
+    
+    // AddressOf returns llvm.ptr, points to [N x i8].
+    // We can use it directly as char* in some contexts, but descriptor expects !llvm.ptr.
+    
+    auto i64Ty = builder_.getI64Type();
+    mlir::Value lenVal = builder_.create<mlir::arith::ConstantOp>(
+        loc_, i64Ty, builder_.getIntegerAttr(i64Ty, node->value.size()));
+
+    // Create descriptor {ptr, len}
+    auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+    llvm::SmallVector<mlir::Type, 2> fields{ptrTy, i64Ty};
+    auto descTy = mlir::LLVM::LLVMStructType::getLiteral(&context_, fields);
+    
+    mlir::Value desc = builder_.create<mlir::LLVM::UndefOp>(loc_, descTy);
+    desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, strPtr, llvm::SmallVector<int64_t, 1>{0});
+    desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, lenVal, llvm::SmallVector<int64_t, 1>{1});
+
+    VarInfo v{CompleteType(BaseType::STRING)};
+    v.value = desc;
+    v.isLValue = false;
+    v.runtimeDims = {static_cast<int>(node->value.size())};
+    pushValue(v);
 }
