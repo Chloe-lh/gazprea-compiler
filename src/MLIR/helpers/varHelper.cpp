@@ -45,10 +45,10 @@ void MLIRGen::syncRuntimeDims(VarInfo* var) {
 
     // Helper lambdas to pick a dimension from runtime vs static info.
     auto pickDim = [](int rt, int st) -> int {
-        // Prefer a positive runtime value if available,
-        // otherwise fall back to a positive static dimension.
-        if (rt > 0) return rt;
-        if (st > 0) return st;
+        // Prefer a valid runtime value if available,
+        // otherwise fall back to a valid static dimension.
+        if (rt >= 0) return rt;
+        if (st >= 0) return st;
         // Unknown / inferred at runtime.
         return -1;
     };
