@@ -745,7 +745,7 @@ void SemanticAnalysisVisitor::visit(ArrayLiteralNode *node) {
         }
 
         int64_t rows = static_cast<int64_t>(node->list->list.size());
-        node->type = CompleteType(BaseType::ARRAY, elementType, {static_cast<int>(rows), static_cast<int>(cols)});
+        node->type = CompleteType(BaseType::MATRIX, elementType, {static_cast<int>(rows), static_cast<int>(cols)});
         // std::cerr << "[DEBUG SEMANTIC] ArrayLiteralNode EXIT: 2D ARRAY with dims={" << rows << "," << cols << "}" << std::endl;
         return;
     }
