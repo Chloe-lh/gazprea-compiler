@@ -1559,6 +1559,22 @@ void SemanticAnalysisVisitor::visit(BlockNode* node) {
     // New lexical scope; inherit loop/return context
     enterScopeFor(node, current_->isInLoop(), current_->getReturnType());
 
+    // Enforce declrs before stats by checking: any declaration with a line greater than the first statement line is illegal.
+    int firstStatLine = std::numeric_limits<int>::max();
+    for (const auto& s : node->stats) {
+        if (s) {
+            firstStatLine = std::min(firstStatLine, s->line);
+        }
+    }
+    if (firstStatLine != std::numeric_limits<int>::max()) {
+        for (const auto& d : node->decs) {
+            if (d && d->line > firstStatLine) {
+                throw SymbolError(d->line,
+                    "Semantic Analysis: Declarations must appear at the top of a block.");
+            }
+        }
+    }
+
     // Visit declarations, then statements
     for (const auto& d : node->decs) {
         if (d) d->accept(*this);
