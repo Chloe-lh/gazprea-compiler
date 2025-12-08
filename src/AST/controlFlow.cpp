@@ -163,15 +163,15 @@ std::any ASTBuilder::visitForLoopBlock(GazpreaParser::ForLoopBlockContext *ctx) 
   // identifier
   std::string iter = ctx->ID() ? ctx->ID()->getText() : "";
 
-  // domain expression (rangeExpr | array_literal per grammar)
+  // domain expression (rangeExpr | expr per grammar)
   std::shared_ptr<ExprNode> domain = nullptr;
   if (ctx->rangeExpr()) {
     auto anyDom = visit(ctx->rangeExpr());
     if (anyDom.has_value()) {
       domain = safe_any_cast_ptr<ExprNode>(anyDom);
     }
-  } else if (ctx->array_literal()) {
-    auto anyDom = visit(ctx->array_literal());
+  } else if (ctx->expr()) {
+    auto anyDom = visit(ctx->expr());
     if (anyDom.has_value()) {
       domain = safe_any_cast_ptr<ExprNode>(anyDom);
     }

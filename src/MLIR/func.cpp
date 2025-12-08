@@ -32,13 +32,20 @@ void MLIRGen::visit(BuiltInFuncNode *node){
         if (!argType.dims.empty()) {
             len = argType.dims[0];
         }
-        if (len < 0) {
-            throw std::runtime_error("MLIRGen: length() requires a sized array/vector/matrix.");
+
+        mlir::Value lenVal;
+        if (len >= 0) {
+            auto i32 = builder_.getI32Type();
+            lenVal = builder_.create<mlir::arith::ConstantOp>(loc_, i32, builder_.getIntegerAttr(i32, len));
+        } else {
+            // Dynamic length: compute at runtime from the value (memref or slice)
+            mlir::Value idxLen = computeArraySize(var, node->line); // index type
+            auto i32 = builder_.getI32Type();
+            lenVal = builder_.create<mlir::arith::IndexCastOp>(loc_, i32, idxLen);
         }
-        auto i32 = builder_.getI32Type();
-        auto c = builder_.create<mlir::arith::ConstantOp>(loc_, i32, builder_.getIntegerAttr(i32, len));
+
         VarInfo vi{CompleteType(BaseType::INTEGER)};
-        vi.value = c.getResult();
+        vi.value = lenVal;
         vi.isLValue = false;
         pushValue(vi);
         return;

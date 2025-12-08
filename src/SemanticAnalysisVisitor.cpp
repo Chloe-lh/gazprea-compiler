@@ -152,7 +152,7 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
         throw SymbolError(node->line, "Semantic Analysis: unknown array '" + node->id + "'.");
     }
     CompleteType baseType = resolveUnresolvedType(current_, var->type, node->line);
-    if (baseType.baseType != BaseType::ARRAY) {
+    if (baseType.baseType != BaseType::ARRAY && baseType.baseType != BaseType::MATRIX) {
         throw TypeError(node->line, "Semantic Analysis: slice operator applied to non-array type.");
     }
     // Validate range
@@ -187,9 +187,17 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
         }
     }
     // slicing yields an array of the same element type, but with dynamic dimensions
-    node->type = baseType;
-    node->type.dims.clear();
-    node->type.dims.push_back(-1); // Dynamic dimension
+    if (baseType.baseType == BaseType::MATRIX) {
+        // Slicing a matrix along the first dimension yields an array of rows
+        int rowLen = -1;
+        if (baseType.dims.size() >= 2) rowLen = baseType.dims[1];
+        CompleteType rowType(BaseType::ARRAY, baseType.subTypes.empty() ? CompleteType(BaseType::UNKNOWN) : baseType.subTypes[0], {rowLen});
+        node->type = CompleteType(BaseType::ARRAY, rowType, {-1});
+    } else {
+        node->type = baseType;
+        node->type.dims.clear();
+        node->type.dims.push_back(-1); // Dynamic dimension
+    }
 }
 
 // Built-in functions with a single identifier argument (length/len, shape,
@@ -1547,9 +1555,93 @@ void SemanticAnalysisVisitor::visit(IteratorLoopNode* node) {
         throw std::runtime_error("IteratorLoop: missing loop body");
     }
 
+    static int loopTempCounter = 0;
+
     auto range = std::dynamic_pointer_cast<RangeExprNode>(node->domainExpr);
     if (!range) {
-        throw TypeError(node->line, "Iterator loop currently supports only range domains.");
+        // Array/vector/slice domain branch
+        node->domainExpr->accept(*this);
+        CompleteType domType = resolveUnresolvedType(current_, node->domainExpr->type, node->line);
+        if (domType.baseType != BaseType::ARRAY && domType.baseType != BaseType::VECTOR && domType.baseType != BaseType::MATRIX) {
+            throw TypeError(node->line, "Iterator loop domain must be array/vector/matrix slice or range.");
+        }
+        const std::string arrName = "__loop_arr_" + std::to_string(loopTempCounter);
+        const std::string lenName = "__loop_len_" + std::to_string(loopTempCounter);
+        const std::string idxName = "__loop_idx_" + std::to_string(loopTempCounter);
+        loopTempCounter++;
+
+        // const __loop_arr = <domainExpr>
+        auto arrDec = std::make_shared<InferredDecNode>(arrName, "const", node->domainExpr);
+        arrDec->line = node->line;
+
+        // const __loop_len = length(__loop_arr)
+        auto lenCall = std::make_shared<BuiltInFuncNode>("length", arrName);
+        lenCall->line = node->line;
+        auto lenDec = std::make_shared<InferredDecNode>(lenName, "const", lenCall);
+        lenDec->line = node->line;
+
+        // var __loop_idx = 1 (1-based iterator)
+        auto idxInitLit = std::make_shared<IntNode>(1);
+        idxInitLit->line = node->line;
+        auto idxDec = std::make_shared<InferredDecNode>(idxName, "var", idxInitLit);
+        idxDec->line = node->line;
+
+        // Condition: __loop_idx <= __loop_len
+        auto idxIdForCond = std::make_shared<IdNode>(idxName);
+        idxIdForCond->line = node->line;
+        auto lenIdForCond = std::make_shared<IdNode>(lenName);
+        lenIdForCond->line = node->line;
+        auto condExpr = std::make_shared<CompExpr>("<=", idxIdForCond, lenIdForCond);
+        condExpr->line = node->line;
+
+        // Iterator binding: const iter = __loop_arr[__loop_idx - 1]
+        auto idxIdForAccess = std::make_shared<IdNode>(idxName);
+        idxIdForAccess->line = node->line;
+        auto arrAccess = std::make_shared<ArrayAccessNode>(arrName, idxIdForAccess);
+        arrAccess->line = node->line;
+        auto iterDec = std::make_shared<InferredDecNode>(node->iterName, "const", arrAccess);
+        iterDec->line = node->line;
+
+        // __loop_idx = __loop_idx + 1
+        auto idxIdForInc = std::make_shared<IdNode>(idxName);
+        idxIdForInc->line = node->line;
+        auto oneLit = std::make_shared<IntNode>(1);
+        oneLit->line = node->line;
+        auto incExpr = std::make_shared<AddExpr>("+", idxIdForInc, oneLit);
+        incExpr->line = node->line;
+        auto incStat = std::make_shared<AssignStatNode>(idxName, incExpr);
+        incStat->line = node->line;
+
+        // While body: iterator binding + original body + increment
+        std::vector<std::shared_ptr<DecNode>> bodyDecs;
+        std::vector<std::shared_ptr<StatNode>> bodyStats;
+        bodyDecs.push_back(iterDec);
+        if (node->body) {
+            bodyDecs.insert(bodyDecs.end(), node->body->decs.begin(), node->body->decs.end());
+            bodyStats.insert(bodyStats.end(), node->body->stats.begin(), node->body->stats.end());
+        }
+        bodyStats.push_back(incStat);
+        auto whileBody = std::make_shared<BlockNode>(std::move(bodyDecs), std::move(bodyStats));
+        whileBody->line = node->line;
+
+        auto whileNode = std::make_shared<LoopNode>(whileBody, condExpr);
+        whileNode->kind = LoopKind::While;
+        whileNode->line = node->line;
+
+        // Outer block: declare temps then execute while
+        std::vector<std::shared_ptr<DecNode>> outerDecs;
+        outerDecs.push_back(arrDec);
+        outerDecs.push_back(lenDec);
+        outerDecs.push_back(idxDec);
+        std::vector<std::shared_ptr<StatNode>> outerStats;
+        outerStats.push_back(whileNode);
+        auto lowered = std::make_shared<BlockNode>(std::move(outerDecs), std::move(outerStats));
+        lowered->line = node->line;
+
+        node->lowered = lowered;
+        lowered->accept(*this);
+        node->type = CompleteType(BaseType::UNKNOWN);
+        return;
     }
 
     // Prepare start/end/step expressions (default start to 1 if omitted, step to 1)
@@ -1590,7 +1682,6 @@ void SemanticAnalysisVisitor::visit(IteratorLoopNode* node) {
     }
 
     // Hidden temp names
-    static int loopTempCounter = 0;
     const std::string startName = "__loop_start_" + std::to_string(loopTempCounter);
     const std::string endName   = "__loop_end_" + std::to_string(loopTempCounter);
     const std::string idxName   = "__loop_idx_" + std::to_string(loopTempCounter);

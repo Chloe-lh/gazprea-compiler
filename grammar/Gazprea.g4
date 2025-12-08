@@ -154,7 +154,7 @@ if_stat: IF PARENLEFT expr PARENRIGHT (block|stat|dec) (ELSE (block|stat|dec))?;
 loop_stat
     : LOOP (block|stat) (WHILE PARENLEFT expr PARENRIGHT END)? #LoopDefault
     | LOOP (WHILE PARENLEFT expr PARENRIGHT) (block|stat) #WhileLoopBlock
-    | LOOP ID IN (rangeExpr | array_literal) (block|stat) #ForLoopBlock
+    | LOOP ID IN (rangeExpr | expr) (block|stat) #ForLoopBlock
     ;
 
 qualifier: VAR //mutable
