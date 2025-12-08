@@ -1,4 +1,5 @@
 #include "Types.h"
+#include "CompileTimeExceptions.h"
 #include <sstream>
 #include <algorithm>
 
@@ -486,6 +487,97 @@ void validateSubtypes(CompleteType completeType) {
         // Recursively validate nested subtypes
         for (const auto& subtype : completeType.subTypes) {
             validateSubtypes(subtype);
+        }
+    }
+}
+
+void validateContainmentHierarchy(const CompleteType& completeType, int line) {
+    // UNRESOLVED/UNKNOWN/EMPTY are ignored here; they should be resolved or
+    // rejected elsewhere in semantic analysis.
+    if (completeType.baseType == BaseType::UNRESOLVED ||
+        completeType.baseType == BaseType::UNKNOWN ||
+        completeType.baseType == BaseType::EMPTY) {
+        throw std::runtime_error("validateContainmentHierarchy: Invalid type " + toString(completeType) + " called as param");
+    }
+
+    // Scalars cant have sub-elements
+    if (isScalarType(completeType.baseType)) {
+        return;
+    }
+
+    // Enforce rules based on containment hierarchy
+    //   tuple/struct
+    //     -> vector/string
+    //        -> 1D array / 2D array (matrix)
+    //           -> bool/character/integer/real
+    switch (completeType.baseType) {
+        case BaseType::ARRAY:
+        case BaseType::MATRIX: {
+            // Arrays/matrices may only contain scalar element types.
+            if (completeType.subTypes.size() != 1) {
+                return; // structural issues handled by validateSubtypes
+            }
+            const CompleteType& elem = completeType.subTypes[0];
+            if (!isScalarType(elem.baseType)) {
+                throw TypeError(
+                    line,
+                    "Semantic Analysis: Invalid declared array element type");
+            }
+
+            validateContainmentHierarchy(elem, line);
+            break;
+        }
+        case BaseType::VECTOR: {
+            // Vectors may contain:
+            //  - scalars
+            //  - 1D arrays
+            //  - 2D arrays/matrices
+            if (completeType.subTypes.size() != 1) {
+                return; // structural issues handled elsewhere
+            }
+            const CompleteType& elem = completeType.subTypes[0];
+            const BaseType eb = elem.baseType;
+
+            bool validSubtype =
+                isScalarType(eb) || eb == BaseType::ARRAY || eb == BaseType::MATRIX;
+
+            if (!validSubtype) {
+                // Specifically rules out vector<struct>, vector<tuple>,
+                // vector<vector>, vector<string>, etc.
+                throw TypeError(
+                    line,
+                    "Semantic Analysis: Invalid declared array element type: " + toString(completeType));
+                }
+            validateContainmentHierarchy(elem, line);
+            break;
+        }
+        case BaseType::TUPLE:
+        case BaseType::STRUCT: {
+            // Tuples/structs may not directly contain other tuples/structs.
+            for (const auto& fieldType : completeType.subTypes) {
+                if (fieldType.baseType == BaseType::STRUCT ||
+                    fieldType.baseType == BaseType::TUPLE) {
+                    throw TypeError(
+                        line,
+                        "Semantic Analysis: Invalid declared array element type: " + toString(completeType));
+                }
+                validateContainmentHierarchy(fieldType, line);
+            }
+            break;
+        }
+        case BaseType::STRING: {
+            if (completeType.subTypes.size() != 1 || completeType.subTypes[0].baseType != BaseType::CHARACTER) {
+                throw TypeError(
+                    line,
+                    "Semantic Analysis: Invalid declared string element type: " + toString(completeType));
+            }
+            break;
+        }
+        default: {
+            for (const auto& sub : completeType.subTypes) {
+                validateContainmentHierarchy(sub, line);
+            }
+            break;
         }
     }
 }

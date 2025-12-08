@@ -336,6 +336,9 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
 
     // Resolve any aliases inside the declared type.
     CompleteType declaredType = resolveUnresolvedType(current_, node->type, node->line);
+    
+    // Enforce containment hierarchy 
+    validateContainmentHierarchy(declaredType, node->line);
     // Permit ARRAY, VECTOR, and MATRIX declarations here; 2D arrays/matrices
     // share the same declaration node shape.
     if (declaredType.baseType != BaseType::ARRAY &&
@@ -872,6 +875,9 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
     node->type_alias->accept(*this);
     CompleteType varType = resolveUnresolvedType(current_, node->type_alias->type, node->line);
 
+    // Enforce containment hierarchy 
+    validateContainmentHierarchy(varType, node->line);
+
     // Ensure not already declared in scope
     current_->declareVar(node->name, varType, isConst, node->line);
 
@@ -895,6 +901,8 @@ void SemanticAnalysisVisitor::visit(FuncPrototypeNode* node) {
         const auto& v = node->parameters[i];
         VarInfo param = v;
         param.type = resolveUnresolvedType(current_, param.type, node->line);
+        // Enforce containment hierarchy on parameter types.
+        validateContainmentHierarchy(param.type, node->line);
         params.push_back(param);
     }
 
@@ -904,6 +912,7 @@ void SemanticAnalysisVisitor::visit(FuncPrototypeNode* node) {
     }
 
     node->returnType = resolveUnresolvedType(current_, node->returnType, node->line);
+    validateContainmentHierarchy(node->returnType, node->line);
 
     // Declare the function signature in the current (global) scope
     // Function prototypes may omit param names so we check that
@@ -925,6 +934,7 @@ void SemanticAnalysisVisitor::visit(ProcedurePrototypeNode* node) {
         const auto &v = node->params[i];
         VarInfo param = v;
         param.type = resolveUnresolvedType(current_, param.type, node->line);
+        validateContainmentHierarchy(param.type, node->line);
         params.push_back(param);
     }
 
@@ -934,6 +944,7 @@ void SemanticAnalysisVisitor::visit(ProcedurePrototypeNode* node) {
     }
 
     node->returnType = resolveUnresolvedType(current_, node->returnType, node->line);
+    validateContainmentHierarchy(node->returnType, node->line);
 
     // Declare the procedure signature in the current (global) scope
     try {
@@ -965,6 +976,7 @@ void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
             throw SymbolError(node->line, "Semantic Analysis: duplicate parameter name '" + v.identifier + "' in function '" + node->name + "'.");
         }
         param.type = resolveUnresolvedType(current_, param.type, node->line);
+        validateContainmentHierarchy(param.type, node->line);
         params.push_back(param);
     }
 
@@ -974,6 +986,7 @@ void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
     }
 
     node->returnType = resolveUnresolvedType(current_, node->returnType, node->line);
+    validateContainmentHierarchy(node->returnType, node->line);
 
     // Declare or validate existing prototype declr
     try {
@@ -1043,6 +1056,7 @@ void SemanticAnalysisVisitor::visit(ProcedureBlockNode* node) {
             throw SymbolError(node->line, std::string("Semantic Analysis: duplicate parameter name '") + v.identifier + "' in procedure '" + node->name + "'.");
         }
         param.type = resolveUnresolvedType(current_, param.type, node->line);
+        validateContainmentHierarchy(param.type, node->line);
         params.push_back(param);
     }
 
@@ -1119,6 +1133,9 @@ void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
     // For tuple-typed declarations, the declared type is already present
     // on the declaration node as a CompleteType
     CompleteType varType = resolveUnresolvedType(current_, node->type, node->line);
+
+    // Enforce containment hierarchy 
+    validateContainmentHierarchy(varType, node->line);
 
     // const by default
     bool isConst = true;
@@ -1210,6 +1227,8 @@ void SemanticAnalysisVisitor::visit(TypeAliasDecNode* node) {
             // If not an alias, leave as UNKNOWN; builder should have set to built-in type
         }
     }
+    // Check alias types follow type hierarchy 
+    validateContainmentHierarchy(aliased, node->line);
     current_->declareAlias(node->alias, aliased, node->line);
 
     // assume node has been initialized with correct type if not UNKNOWN
