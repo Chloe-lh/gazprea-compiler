@@ -1,30 +1,42 @@
 procedure main() returns integer {
-    var vector<integer> v;
+    // Declarations for initialization tests
+    const vector<integer> v_init_small = [7]; // length 1
+    const integer[3] array_init_padded = v_init_small; // init with padding: [7 0 0]
 
-    var integer[1] a1;
-    var integer[3] a3;
-    var integer[2] a2;
+    // Declarations for assignment tests (existing logic)
+    var vector<integer> v_assign; // Dynamic vector for re-assignments
+    var integer[1] a1; // For strict match assignment
+    var integer[3] a3; // For padding on assignment
+    var integer[2] a2; // For truncation on assignment
 
-    v = [7];
-    a1 = v;
-    a3 = v;      // [7 0 0]
+    // --- Initialization Tests ---
+    array_init_padded -> std_output;
+    "\n" -> std_output;
+
+    // --- Assignment Tests ---
+    // First set of assignments (v_assign is len 1)
+    v_assign = [7];
+    a1 = v_assign; // strict match
+    a3 = v_assign; // assignment padding [7 0 0]
 
     a1 -> std_output;
     "\n" -> std_output;
     a3 -> std_output;
     "\n" -> std_output;
 
-    v = [1, 2, 3];
-    a3 = v;
-    a2 = v;      // [1 2]
+    // Second set of assignments (v_assign is len 3)
+    v_assign = [1, 2, 3];
+    a3 = v_assign; // strict match
+    a2 = v_assign; // assignment truncation [1 2]
 
     a3 -> std_output;
     "\n" -> std_output;
     a2 -> std_output;
     "\n" -> std_output;
 
-    v = [4, 5];
-    a2 = v;
+    // Third set of assignments (v_assign is len 2)
+    v_assign = [4, 5];
+    a2 = v_assign; // strict match
 
     a2 -> std_output;
     "\n" -> std_output;

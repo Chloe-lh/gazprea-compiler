@@ -12,6 +12,7 @@ VarInfo MLIRGen::popValue() {
     v_stack_.pop_back();
     return v;
 }
+
 void MLIRGen::pushValue(VarInfo& value) {
     v_stack_.push_back(value);
 }
@@ -19,6 +20,131 @@ mlir::Value MLIRGen::getSSAValue(const VarInfo &v){
     if(!v.value.getType().isa<mlir::MemRefType>()) return v.value; //already an SSA value
     // if a memref type - convert to a SSA type
     return builder_.create<mlir::memref::LoadOp>(loc_, v.value, mlir::ValueRange{}).getResult();
+}
+
+void MLIRGen::syncRuntimeDims(VarInfo* var) {
+    if (!var) return;
+
+    BaseType bt = var->type.baseType;
+    if (bt != BaseType::ARRAY && bt != BaseType::VECTOR && bt != BaseType::MATRIX) {
+        // For non array-like values we do not track runtimeDims.
+        // Ensure we never carry more than 2 entries to keep invariants simple.
+        if (var->runtimeDims.size() > 2) {
+            var->runtimeDims.resize(2);
+        }
+        return;
+    }
+
+    auto &staticDims = var->type.dims;
+    auto &rtDims = var->runtimeDims;
+
+    // Hard cap: we never want to carry more than 2 runtime dimensions.
+    if (rtDims.size() > 2) {
+        rtDims.resize(2);
+    }
+
+    // Helper lambdas to pick a dimension from runtime vs static info.
+    auto pickDim = [](int rt, int st) -> int {
+        // Prefer a valid runtime value if available,
+        // otherwise fall back to a valid static dimension.
+        if (rt >= 0) return rt;
+        if (st >= 0) return st;
+        // Unknown / inferred at runtime.
+        return -1;
+    };
+
+    if (bt == BaseType::ARRAY || bt == BaseType::VECTOR) {
+        // For true vectors and 1D arrays we normalise to rank-1.
+        // For ARRAY types that are explicitly 2D at the type level
+        // (e.g., used to represent nested composites), preserve a 2D
+        // shape instead of collapsing.
+        if (bt == BaseType::ARRAY && staticDims.size() >= 2) {
+            int rt0 = rtDims.size() > 0 ? rtDims[0] : -1;
+            int rt1 = rtDims.size() > 1 ? rtDims[1] : -1;
+            int st0 = staticDims[0];
+            int st1 = staticDims[1];
+
+            int final0 = pickDim(rt0, st0);
+            int final1 = pickDim(rt1, st1);
+            rtDims.clear();
+            rtDims.push_back(final0);
+            rtDims.push_back(final1);
+        } else {
+            // Canonical rank-1 shape. Collapse any higher-rank info into a
+            // single effective length using either runtime or static info.
+            int rt0 = !rtDims.empty() ? rtDims[0] : -1;
+            int st0 = !staticDims.empty() ? staticDims[0] : -1;
+
+            if (rtDims.size() > 1) {
+                long long prod = 1;
+                bool hasPositive = false;
+                for (int d : rtDims) {
+                    if (d > 0) {
+                        hasPositive = true;
+                        prod *= d;
+                    }
+                }
+                if (hasPositive) {
+                    rt0 = static_cast<int>(prod);
+                }
+            }
+
+            int finalLen = pickDim(rt0, st0);
+            rtDims.clear();
+            rtDims.push_back(finalLen);
+        }
+    } else if (bt == BaseType::MATRIX) {
+        // Canonical rank-2 shape. Ensure exactly two runtime dims, seeded from
+        // runtime where available and otherwise from static dims.
+        int rt0 = rtDims.size() > 0 ? rtDims[0] : -1;
+        int rt1 = rtDims.size() > 1 ? rtDims[1] : -1;
+        int st0 = staticDims.size() > 0 ? staticDims[0] : -1;
+        int st1 = staticDims.size() > 1 ? staticDims[1] : -1;
+
+        int final0 = pickDim(rt0, st0);
+        int final1 = pickDim(rt1, st1);
+        rtDims.clear();
+        rtDims.push_back(final0);
+        rtDims.push_back(final1);
+    }
+}
+
+void MLIRGen::syncRuntimeDims(CompleteType& promotedType, const VarInfo& lhs, const VarInfo& rhs) {
+    // Only applicable for array-like types
+    if (promotedType.baseType != BaseType::ARRAY && 
+        promotedType.baseType != BaseType::VECTOR && 
+        promotedType.baseType != BaseType::MATRIX) {
+        return;
+    }
+
+    // Check if we have wildcards
+    bool hasWildcard = false;
+    for (int d : promotedType.dims) {
+        if (d < 0) { hasWildcard = true; break; }
+    }
+    if (!hasWildcard && !promotedType.dims.empty()) return; // All static dims known
+
+    // Helper to copy from source if compatible
+    auto copyDims = [&](const VarInfo& src) -> bool {
+        if (src.runtimeDims.empty()) return false;
+        
+        int promoRank = promotedType.baseType == BaseType::MATRIX ? 2 : 1;
+        if (promotedType.dims.size() > 0) promoRank = promotedType.dims.size();
+        
+        int srcRank = src.runtimeDims.size();
+        
+        if (srcRank == promoRank) {
+             // Ensure source dims are valid
+             for (int d : src.runtimeDims) if (d <= 0) return false;
+             
+             promotedType.dims = src.runtimeDims;
+             return true;
+        }
+        return false;
+    };
+
+    if (copyDims(lhs)) return;
+    copyDims(rhs);
 }
 // Declarations / Globals helpers
 mlir::Type MLIRGen::getLLVMType(const CompleteType& type) {
@@ -303,34 +429,48 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
         (lhs->type.baseType != BaseType::ARRAY && lhs->type.baseType != BaseType::VECTOR && lhs->type.baseType != BaseType::MATRIX)) {
         throw AssignError(line, "Cannot assign type " + toString(rhs->type) + " to " + toString(lhs->type));
     }
-    
-    // Check if rhs is a slice struct (already a value, not a memref)
-    bool isSliceStruct = rhs->value && rhs->value.getType().isa<mlir::LLVM::LLVMStructType>();
-    
-    // Ensure lhs storage exists
+
+    // Ensure both storages exist
     if (!lhs->value) allocaVar(lhs, line);
-    
-    // Ensure rhs storage exists (skip for slice structs - they're already values)
-    if (!rhs->value && !isSliceStruct) {
-        allocaVar(rhs, line);
-    }
+    if (!rhs->value) allocaVar(rhs, line);
+
+    syncRuntimeDims(lhs);
+    syncRuntimeDims(rhs);
 
     // Ensure same dimension count
-    if (lhs->type.dims.size() != rhs->type.dims.size()) {
-        throw SizeError(line, "Mismatched lhs and rhs dimensions of " + std::to_string(lhs->type.dims.size()) + " and " + std::to_string(rhs->type.dims.size()));
+    if (lhs->runtimeDims.size() != rhs->runtimeDims.size()) {
+        throw SizeError(line, "Mismatched lhs and rhs dimensions of " + std::to_string(lhs->runtimeDims.size()) + " and " + std::to_string(rhs->runtimeDims.size()));
+    }
+
+    // Handle lhs inferred dimensions ('*') using rhs dimensions. SizeError if dimension cannot be inferred.
+    for (size_t i = 0; i < lhs->runtimeDims.size(); ++i) {
+        int &lhsDim = lhs->runtimeDims[i];
+        int rhsDim = rhs->runtimeDims[i];
+
+        if (lhsDim < 0) {
+            if (rhsDim < 0) {
+                throw SizeError(line, "Missing runtime dimensions for array/vector assignment");
+            }
+
+            // Save lhs dims from rhs
+            lhsDim = rhsDim;
+            if (i < lhs->type.dims.size()) {
+                lhs->type.dims[i] = rhsDim;
+            }
+        }
     }
 
     // Handle 2D array/matrix assignment
-    if (lhs->type.dims.size() == 2) {
-        int lhsRows = lhs->type.dims[0];
-        int lhsCols = lhs->type.dims[1];
-        int rhsRows = rhs->type.dims[0];
-        int rhsCols = rhs->type.dims[1];
-        
+    if (lhs->runtimeDims.size() == 2) {
+        int lhsRows = lhs->runtimeDims[0];
+        int lhsCols = lhs->runtimeDims[1];
+        int rhsRows = rhs->runtimeDims[0];
+        int rhsCols = rhs->runtimeDims[1];
+
         if (lhsRows != rhsRows || lhsCols != rhsCols) {
             throw SizeError(line, "Mismatched matrix dimensions");
         }
-        
+
         auto idxTy = builder_.getIndexType();
         for (int i = 0; i < lhsRows; ++i) {
             for (int j = 0; j < lhsCols; ++j) {
@@ -341,22 +481,6 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
                 
                 mlir::Value srcVal = builder_.create<mlir::memref::LoadOp>(
                     loc_, rhs->value, mlir::ValueRange{idxI, idxJ});
-                
-                // Cast if element types differ
-                if (rhs->type.subTypes.size() != 1 || lhs->type.subTypes.size() != 1) {
-                    throw std::runtime_error("assignToArray: 2D array element type mismatch");
-                }
-                CompleteType srcElemCT = rhs->type.subTypes[0];
-                CompleteType lhsElemCT = lhs->type.subTypes[0];
-                
-                if (srcElemCT.baseType != lhsElemCT.baseType) {
-                    VarInfo srcElemVar(srcElemCT);
-                    srcElemVar.value = srcVal;
-                    srcElemVar.isLValue = false;
-                    VarInfo casted = castType(&srcElemVar, &lhsElemCT, line);
-                    srcVal = getSSAValue(casted);
-                }
-                
                 builder_.create<mlir::memref::StoreOp>(
                     loc_, srcVal, lhs->value, mlir::ValueRange{idxI, idxJ});
             }
@@ -364,149 +488,70 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
         return;
     }
 
-    // Handle size determination - for slice structs, get size from the struct
-    mlir::Value rhsLenVal;
-    mlir::Value slicePtr;
+    // Handle 1D array/vector assignment
+    if (lhs->runtimeDims.empty() || rhs->runtimeDims.empty()) {
+        throw SizeError(line, "Missing runtime dimensions for array/vector assignment");
+    }
+    int lhsLen = lhs->runtimeDims[0];
+    int rhsLen = rhs->runtimeDims[0];
+
+    // Enforce same length assignment only, only exception being vectors.
+    // A smaller vector results in 0-padding, a larger vector results in slicing.
+    if (lhsLen != rhsLen && rhs->type.baseType != BaseType::VECTOR) {
+        throw SizeError(line, "Mismatched lhs (array) and rhs lengths of " +
+                                  std::to_string(lhsLen) + " and " + std::to_string(rhsLen));
+    }
+
+    size_t n = lhsLen;
     auto idxTy = builder_.getIndexType();
-    
-    if (isSliceStruct) {
-        // Extract length from slice struct (second field)
-        llvm::SmallVector<int64_t, 1> lenPos{1};
-        mlir::Value sliceLen_i64 = builder_.create<mlir::LLVM::ExtractValueOp>(
-            loc_, rhs->value, lenPos
-        );
-        rhsLenVal = builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, sliceLen_i64);
-        
-        // Extract pointer from slice struct (first field)
-        llvm::SmallVector<int64_t, 1> ptrPos{0};
-        slicePtr = builder_.create<mlir::LLVM::ExtractValueOp>(
-            loc_, rhs->value, ptrPos
-        );
-    } else {
-        // For memrefs, use compile-time or runtime length
-        int rhsLen = rhs->type.dims[0] == -1 ? rhs->runtimeLen : rhs->type.dims[0];
-        if (rhs->type.dims[0] >= 0) {
-            rhsLenVal = builder_.create<mlir::arith::ConstantIndexOp>(
-                loc_, static_cast<int64_t>(rhsLen));
-        } else {
-            // Dynamic array - get size at runtime
-            auto zeroIdx = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
-            rhsLenVal = builder_.create<mlir::memref::DimOp>(loc_, rhs->value, zeroIdx);
-        }
-    }
-    
-    int lhsLen = lhs->type.dims[0] == -1 ? lhs->runtimeLen : lhs->type.dims[0];
-    mlir::Value lhsLenVal;
-    if (lhs->type.dims[0] >= 0) {
-        lhsLenVal = builder_.create<mlir::arith::ConstantIndexOp>(
-            loc_, static_cast<int64_t>(lhsLen));
-    } else {
-        auto zeroIdx = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
-        lhsLenVal = builder_.create<mlir::memref::DimOp>(loc_, lhs->value, zeroIdx);
-    }
+    for(size_t t=0; t<n;++t){
+            // index constant
+        mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
+            loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(t)));
 
-    // For compile-time known sizes, do static checks
-    if (lhs->type.dims[0] >= 0 && rhs->type.dims[0] >= 0) {
-        // Enforce same length assignment only, only exception being vectors.
-        // A smaller vector results in 0-padding, a larger vector results in slicing.
-        if (lhsLen != (rhs->type.dims[0] == -1 ? rhs->runtimeLen : rhs->type.dims[0]) && rhs->type.baseType != BaseType::VECTOR) {
-            throw SizeError(line, "Mismatched lhs (array) and rhs lengths of " + std::to_string(lhs->type.dims[0]) + " and " + std::to_string(rhs->type.dims[0]));
-        }
-    }
+        // If the rhs is a smaller vector, we zero pad it with the lhs' element type.
+        if (rhs->type.baseType == BaseType::VECTOR && t >= rhsLen) {
+            BaseType elemBaseType = lhs->type.subTypes[0].baseType;
+            mlir::Type elemTy = getLLVMType(lhs->type.subTypes[0]);
+            mlir::Value zero;
 
-    // Use scf::ForOp for dynamic loop (works for both static and dynamic sizes)
-    auto c0 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
-    auto c1 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
-    
-    builder_.create<mlir::scf::ForOp>(
-        loc_, c0, lhsLenVal, c1, mlir::ValueRange{},
-        [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value iv, mlir::ValueRange args) {
-            mlir::Value idx = iv;
-            
-            // Check if we're beyond rhs length (for vector zero-padding)
-            mlir::Value shouldZeroPad;
-            if (rhs->type.baseType == BaseType::VECTOR) {
-                shouldZeroPad = b.create<mlir::arith::CmpIOp>(
-                    l, mlir::arith::CmpIPredicate::uge, idx, rhsLenVal);
+            if (elemBaseType == BaseType::INTEGER || elemBaseType == BaseType::BOOL || elemBaseType == BaseType::CHARACTER) {
+                zero = builder_.create<mlir::arith::ConstantOp>(loc_, elemTy, builder_.getIntegerAttr(elemTy, 0));
+            } else if (elemBaseType == BaseType::REAL) {
+                zero = builder_.create<mlir::arith::ConstantOp>(
+                    loc_, elemTy, builder_.getFloatAttr(elemTy, 0.0));
             } else {
-                shouldZeroPad = b.create<mlir::arith::ConstantOp>(
-                    l, b.getI1Type(), b.getIntegerAttr(b.getI1Type(), 0));
+                throw std::runtime_error("assignToArray: unsupported element type for zero padding");
             }
-            
-            b.create<mlir::scf::IfOp>(l, shouldZeroPad,
-                [&](mlir::OpBuilder &thenBuilder, mlir::Location thenLoc) {
-                    // Zero pad (for vectors beyond their length)
-                    BaseType elemBaseType = lhs->type.subTypes[0].baseType;
-                    mlir::Type elemTy = getLLVMType(lhs->type.subTypes[0]);
-                    mlir::Value zero;
-
-                    if (elemBaseType == BaseType::INTEGER || elemBaseType == BaseType::BOOL || elemBaseType == BaseType::CHARACTER) {
-                        zero = thenBuilder.create<mlir::arith::ConstantOp>(thenLoc, elemTy, thenBuilder.getIntegerAttr(elemTy, 0));
-                    } else if (elemBaseType == BaseType::REAL) {
-                        zero = thenBuilder.create<mlir::arith::ConstantOp>(
-                            thenLoc, elemTy, thenBuilder.getFloatAttr(elemTy, 0.0));
-                    } else {
-                        throw std::runtime_error("assignToArray: unsupported element type for zero padding");
-                    }
-                    thenBuilder.create<mlir::memref::StoreOp>(thenLoc, zero, lhs->value, mlir::ValueRange{idx});
-                    thenBuilder.create<mlir::scf::YieldOp>(thenLoc);
-                },
-                [&](mlir::OpBuilder &elseBuilder, mlir::Location elseLoc) {
-                    // Load and copy element
-                    mlir::Value srcElemVal;
-                    if (isSliceStruct) {
-                        // Load from slice pointer using GEP and load
-                        auto elemTy = getLLVMType(rhs->type.subTypes[0]);
-                        auto elemPtrTy = mlir::LLVM::LLVMPointerType::get(&context_);
-                        auto i64Ty = elseBuilder.getI64Type();
-                        auto idx_i64 = elseBuilder.create<mlir::arith::IndexCastOp>(elseLoc, i64Ty, idx);
-                        mlir::Value gep = elseBuilder.create<mlir::LLVM::GEPOp>(
-                            elseLoc, elemPtrTy, elemTy, slicePtr, mlir::ValueRange{idx_i64}
-                        );
-                        srcElemVal = elseBuilder.create<mlir::LLVM::LoadOp>(elseLoc, elemTy, gep);
-                    } else {
-                        // Debugging: Print memref type and size before load
-                        if (rhs->value && rhs->value.getType().isa<mlir::MemRefType>()) {
-                            auto memrefType = rhs->value.getType().cast<mlir::MemRefType>();
-                            if (memrefType.hasRank() && memrefType.getRank() > 0 && memrefType.isDynamicDim(0)) {
-                                auto zeroIdx = elseBuilder.create<mlir::arith::ConstantIndexOp>(elseLoc, 0);
-                                mlir::Value currentRhsLen = elseBuilder.create<mlir::memref::DimOp>(elseLoc, rhs->value, zeroIdx);
-                                currentRhsLen.print(llvm::errs()); // Print the MLIR Value itself
-                                llvm::errs() << "\n";
-                            }
-                        }
-                        // Load from memref
-                        srcElemVal = elseBuilder.create<mlir::memref::LoadOp>(elseLoc, rhs->value, mlir::ValueRange{idx});
-                    }
-
-                    // build a temp VarInfo for the source element
-                    if (rhs->type.subTypes.size() != 1) {
-                        throw std::runtime_error("varHelper::assignTo: array rhs type must have exactly one element subtype");
-                    }
-                    CompleteType srcElemCT = rhs->type.subTypes[0];
-                    VarInfo srcElemVar(srcElemCT);
-                    srcElemVar.value = srcElemVal;
-                    srcElemVar.isLValue = false;
-
-                    // destination element type
-                    if (lhs->type.subTypes.size() != 1) {
-                        throw std::runtime_error("varHelper::assignTo: array lhs type must have exactly one element subtype");
-                    }
-                    CompleteType dstElemCT = lhs->type.subTypes[0];
-
-                    // promote/cast
-                    VarInfo promoted = promoteType(&srcElemVar, &dstElemCT, line);
-                    mlir::Value storeVal = getSSAValue(promoted);
-
-                    // store into destination
-                    elseBuilder.create<mlir::memref::StoreOp>(elseLoc, storeVal, lhs->value, mlir::ValueRange{idx});
-                    elseBuilder.create<mlir::scf::YieldOp>(elseLoc);
-                }
-            );
-            
-            b.create<mlir::scf::YieldOp>(l);
+            builder_.create<mlir::memref::StoreOp>(loc_, zero, lhs->value, mlir::ValueRange{idx});
+            continue;
         }
-    );
+
+        // load source element
+        mlir::Value srcElemVal = builder_.create<mlir::memref::LoadOp>(loc_, rhs->value, mlir::ValueRange{idx});
+
+        // build a temp VarInfo for the source element
+        if (rhs->type.subTypes.size() != 1) {
+            throw std::runtime_error("varHelper::assignTo: array rhs type must have exactly one element subtype");
+        }
+        CompleteType srcElemCT = rhs->type.subTypes[0];
+        VarInfo srcElemVar(srcElemCT);
+        srcElemVar.value = srcElemVal;
+        srcElemVar.isLValue = false;
+
+        // destination element type
+        if (lhs->type.subTypes.size() != 1) {
+            throw std::runtime_error("varHelper::assignTo: array lhs type must have exactly one element subtype");
+        }
+        CompleteType dstElemCT = lhs->type.subTypes[0];
+
+        // promote/cast
+        VarInfo promoted = promoteType(&srcElemVar, &dstElemCT, line);
+        mlir::Value storeVal = getSSAValue(promoted);
+
+        // store into destination
+        builder_.create<mlir::memref::StoreOp>(loc_, storeVal, lhs->value, mlir::ValueRange{idx});
+    }
 }
 
 void MLIRGen::assignToVector(VarInfo* literal, VarInfo* variable, int line) {
@@ -532,36 +577,29 @@ void MLIRGen::assignToVector(VarInfo* literal, VarInfo* variable, int line) {
         throw std::runtime_error("assignToVector: literal value is null - array/vector literal should already be allocated");
     }
 
-    // First try updating lhs len using compile time sizing - then fallback to dynamic sizing
-    if (literal->type.dims.size() > 0 && literal->type.dims[0] >= 0) {
-        variable->runtimeLen = literal->type.dims[0];
-    } else if (literal->runtimeLen >= 0) {
-        variable->runtimeLen = literal->runtimeLen;
-    } else {
-        // For array literals, try to get size from the memref dimension
-        if (literal->value.getType().isa<mlir::MemRefType>()) {
-            auto zeroIdx = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
-            mlir::Value dimVal = builder_.create<mlir::memref::DimOp>(loc_, literal->value, zeroIdx);
-            // This is a runtime value, but we need a compile-time constant for the loop
-            // This case should not happen for array literals which have compile-time known sizes
-            throw std::runtime_error("assignToVector: cannot determine vector length from runtime dimension");
-        } else {
-            throw std::runtime_error("assignToVector: cannot determine vector length - literal has no dimensions or runtime length");
-        }
+    // Seed runtime dimensions from types where missing
+    if (literal->runtimeDims.empty()) {
+        literal->runtimeDims = literal->type.dims;
     }
 
-    if (variable->runtimeLen == -1 || variable->runtimeLen < 0) {
-        throw std::runtime_error("MLIRGen::assignToVector: Runtime len of " + std::to_string(variable->runtimeLen) + " is invalid");
+    // Determine new runtime length from literal
+    if (literal->runtimeDims.empty() || literal->runtimeDims[0] < 0) {
+        throw std::runtime_error("MLIRGen::assignToVector: invalid literal runtime dimensions for vector assignment");
     }
+    int newLen = literal->runtimeDims[0];
+    if (newLen < 0) {
+        throw std::runtime_error("MLIRGen::assignToVector: Runtime len of " + std::to_string(newLen) + " is invalid");
+    }
+    variable->runtimeDims = {newLen};
 
     // resize the vector to the rhs
-    mlir::Value newVector = allocaVector(variable->runtimeLen, variable);
+    mlir::Value newVector = allocaVector(newLen, variable);
     variable->value = newVector;
 
     // Copy over elements to the new vector using compile-time loop
     // (array literals have compile-time known sizes, so this is safe)
     auto idxTy = builder_.getIndexType();
-    for(size_t t=0; t < static_cast<size_t>(variable->runtimeLen); ++t){
+    for (int t = 0; t < newLen; ++t) {
         // index constant
         mlir::Value idx = builder_.create<mlir::arith::ConstantOp>(
             loc_, idxTy, builder_.getIntegerAttr(idxTy, static_cast<int64_t>(t)));
@@ -729,7 +767,8 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
                 // Static array size
                 int64_t n = varInfo->type.dims[0];
                 auto memTy = mlir::MemRefType::get({n}, elemTy);
-                varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
+                varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
+                    loc_, memTy, mlir::ValueRange{}, mlir::ValueRange{}, builder_.getIntegerAttr(builder_.getI64Type(), 16));
             } else if (varInfo->type.dims.size() == 1 && varInfo->type.dims[0] < 0) {
                 // Dynamic array size - requires sizeValue parameter
                 if (!sizeValue) {
@@ -745,14 +784,15 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
                     memTy,
                     mlir::ValueRange{sizeValue}, // dynamic size operand
                     mlir::ValueRange{},           // symbol operands
-                    mlir::IntegerAttr()           // no alignment
+                    builder_.getIntegerAttr(builder_.getI64Type(), 16)           // alignment
                 );
             } else if (varInfo->type.dims.size() == 2 && varInfo->type.dims[0] >= 0 && varInfo->type.dims[1] >= 0) {
                 // 2D array (matrix)
                 int64_t rows = varInfo->type.dims[0];
                 int64_t cols = varInfo->type.dims[1];
                 auto memTy = mlir::MemRefType::get({rows, cols}, elemTy);
-                varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
+                varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
+                    loc_, memTy, mlir::ValueRange{}, mlir::ValueRange{}, builder_.getIntegerAttr(builder_.getI64Type(), 16));
             } else {
                 throw std::runtime_error("allocaVar: unsupported array shape with dimension " + std::to_string(varInfo->type.dims.size()) + " for variable '" +
                                          (varInfo->identifier.empty() ? std::string("<unknown>") : varInfo->identifier) + "'");
@@ -782,7 +822,8 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
             int64_t rows = varInfo->type.dims[0];
             int64_t cols = varInfo->type.dims[1];
             auto memTy = mlir::MemRefType::get({rows, cols}, elemTy);
-            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(loc_, memTy);
+            varInfo->value = entryBuilder.create<mlir::memref::AllocaOp>(
+                loc_, memTy, mlir::ValueRange{}, mlir::ValueRange{}, builder_.getIntegerAttr(builder_.getI64Type(), 16));
             break;
         }
 
@@ -803,8 +844,8 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
                 loc_,
                 memTy,
                 mlir::ValueRange{zeroLen}, // one dynamic size operand
-                mlir::ValueRange{},        // symbol operands
-                mlir::IntegerAttr()        // no alignment
+                mlir::ValueRange{},
+                builder_.getIntegerAttr(builder_.getI64Type(), 16)
             );
             break;
         }
@@ -816,6 +857,8 @@ void MLIRGen::allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
                                      " for variable '" + varName + "'");
         }
     }
+
+    syncRuntimeDims(varInfo);
 }
 
 mlir::Value MLIRGen::allocaVector(int len, VarInfo *varInfo) {
@@ -835,8 +878,9 @@ mlir::Value MLIRGen::allocaVector(int len, VarInfo *varInfo) {
         memTy,
         mlir::ValueRange{arrayLen},
         mlir::ValueRange{},
-        mlir::IntegerAttr());
+        builder_.getIntegerAttr(builder_.getI64Type(), 16));
     
+
     varInfo->value = alloca;
     return alloca;
 }

@@ -1,0 +1,16 @@
+
+procedure main() returns integer {
+    vector<character> vec1 = ['a', 'b'];    
+    var vector<boolean> vec2;
+    var vector<integer> vec3;
+    
+    var character[2] arr1;
+
+    arr1 = vec1;
+    arr1 -> std_output;
+    "\n" -> std_output;
+
+    return 0;
+}
+
+//CHECK_FILE:vectorToArrChar.out

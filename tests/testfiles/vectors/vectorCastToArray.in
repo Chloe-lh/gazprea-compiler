@@ -3,10 +3,17 @@ procedure main() returns integer {
     vector<boolean> boolVec = [true, false, false];
     vector<character> vec = ['a', 'b', 'c'];
     var vector<integer> ivec;
+    vector<real> realVec = [2.0, 1.9, -356];
+
     ivec = [2, 6, 1233, -99999];
     vector<real> realVec = [2.0, 1.9, -356];
+
+    as<integer[4]>(ivec) -> std_output;
+    "\n" -> std_output;
+    as<real[3]>(realVec) -> std_output;
+    "\n" -> std_output;
 
     return 0;
 }
 
-//CHECK_FILE:vectorDecErr.out
+//CHECK_FILE:vectorCastToArray.out

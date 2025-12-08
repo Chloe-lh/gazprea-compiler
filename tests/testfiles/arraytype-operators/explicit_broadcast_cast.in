@@ -1,0 +1,17 @@
+procedure main() returns integer {
+    integer[3] col_vec = [10, 20, 30];
+
+    /* Explicit cast from 1D to 2D. 
+       Based on scalar->array promotion rules applied element-wise:
+       10 -> [10, 10]
+       20 -> [20, 20]
+       30 -> [30, 30]
+    */
+    integer[3][2] mat = as<integer[3][2]>(col_vec);
+    
+    mat -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:explicit_broadcast_cast.out

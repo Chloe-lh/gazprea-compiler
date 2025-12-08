@@ -1,0 +1,18 @@
+procedure main() returns integer {
+    vector<integer> v1 = [1, 2, 3];
+    vector<integer> v2 = [4, 5, 6];
+    vector<integer> v3 = v1 + v2;
+    integer[3] arr_v3 = v3;
+    integer[4] arr_v1;
+    
+    arr_v3 -> std_output;
+    "\n" -> std_output;
+    
+    v1.append([10]);
+    arr_v1 = v1;
+    arr_v1 -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:vector_basic_append.out

@@ -148,9 +148,10 @@ qualifier: VAR //mutable
         | CONST //immutable -  DEFAULT
         ; //annotate AST with mutability flag
 
+// Real literals are recognised entirely at the lexer level via FLOAT.
+// This parser rule is just a wrapper so we can attach AST nodes.
 real
-    : FLOAT (UPPER_E|LOWER_E)? (ADD INT | MINUS INT | INT)?
-    | INT (UPPER_E|LOWER_E) (ADD|MINUS)? INT
+    : FLOAT
     ;
 
 CHAR: '\'' (ESC_SEQ | ~[\\']) '\'';
@@ -169,10 +170,12 @@ fragment ESC_SEQ:
     ;
 INT: [0-9]+;
 
+// Floating-point literals, including optional exponent parts.
+// Examples: .0, 0.5, 32., 1e10, 1.2e-3, .5E+2
 FLOAT
-    : INT? DECIM INT // .0 or 0.5
-    | INT DECIM {_input->LA(1) != '.'}? // 1. (but not 1..) - check next char is not '.'
-    | INT DECIM INT  // 32.5
+    : INT? DECIM INT ([eE] [+-]? INT)?        // .0, .1, .1e10, 32.0
+    | INT DECIM {_input->LA(1) != '.'}? ([eE] [+-]? INT)? // 32., 32.e+3 (guarded against ..)
+    | INT [eE] [+-]? INT                      // 1e10, 1e-3
     ;
 
 
@@ -196,8 +199,6 @@ EQ: '=';
 
 // for floating point
 DECIM: '.';
-UPPER_E: 'E';
-LOWER_E: 'e';
 
 COMMA: ',';
 
