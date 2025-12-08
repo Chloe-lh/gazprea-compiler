@@ -1,0 +1,11 @@
+procedure main() returns integer {
+    integer[2] i_arr = [1, 2];
+    real r_scalar = 1.0;
+    
+    real[2] r_arr = i_arr + r_scalar;
+    r_arr -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:mixed_promo.out

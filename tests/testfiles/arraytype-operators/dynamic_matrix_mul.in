@@ -1,0 +1,13 @@
+procedure main() returns integer {
+    var integer start = 1;
+    var integer[2][2] m1 = [[start, start+1], [start+2, start+3]];
+    var integer[2][2] m2 = [[1, 0], [0, 1]];
+    var integer[2][2] prod;
+    
+    // Result should be m1
+    prod = m1 ** m2;
+    prod -> std_output;
+    "\n" -> std_output;
+    return 0;
+}
+//CHECK_FILE:dynamic_matrix_mul.out

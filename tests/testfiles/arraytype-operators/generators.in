@@ -1,0 +1,13 @@
+procedure main() returns integer {
+    integer[5] gen_arr = [i in 1..5 | i * 2];
+    integer[2][2] gen_mat = [i in 1..2, j in 1..2 | i + j];
+    
+    gen_arr -> std_output;
+    "\n" -> std_output;
+    
+    gen_mat -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:generators.out

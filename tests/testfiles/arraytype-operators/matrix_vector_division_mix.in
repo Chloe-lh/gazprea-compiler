@@ -1,0 +1,27 @@
+procedure main() returns integer {
+    /*
+       Test Advanced Division Mix:
+       1. Matrix / Scalar
+       2. Vector / Vector
+       3. Real Division (Floating point behavior)
+    */
+
+    real[2][2] mat = [[10.0, 20.0], [30.0, 40.0]];
+    real[2][2] mat_div = mat / 2.0;
+    vector<real> v1 = [1.0, 2.0];
+    vector<real> v2 = [0.5, 0.25];
+    vector<real> v_res = v1 / v2;
+    real[2] arr_v_res = v_res;
+
+    // Matrix / Scalar -> [[5.0, 10.0], [15.0, 20.0]]
+    mat_div -> std_output;
+    "\n" -> std_output;
+
+    // Vector / Vector -> [2.0, 8.0]
+    arr_v_res -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:matrix_vector_division_mix.out
+

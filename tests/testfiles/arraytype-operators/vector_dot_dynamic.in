@@ -1,0 +1,19 @@
+procedure main() returns integer {
+    var vector<integer> v1;
+    var vector<integer> v2;
+    var integer i = 1;
+    
+    // Populate vectors dynamically in a loop
+    loop while (i <= 3) {
+        v1.append([i]);       // [1, 2, 3]
+        v2.append([i * 2]);   // [2, 4, 6]
+        i = i + 1;
+    }
+
+    // Dot Product: 1*2 + 2*4 + 3*6 = 2 + 8 + 18 = 28
+    integer res = v1 ** v2;
+    res -> std_output;
+    "\n" -> std_output;
+    return 0;
+}
+//CHECK_FILE:vector_dot_dynamic.out
