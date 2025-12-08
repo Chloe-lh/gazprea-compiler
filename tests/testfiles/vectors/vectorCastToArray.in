@@ -6,13 +6,14 @@ procedure main() returns integer {
     vector<real> realVec = [2.0, 1.9, -356];
 
     ivec = [2, 6, 1233, -99999];
+    vector<real> realVec = [2.0, 1.9, -356];
 
-    ivec -> std_output;
+    as<integer[4]>(ivec) -> std_output;
     "\n" -> std_output;
-    realVec -> std_output;
+    as<real[3]>(realVec) -> std_output;
     "\n" -> std_output;
 
     return 0;
 }
 
-//CHECK_FILE:vectorDeclarationAndInit.out
+//CHECK_FILE:vectorCastToArray.out
