@@ -1778,8 +1778,11 @@ void SemanticAnalysisVisitor::visit(GeneratorExprNode* node) {
         }
         domPair.second->accept(*this);
         CompleteType domType = resolveUnresolvedType(current_, domPair.second->type, node->line);
-        if (domType.baseType != BaseType::ARRAY && domType.baseType != BaseType::VECTOR && domType.baseType != BaseType::MATRIX && domType.baseType != BaseType::UNKNOWN) {
-            throw TypeError(node->line, "Generator domain must be array/vector/matrix or range.");
+        if (domType.baseType != BaseType::ARRAY && domType.baseType != BaseType::VECTOR && domType.baseType != BaseType::UNKNOWN) {
+            throw TypeError(node->line, "Generator domain must be array/vector or range.");
+        }
+        if (domType.baseType == BaseType::MATRIX || domType.dims.size() > 1) {
+            throw TypeError(node->line, "Generator domain must be 1D array/vector or range.");
         }
         int len = -1;
         if (!domType.dims.empty() && domType.dims[0] >= 0) len = domType.dims[0];

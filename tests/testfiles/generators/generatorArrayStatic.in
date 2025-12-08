@@ -1,0 +1,14 @@
+procedure main() returns integer {
+    integer[4] arr = [1, 2, 3, 4];
+
+    integer[4] res = [x in arr | x * 2];
+
+    loop v in res {
+        v -> std_output;
+        " " -> std_output;
+    }
+    "\n" -> std_output;
+
+    return 0;
+}
+//CHECK_FILE:generatorArrayStatic.out
