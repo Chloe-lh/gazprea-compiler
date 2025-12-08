@@ -90,8 +90,6 @@ static int computeMissingReturnLine(const BlockNode* body) {
 
 void SemanticAnalysisVisitor::visit(FileNode* node) {
     // Init and enter global scope
-    // TODO: handle type aliases here
-    // note: can shadow other symbol names
     scopeByCtx_.clear();
     current_ = nullptr;
     enterScopeFor(node, false, nullptr);
@@ -883,7 +881,77 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
 
     // Ensure init expr type matches with var type (if provided)
     if (node->init != nullptr) {
-        handleAssignError(node->name, varType, node->init->type, node->line);
+        CompleteType exprType = node->init->type;
+
+        // Special-case: alias-based matrix declarations with array-literal
+        // initializers should behave like direct matrix declarations.
+        if (varType.baseType == BaseType::MATRIX) {
+            if (auto lit = std::dynamic_pointer_cast<ArrayLiteralNode>(node->init)) {
+                int64_t litRows = lit->list ? static_cast<int64_t>(lit->list->list.size()) : 0;
+
+                // Expect exactly 2 dimensions on the declared matrix type.
+                if (varType.dims.size() < 2) {
+                    throw std::runtime_error(
+                        "SemanticAnalysis::TypedDecNode: Matrix alias '" + node->name +
+                        "' has insufficient dimension metadata.");
+                }
+
+                // Validate row count
+                if (varType.dims[0] >= 0 && varType.dims[0] != litRows) {
+                    throw TypeError(node->line,
+                        "Matrix initializer row count (" + std::to_string(litRows) +
+                        ") does not match declared size (" +
+                        std::to_string(varType.dims[0]) + ")");
+                }
+
+                // Determine and validate column count
+                int64_t litCols = 0;
+                if (litRows > 0) {
+                    auto firstRow =
+                        std::dynamic_pointer_cast<ArrayLiteralNode>(lit->list->list[0]);
+                    if (!firstRow) {
+                        throw TypeError(node->line,
+                            "Matrix initializer must use nested array literals for rows.");
+                    }
+                    litCols = firstRow->list
+                                  ? static_cast<int64_t>(firstRow->list->list.size())
+                                  : 0;
+                }
+
+                if (varType.dims[1] >= 0 && varType.dims[1] != litCols) {
+                    throw TypeError(node->line,
+                        "Matrix initializer column count (" + std::to_string(litCols) +
+                        ") does not match declared size (" +
+                        std::to_string(varType.dims[1]) + ")");
+                }
+
+                // Validate all rows have the same column count
+                for (size_t i = 1; lit->list && i < lit->list->list.size(); ++i) {
+                    if (auto rowLit = std::dynamic_pointer_cast<ArrayLiteralNode>(
+                            lit->list->list[i])) {
+                        int64_t rowSize = rowLit->list
+                                              ? static_cast<int64_t>(
+                                                    rowLit->list->list.size())
+                                              : 0;
+                        if (rowSize != litCols) {
+                            throw TypeError(
+                                node->line,
+                                "Matrix initializer has inconsistent row lengths: row 0 has " +
+                                    std::to_string(litCols) + " elements, row " +
+                                    std::to_string(i) + " has " +
+                                    std::to_string(rowSize) + " elements");
+                        }
+                    }
+                }
+
+                // Treat the initializer as a matrix of the declared type for
+                // assignment compatibility purposes.
+                exprType = varType;
+                node->init->type = varType;
+            }
+        }
+
+        handleAssignError(node->name, varType, exprType, node->line);
     }
 
     node->type_alias->type = varType;
@@ -1041,7 +1109,6 @@ void SemanticAnalysisVisitor::visit(ProcedureBlockNode* node) {
     }
 
     // Build parameter VarInfos, default const. 
-    // TODO: handle 'var' once AST carries it
     std::vector<VarInfo> params;
     params.reserve(node->params.size());
     std::unordered_set<std::string> paramNames;
@@ -1267,7 +1334,7 @@ void SemanticAnalysisVisitor::visit(AssignStatNode* node) {
     VarInfo* varInfo = current_->resolveVar(node->name, node->line);
 
     if (varInfo->isConst) {
-        throw AssignError(node->line, "Semantic Analysis: cannot assign to const variable '" + node->name + "'."); // TODO add line num
+        throw AssignError(node->line, "Semantic Analysis: cannot assign to const variable '" + node->name + "'."); 
     }
 
     CompleteType varType = resolveUnresolvedType(current_, varInfo->type, node->line);
@@ -1710,10 +1777,6 @@ void SemanticAnalysisVisitor::visit(ExpExpr* node) {
     node->type = finalType;
 }
 
-/* TODO pt2
-    - handle array/vector/matrix element-wise type + len checking. Note matrix mult. requires a special check
-    - pt2 handle int/real -> array/vector promotion. ONLY promote to matrix if square.
-*/
 void SemanticAnalysisVisitor::visit(MultExpr* node) {
     node->left->accept(*this);
     node->right->accept(*this);
@@ -1759,10 +1822,6 @@ void SemanticAnalysisVisitor::visit(MultExpr* node) {
     node->type = finalType;
 }
 
-/* TODO pt2
-    - handle array/vector/matrix element-wise type + len checking
-    - pt2 handle int/real -> array/vector/matrix promotion.
-*/
 void SemanticAnalysisVisitor::visit(AddExpr* node) {
     node->left->accept(*this);
     node->right->accept(*this);
@@ -1933,7 +1992,6 @@ void SemanticAnalysisVisitor::visit(TupleLiteralNode* node) {
         throw LiteralError(node->line, "All tuples must have at least 2 elements, not " + std::to_string(node->elements.size()) + ".");
     }
 
-    // FIXME confirm and handle case where tuple<vector<tuple...>>.
     for (auto& exprNode: node->elements) {
         exprNode->accept(*this);
         if (exprNode->type.baseType == BaseType::TUPLE) {throw LiteralError(1, "Cannot have nested tuples.");
@@ -2032,11 +2090,6 @@ void SemanticAnalysisVisitor::visit(TupleTypeCastNode* node) {
 }
 
 
-/* TODO pt2
-    - handle array/vector/matrix + tuple + element-wise type + len checking. Note that this operator yields true iff all elements of array/vector/matrix type are equal.
-    - handle int/real -> array/vector/matrix promotion.
-    - handle error throw when struct types mismatch
-*/
 void SemanticAnalysisVisitor::visit(EqExpr* node) {
    node->left->accept(*this);
     node->right->accept(*this);
