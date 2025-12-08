@@ -246,6 +246,42 @@ ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
     // alias ID ID case: ID(0) alias name, ID(1) variable name
     std::string aliasName = ctx->ID(0)->getText();
     id = ctx->ID(1)->getText();
+
+    if (ctx->size()) {
+       CompleteType elem(aliasName);
+       auto *sizectx = ctx->size();
+       std::vector<int> dims;
+       auto getDimFromToken = [](antlr4::tree::ParseTree *tok) -> int {
+         if (!tok) return -1;
+         std::string t = tok->getText();
+         if (t == "*") return -1; 
+         return std::stoi(t);
+       };
+
+       if (sizectx->children.size() >= 2) {
+         dims.push_back(getDimFromToken(sizectx->children[1]));
+       }
+
+       int numDim = 1;
+       if (sizectx->children.size() > 4) {
+         numDim = 2;
+         dims.push_back(getDimFromToken(sizectx->children[4]));
+       }
+       
+       CompleteType arrType;
+       if (numDim == 2) { 
+         arrType = CompleteType(BaseType::MATRIX);
+       } else {
+         arrType = CompleteType(BaseType::ARRAY);
+       }
+       arrType.subTypes.push_back(elem);
+       arrType.dims = std::move(dims);
+
+       auto arrDec = std::make_shared<ArrayTypedDecNode>(qualifier, id, arrType, init);
+       setLocationFromCtx(arrDec, ctx);
+       return node_any(std::move(arrDec));
+    }
+
     typeAlias = std::make_shared<TypeAliasNode>(
         aliasName, CompleteType(BaseType::UNKNOWN));
   }
@@ -299,8 +335,41 @@ std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
   }
 
   // 2. Handle type aliases - will be resolved to actual types in semantic analysis
-  if (ctx->ID())
-    return CompleteType(ctx->ID()->getText());
+  if (ctx->ID()) {
+    std::string aliasName = ctx->ID()->getText();
+    if (ctx->size()) {
+       CompleteType elem(aliasName);
+       auto *sizectx = ctx->size();
+       std::vector<int> dims;
+       auto getDimFromToken = [](antlr4::tree::ParseTree *tok) -> int {
+         if (!tok) return -1;
+         std::string t = tok->getText();
+         if (t == "*") return -1; 
+         return std::stoi(t);
+       };
+
+       if (sizectx->children.size() >= 2) {
+         dims.push_back(getDimFromToken(sizectx->children[1]));
+       }
+
+       int numDim = 1;
+       if (sizectx->children.size() > 4) {
+         numDim = 2;
+         dims.push_back(getDimFromToken(sizectx->children[4]));
+       }
+       
+       CompleteType arrType;
+       if (numDim == 2) { 
+         arrType = CompleteType(BaseType::MATRIX);
+       } else {
+         arrType = CompleteType(BaseType::ARRAY);
+       }
+       arrType.subTypes.push_back(elem);
+       arrType.dims = std::move(dims);
+       return arrType;
+    }
+    return CompleteType(aliasName);
+  }
 
   // 3. handle tuples + structs
   if (ctx->tuple_dec()) 

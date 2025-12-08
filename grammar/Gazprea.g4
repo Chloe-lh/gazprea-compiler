@@ -20,7 +20,7 @@ param: qualifier? type ID;
 // added support for arrays in ExplicitTypedDec -> checks legality in semantic analysis
 // ei const Integer[][] id;
 dec
-    : qualifier? (builtin_type ID | ID ID) (EQ expr)? END   #ExplicitTypedDec
+    : qualifier? (builtin_type ID | ID size? ID) (EQ expr)? END   #ExplicitTypedDec
     | qualifier ID EQ expr END                              #InferredTypeDec
     | qualifier? tuple_dec ID (EQ expr)? END                #TupleTypedDec
     | qualifier? struct_dec (ID (EQ expr)?)? END              #StructTypedDec
@@ -46,7 +46,7 @@ type
     : builtin_type
     | tuple_dec
     | struct_dec
-    | ID                        // type aliasing
+    | ID size?                        // type aliasing
     ;
 
 // Built-in scalar types (used to disambiguate declarations)
