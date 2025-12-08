@@ -52,6 +52,7 @@ public:
     void visit(ContinueStatNode* node)  override;
     void visit(ReturnStatNode* node)    override;
     void visit(CallStatNode* node)      override;
+    void visit(MethodCallStatNode* node) override;
     void visit(IfNode* node)            override;
     void visit(LoopNode* node)          override;
     void visit(BlockNode* node)         override;
@@ -59,6 +60,7 @@ public:
 
     // Expressions / Operators
     void visit(ParenExpr* node) override;
+    void visit(MethodCallExpr* node) override;
     void visit(FuncCallExprOrStructLiteral* node) override;
     void visit(UnaryExpr* node) override;   // unary+, unary-, not
     void visit(ExpExpr* node) override;     // ^

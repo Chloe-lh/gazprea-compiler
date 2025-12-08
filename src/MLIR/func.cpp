@@ -315,3 +315,33 @@ void MLIRGen::visit(FuncCallExprOrStructLiteral* node) {
 
     pushValue(resultVar);
 }
+
+
+void MLIRGen::visit(MethodCallExpr* node) {
+    if (node->objectName.empty()) throw std::runtime_error("MethodCallExpr: object name empty");
+    VarInfo* var = currScope_->resolveVar(node->objectName, node->line);
+    if (!var) throw std::runtime_error("MethodCallExpr: var not found");
+
+    if (node->methodName == "len") {
+        // Just return length
+        mlir::Value descriptor = var->value;
+        if (var->value.getType().isa<mlir::LLVM::LLVMPointerType>()) {
+             descriptor = builder_.create<mlir::LLVM::LoadOp>(loc_, getLLVMType(var->type), var->value);
+        }
+        
+        // Descriptor is {ptr, len}
+        llvm::SmallVector<int64_t, 1> lenPos{1};
+        mlir::Value lenI64 = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, descriptor, lenPos);
+        
+        // Return as INTEGER (i32)
+        auto i32Ty = builder_.getI32Type();
+        mlir::Value lenI32 = builder_.create<mlir::arith::TruncIOp>(loc_, i32Ty, lenI64);
+        
+        VarInfo out{CompleteType(BaseType::INTEGER)};
+        out.value = lenI32;
+        out.isLValue = false;
+        pushValue(out);
+    } else {
+        throw std::runtime_error("MethodCallExpr: Unknown method " + node->methodName);
+    }
+}
