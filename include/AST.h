@@ -142,7 +142,11 @@ class BuiltInFuncNode: public ExprNode{
 public:
   std::string funcName;
   std::string id;
+  VarInfo* binding = nullptr;
+  std::shared_ptr<ExprNode> expr;
+
   BuiltInFuncNode(const std::string &funcName, const std::string &id) : funcName(std::move(funcName)), id(std::move(id)) {}
+  BuiltInFuncNode(const std::string &funcName, std::shared_ptr<ExprNode> expr) : funcName(std::move(funcName)), expr(std::move(expr)) {}
   void accept(ASTVisitor &visitor) override;
 };
 /*    Procedure-related               */
@@ -316,6 +320,12 @@ class OrExpr : public BinaryExprNode {
 public:
   OrExpr(const std::string &op, std::shared_ptr<ExprNode> l,
          std::shared_ptr<ExprNode> r);
+  void accept(ASTVisitor &visitor) override;
+};
+class ConcatExpr : public BinaryExprNode {
+public:
+  ConcatExpr(const std::string &op, std::shared_ptr<ExprNode> l,
+             std::shared_ptr<ExprNode> r);
   void accept(ASTVisitor &visitor) override;
 };
 class DotExpr : public BinaryExprNode{
@@ -495,6 +505,27 @@ public:
                               std::vector<std::shared_ptr<ExprNode>>);
   void accept(ASTVisitor &v) override;
 };
+
+class MethodCallExpr : public ExprNode {
+public:
+    std::string objectName;
+    std::string methodName;
+    std::vector<std::shared_ptr<ExprNode>> args;
+    MethodCallExpr(const std::string &obj, const std::string &method, std::vector<std::shared_ptr<ExprNode>> args)
+        : objectName(obj), methodName(method), args(std::move(args)) {}
+    void accept(ASTVisitor &v) override;
+};
+
+class MethodCallStatNode : public StatNode {
+public:
+    std::string objectName;
+    std::string methodName;
+    std::vector<std::shared_ptr<ExprNode>> args;
+    MethodCallStatNode(const std::string &obj, const std::string &method, std::vector<std::shared_ptr<ExprNode>> args)
+        : objectName(obj), methodName(method), args(std::move(args)) {}
+    void accept(ASTVisitor &v) override;
+};
+
 // can be used in statements
 class CallStatNode : public StatNode {
 public:

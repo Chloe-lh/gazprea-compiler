@@ -1,0 +1,5 @@
+procedure main() returns integer {
+    vector<integer>[5] illegal_array_vec;
+    return 0;
+}
+//CHECK_FILE:illegal_array_vector.out

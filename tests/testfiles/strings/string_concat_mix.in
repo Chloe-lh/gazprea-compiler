@@ -1,0 +1,15 @@
+procedure main() returns integer {
+    var string s1 = "Hello";
+    var character c = '!';
+    var character[1] arr = ['?'];
+    
+    s1 = s1 || " World";
+    s1 = s1 || c;
+    s1 = s1 || arr;
+    
+    s1 -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:string_concat_mix.out

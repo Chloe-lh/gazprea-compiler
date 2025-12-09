@@ -1,4 +1,5 @@
 #include "Types.h"
+#include "CompileTimeExceptions.h"
 #include <sstream>
 #include <algorithm>
 
@@ -235,9 +236,26 @@ CompleteType promote(const CompleteType& from, const CompleteType& to) {
                 default: break;
             }
             break;
-        case BaseType::STRING: // TODO: handle comprehensive promotions for strings
+        case BaseType::STRING:
             switch (to.baseType) {
-                case BaseType::STRING:     return BaseType::STRING;   // not the same as vector<char>.
+                case BaseType::STRING:     return BaseType::STRING;
+                case BaseType::ARRAY: {
+                    // STRING promotes to character[*] given length match
+                    if (to.subTypes.size() != 1 || to.subTypes[0].baseType != BaseType::CHARACTER) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+                    if (to.dims[0] != from.dims[0]) return CompleteType(BaseType::UNKNOWN);
+
+                    return to; 
+                }
+                case BaseType::VECTOR: {
+                    // STRING promotes to vector<char>
+                    if (to.subTypes.size() != 1 || to.subTypes[0].baseType != BaseType::CHARACTER) {
+                        return CompleteType(BaseType::UNKNOWN);
+                    }
+                    return to; 
+                }
+
                 default: break;
             }
             break;
@@ -496,6 +514,98 @@ void validateSubtypes(CompleteType completeType) {
     }
 }
 
+void validateContainmentHierarchy(const CompleteType& completeType, int line) {
+    // UNRESOLVED/UNKNOWN/EMPTY are ignored here; they should be resolved or
+    // rejected elsewhere in semantic analysis.
+    if (completeType.baseType == BaseType::UNRESOLVED ||
+        completeType.baseType == BaseType::UNKNOWN ||
+        completeType.baseType == BaseType::EMPTY) {
+        throw std::runtime_error("validateContainmentHierarchy: Invalid type " + toString(completeType) + " called as param");
+    }
+
+    // Scalars cant have sub-elements
+    if (isScalarType(completeType.baseType)) {
+        return;
+    }
+
+    // Enforce rules based on containment hierarchy
+    //   tuple/struct
+    //     -> vector/string
+    //        -> 1D array / 2D array (matrix)
+    //           -> bool/character/integer/real
+    switch (completeType.baseType) {
+        case BaseType::ARRAY:
+        case BaseType::MATRIX: {
+            // Arrays/matrices may only contain scalar element types.
+            if (completeType.subTypes.size() != 1) {
+                return; // structural issues handled by validateSubtypes
+            }
+            const CompleteType& elem = completeType.subTypes[0];
+            if (!isScalarType(elem.baseType)) {
+                throw TypeError(
+                    line,
+                    "Semantic Analysis: Invalid declared array element type");
+            }
+
+            validateContainmentHierarchy(elem, line);
+            break;
+        }
+        case BaseType::VECTOR: {
+            // Vectors may contain:
+            //  - scalars
+            //  - 1D arrays
+            //  - 2D arrays/matrices
+            if (completeType.subTypes.size() != 1) {
+                return; // structural issues handled elsewhere
+            }
+            const CompleteType& elem = completeType.subTypes[0];
+            const BaseType eb = elem.baseType;
+
+            bool validSubtype =
+                isScalarType(eb) || eb == BaseType::ARRAY || eb == BaseType::MATRIX;
+
+            if (!validSubtype) {
+                // Specifically rules out vector<struct>, vector<tuple>,
+                // vector<vector>, vector<string>, etc.
+                throw TypeError(
+                    line,
+                    "Semantic Analysis: Invalid declared array element type: " + toString(completeType));
+                }
+            validateContainmentHierarchy(elem, line);
+            break;
+        }
+        case BaseType::TUPLE:
+        case BaseType::STRUCT: {
+            // Tuples/structs may not directly contain other tuples/structs.
+            for (const auto& fieldType : completeType.subTypes) {
+                if (fieldType.baseType == BaseType::STRUCT ||
+                    fieldType.baseType == BaseType::TUPLE) {
+                    throw TypeError(
+                        line,
+                        "Semantic Analysis: Invalid declared array element type: " + toString(completeType));
+                }
+                validateContainmentHierarchy(fieldType, line);
+            }
+            break;
+        }
+        case BaseType::STRING: {
+            // Strings can be declared as 'string', no subtypes allowed
+            if (!completeType.subTypes.empty()) {
+                throw TypeError(
+                    line,
+                    "Semantic Analysis: Invalid declared string element type: " + toString(completeType));
+            }
+            break;
+        }
+        default: {
+            for (const auto& sub : completeType.subTypes) {
+                validateContainmentHierarchy(sub, line);
+            }
+            break;
+        }
+    }
+}
+
 bool isScalarType(BaseType t) {
     for (auto ft : flatTypes) {
         if (ft == t) return true;
@@ -524,8 +634,9 @@ bool canScalarCast(BaseType from, BaseType to) {
 }
 
 static bool canCastTypeImpl(const CompleteType& from, const CompleteType& to) {
+    // Same top-level base type: require structurally compatible subtypes that are
+    // themselves castable.
     if (from.baseType == to.baseType) {
-        // Shapes match + ensure all subtypes are mutually castable
         if (from.subTypes.size() != to.subTypes.size()) return false;
         for (size_t i = 0; i < from.subTypes.size(); ++i) {
             if (!canCastTypeImpl(from.subTypes[i], to.subTypes[i])) return false;
@@ -533,28 +644,42 @@ static bool canCastTypeImpl(const CompleteType& from, const CompleteType& to) {
         return true;
     }
 
-    // Scalar to scalar per spec
+    auto isAggregate = [](BaseType b) {
+        return b == BaseType::ARRAY || b == BaseType::VECTOR || b == BaseType::MATRIX;
+    };
+
+    // Scalar to scalar 
     if (isScalarType(from.baseType) && isScalarType(to.baseType)) {
         return canScalarCast(from.baseType, to.baseType);
     }
 
-    // Tuple to tuple: equal arity and pairwise scalar-castable
-    if (from.baseType == BaseType::TUPLE && to.baseType == BaseType::TUPLE) {
-        if (from.subTypes.size() != to.subTypes.size()) return false;
-        for (size_t i = 0; i < from.subTypes.size(); ++i) {
-            const auto& f = from.subTypes[i];
-            const auto& t = to.subTypes[i];
-            if (!(isScalarType(f.baseType) && isScalarType(t.baseType) && canScalarCast(f.baseType, t.baseType))) {
-                return false;
-            }
-        }
-        return true;
+    // Scalar -> aggregate broadcast 
+    if (isScalarType(from.baseType) && isAggregate(to.baseType)) {
+        if (to.subTypes.size() != 1) return false;
+        const CompleteType &elem = to.subTypes[0];
+        if (!isScalarType(elem.baseType)) return false;
+        return canScalarCast(from.baseType, elem.baseType);
     }
 
-    // TODO pt2: Support scalar -> array promotions and array<->array conversions (including
-    // multi-dimensional) once CompleteType carries dimension/size metadata.
-    // Until then, reject casts between composite non-tuple types unless shapes
-    // are strictly identical (handled by the baseType==case above).
+    // Aggregate -> aggregate conversions for ARRAY/VECTOR/MATRIX
+    if (isAggregate(from.baseType) && isAggregate(to.baseType)) {
+        if (from.subTypes.size() != 1 || to.subTypes.size() != 1) return false;
+
+        auto rankOf = [](const CompleteType &ct) -> std::size_t {
+            return ct.dims.size();
+        };
+
+        std::size_t srcRank = rankOf(from);
+        std::size_t dstRank = rankOf(to);
+
+        // Backend only supports rank-1 and rank-2 aggregates here.
+        if (srcRank == 0 || srcRank > 2 || dstRank == 0 || dstRank > 2) {
+            return false;
+        }
+
+        // Element types must be recursively castable
+        return canCastTypeImpl(from.subTypes[0], to.subTypes[0]);
+    }
     return false;
 }
 

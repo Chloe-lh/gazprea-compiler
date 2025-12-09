@@ -52,6 +52,7 @@ public:
     void visit(ContinueStatNode* node)  override;
     void visit(ReturnStatNode* node)    override;
     void visit(CallStatNode* node)      override;
+    void visit(MethodCallStatNode* node) override;
     void visit(IfNode* node)            override;
     void visit(LoopNode* node)          override;
     void visit(IteratorLoopNode* node)  override;
@@ -61,6 +62,7 @@ public:
 
     // Expressions / Operators
     void visit(ParenExpr* node) override;
+    void visit(MethodCallExpr* node) override;
     void visit(FuncCallExprOrStructLiteral* node) override;
     void visit(UnaryExpr* node) override;   // unary+, unary-, not
     void visit(ExpExpr* node) override;     // ^
@@ -71,6 +73,7 @@ public:
     void visit(EqExpr* node) override;      // ==, !=
     void visit(AndExpr* node) override;     // and
     void visit(OrExpr* node) override;      // or, xor
+    void visit(ConcatExpr* node) override;  // ||
     void visit(DotExpr* node) override;
     void visit (StructAccessNode* node) override;
     void visit(TupleAccessNode* node) override;
@@ -154,6 +157,9 @@ public:
         Scope* &savedScope);
     mlir::Value getSSAValue(const VarInfo &v);
     mlir::Value lowerSizeExpr(std::shared_ptr<ExprNode> size);
+    
+    // Helper to access elements from MemRef or LLVM - to support vector/array/matrices, and other types respectively
+    mlir::Value accessElement(VarInfo* var, mlir::ValueRange indices, mlir::Value storeVal = nullptr);
 
 private:
     // Helper to find the enclosing function and its entry block for allocas

@@ -68,6 +68,7 @@ public:
   void visit(EqExpr *node) override;
   void visit(AndExpr *node) override;
   void visit(OrExpr *node) override;
+  void visit(ConcatExpr *node) override;
   void visit(TrueNode *node) override;
   void visit(FalseNode *node) override;
   void visit(CharNode *node) override;

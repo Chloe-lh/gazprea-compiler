@@ -1,0 +1,7 @@
+struct Point (integer x, integer y);
+
+procedure main() returns integer {
+    Point[2][2] illegal_matrix_struct;
+    return 0;
+}
+//CHECK_FILE:illegal_matrix_struct.out

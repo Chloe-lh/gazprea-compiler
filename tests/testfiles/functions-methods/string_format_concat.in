@@ -1,0 +1,15 @@
+procedure main() returns integer {
+    integer i = 42;
+    real r = 3.14;
+    var string s = "Value: ";
+    
+    s.concat(format(i));
+    s = s || ", Pi: ";
+    s.concat(format(r));
+    
+    s -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:string_format_concat.out

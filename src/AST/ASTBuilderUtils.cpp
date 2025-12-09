@@ -41,15 +41,9 @@ std::vector<std::shared_ptr<::ExprNode>> collectArgs(
       continue;
     }
     auto anyArg = builder.visit(ctx);
-    if (anyArg.has_value()) {
-      try {
-        args.push_back(std::any_cast<std::shared_ptr<::ExprNode>>(anyArg));
-      } catch (const std::bad_any_cast &) {
-        args.push_back(nullptr);
-      }
-    } else {
-      args.push_back(nullptr);
-    }
+    // Use safe_any_cast_ptr to handle different underlying shared_ptr types (ASTNode vs ExprNode)
+    auto argNode = safe_any_cast_ptr<ExprNode>(anyArg);
+    args.push_back(argNode);
   }
   return args;
 }

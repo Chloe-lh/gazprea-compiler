@@ -1,4 +1,5 @@
 #include "ConstantFolding.h"
+#include "ConstantHelpers.h"
 #include "AST.h"
 #include "CompileTimeExceptions.h"
 #include "Types.h"
@@ -1011,42 +1012,30 @@ void ConstantFoldingVisitor::visit(AndExpr *node){
         }
     }
 }
-void ConstantFoldingVisitor::visit(OrExpr *node){ 
-    // Evaluate children first so their constants (if any) are computed
-    if (node->left) node->left->accept(*this);
-    if (node->right) node->right->accept(*this);
-    if (node->op == "or"){
-        // Short-circuit-safe OR folding (left-to-right):
-        // - if left is compile-time true -> whole expression is true
-        // - else if left is compile-time false and right is compile-time bool -> result is right
-        // - otherwise cannot fold safely
-        if (node->left && node->left->constant.has_value() && node->left->constant->type.baseType == BaseType::BOOL) {
-            bool lv = std::get<bool>(node->left->constant->value);
-            if (lv) {
-                node->constant = getBoolConst(true);
-                return;
-            }
-            // left is false; fold only if right is a compile-time bool
-            if (node->right && node->right->constant.has_value() && node->right->constant->type.baseType == BaseType::BOOL) {
-                bool rv = std::get<bool>(node->right->constant->value);
-                node->constant = getBoolConst(rv);
-            }
-        }
-    } else if (node->op == "xor") {
-        if (node->left && node->right &&
-            node->left->constant.has_value() &&
-            node->right->constant.has_value() &&
-            node->left->constant->type.baseType == BaseType::BOOL &&
-            node->right->constant->type.baseType == BaseType::BOOL) {
-
-            bool lv = std::get<bool>(node->left->constant->value);
-            bool rv = std::get<bool>(node->right->constant->value);
-            node->constant = getBoolConst(lv != rv); // XOR result
-        }
-    }
-
+void ConstantFoldingVisitor::visit(OrExpr *node) {
+  node->left->accept(*this);
+  node->right->accept(*this);
+  if (node->left && node->left->constant.has_value() &&
+      node->right && node->right->constant.has_value()) {
+      node->constant =
+          gazprea::computeBinaryComp(node->left->constant.value(), node->right->constant.value(), node->op);
+      if (node->constant) {
+        node->type = node->constant->type;
+      }
   }
-  void ConstantFoldingVisitor::visit(TrueNode *node){ node->constant = getBoolConst(true);}
+}
+
+void ConstantFoldingVisitor::visit(ConcatExpr *node) {
+  node->left->accept(*this);
+  node->right->accept(*this);
+  // No constant folding for concat yet
+}
+
+void ConstantFoldingVisitor::visit(TrueNode *node) {
+  node->constant = ConstantValue(CompleteType(BaseType::BOOL), true);
+  node->type = node->constant->type;
+}
+
   void ConstantFoldingVisitor::visit(FalseNode *node){ node->constant = getBoolConst(false);}
   void ConstantFoldingVisitor::visit(CharNode *node){ node->constant = getCharConst(node->value);}
   void ConstantFoldingVisitor::visit(IntNode *node){ 

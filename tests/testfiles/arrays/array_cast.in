@@ -1,0 +1,15 @@
+procedure main() returns integer {
+    integer[3] orig = [10, 20, 30];
+    integer[5] zero_pad = as<integer[5]>(orig);
+    integer[1] trunc = as<integer[1]>(orig);
+
+    orig -> std_output;
+    "\n" -> std_output;
+    zero_pad -> std_output;
+    "\n" -> std_output;
+    trunc -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:array_cast.out

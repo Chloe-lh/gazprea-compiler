@@ -185,3 +185,187 @@ void MLIRGen::visit(CallStatNode* node) {
     // Per spec: "The return value from a procedure call can only be manipulated with unary operators"
     // Since this is a call statement, we just discard the result
 }
+
+void MLIRGen::visit(MethodCallStatNode* node) {
+    if (node->objectName.empty()) throw std::runtime_error("MethodCallStatNode: object name empty");
+    VarInfo* var = currScope_->resolveVar(node->objectName, node->line);
+    if (!var) throw std::runtime_error("MethodCallStatNode: var not found");
+
+    if (node->methodName == "push") {
+        if (node->args.size() != 1) throw std::runtime_error("push takes 1 argument");
+        node->args[0]->accept(*this);
+        VarInfo val = popValue();
+        
+        // Get current length
+        mlir::Value descriptor = var->value; 
+        if (var->value.getType().isa<mlir::LLVM::LLVMPointerType>()) {
+             descriptor = builder_.create<mlir::LLVM::LoadOp>(loc_, getLLVMType(var->type), var->value);
+        }
+        
+        // Extract len
+        llvm::SmallVector<int64_t, 1> lenPos{1};
+        mlir::Value lenI64 = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, descriptor, lenPos);
+        auto idxTy = builder_.getIndexType();
+        mlir::Value oldLen = builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, lenI64);
+        
+        auto c1 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
+        mlir::Value newLen = builder_.create<mlir::arith::AddIOp>(loc_, oldLen, c1);
+        
+        // Alloc
+        mlir::Type elemTy;
+        if (var->type.baseType == BaseType::STRING) elemTy = builder_.getI8Type();
+        else elemTy = getLLVMType(var->type.subTypes[0]);
+        
+        auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, elemTy);
+        mlir::Value newMemRef = builder_.create<mlir::memref::AllocaOp>(loc_, memTy, newLen);
+        
+        // Copy old elements
+        auto c0 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+        builder_.create<mlir::scf::ForOp>(loc_, c0, oldLen, c1, mlir::ValueRange{},
+            [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value iv, mlir::ValueRange args) {
+                mlir::Value elem = accessElement(var, mlir::ValueRange{iv});
+                b.create<mlir::memref::StoreOp>(l, elem, newMemRef, mlir::ValueRange{iv});
+                b.create<mlir::scf::YieldOp>(l);
+            }
+        );
+        
+        // Store new element
+        mlir::Value valToStore = getSSAValue(val);
+        builder_.create<mlir::memref::StoreOp>(loc_, valToStore, newMemRef, mlir::ValueRange{oldLen});
+        
+        // Update descriptor
+        mlir::Value ptrAsIdx = builder_.create<mlir::memref::ExtractAlignedPointerAsIndexOp>(loc_, newMemRef);
+        auto i64Ty = builder_.getI64Type();
+        mlir::Value ptrI64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, ptrAsIdx);
+        auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+        mlir::Value ptr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptrTy, ptrI64);
+        
+        mlir::Value newLenI64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, newLen);
+        
+        mlir::Value undef = builder_.create<mlir::LLVM::UndefOp>(loc_, getLLVMType(var->type));
+        llvm::SmallVector<int64_t, 1> ptrPos{0};
+        mlir::Value newDesc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, undef, ptr, ptrPos);
+        newDesc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, newDesc, newLenI64, lenPos);
+        
+        builder_.create<mlir::LLVM::StoreOp>(loc_, newDesc, var->value);
+
+        // Update runtimeDims for vectors after push
+        if (var->runtimeDims.empty()) {
+            var->runtimeDims = var->type.dims;
+        }
+        if (var->type.baseType == BaseType::VECTOR && !var->runtimeDims.empty()) {
+            if (var->runtimeDims[0] >= 0) {
+                var->runtimeDims[0] += 1;
+            }
+            // else, leave as -1 (unknown)
+        }
+
+    } else if (node->methodName == "append" || node->methodName == "concat") {
+        if (node->args.size() != 1) throw TypeError(node->line, "Method '" + node->methodName + "' takes 1 argument");
+        node->args[0]->accept(*this);
+        VarInfo other = popValue();
+
+        // Sync runtimeDims for both operands before use
+        syncRuntimeDims(var);
+        syncRuntimeDims(&other);
+        // Compute new static length for vectors
+        int newStaticLen = -1;
+        if (var->type.baseType == BaseType::VECTOR) {
+            int lhsLen = (!var->runtimeDims.empty() ? var->runtimeDims[0] : -1);
+            int rhsLenStatic = (!other.runtimeDims.empty() ? other.runtimeDims[0] : -1);
+            if (lhsLen >= 0 && rhsLenStatic >= 0) {
+                newStaticLen = lhsLen + rhsLenStatic;
+            }
+        }
+        
+        // Get len of this
+        mlir::Value descriptor = var->value; 
+        if (var->value.getType().isa<mlir::LLVM::LLVMPointerType>()) {
+             descriptor = builder_.create<mlir::LLVM::LoadOp>(loc_, getLLVMType(var->type), var->value);
+        }
+        llvm::SmallVector<int64_t, 1> lenPos{1};
+        mlir::Value lenI64 = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, descriptor, lenPos);
+        auto idxTy = builder_.getIndexType();
+        mlir::Value oldLen = builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, lenI64);
+        
+        // Get len of other
+        mlir::Value otherLen;
+        if (other.type.baseType == BaseType::STRING || other.type.baseType == BaseType::VECTOR) {
+             if (other.value.getType().isa<mlir::LLVM::LLVMPointerType>()) {
+                 // Load descriptor
+                 mlir::Value desc = builder_.create<mlir::LLVM::LoadOp>(loc_, getLLVMType(other.type), other.value);
+                 llvm::SmallVector<int64_t, 1> lenPos{1};
+                 mlir::Value lenI64 = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, desc, lenPos);
+                 otherLen = builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, lenI64);
+             } else if (other.value.getType().isa<mlir::LLVM::LLVMStructType>()) {
+                 llvm::SmallVector<int64_t, 1> lenPos{1};
+                 mlir::Value lenI64 = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, other.value, lenPos);
+                 otherLen = builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, lenI64);
+             } else {
+                 otherLen = computeArraySize(&other, node->line);
+             }
+        } else {
+             otherLen = computeArraySize(&other, node->line);
+        }
+        
+        mlir::Value newLen = builder_.create<mlir::arith::AddIOp>(loc_, oldLen, otherLen);
+        
+        // Alloc
+        mlir::Type elemTy;
+        if (var->type.baseType == BaseType::STRING) elemTy = builder_.getI8Type();
+        else elemTy = getLLVMType(var->type.subTypes[0]);
+        
+        auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, elemTy);
+        mlir::Value newMemRef = builder_.create<mlir::memref::AllocaOp>(loc_, memTy, newLen);
+        
+        // Copy old
+        auto c0 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+        auto c1 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
+        builder_.create<mlir::scf::ForOp>(loc_, c0, oldLen, c1, mlir::ValueRange{},
+            [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value iv, mlir::ValueRange args) {
+                mlir::Value elem = accessElement(var, mlir::ValueRange{iv});
+                b.create<mlir::memref::StoreOp>(l, elem, newMemRef, mlir::ValueRange{iv});
+                b.create<mlir::scf::YieldOp>(l);
+            }
+        );
+        
+        // Copy other
+        builder_.create<mlir::scf::ForOp>(loc_, c0, otherLen, c1, mlir::ValueRange{},
+            [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value iv, mlir::ValueRange args) {
+                mlir::Value elem = accessElement(&other, mlir::ValueRange{iv});
+                mlir::Value destIdx = b.create<mlir::arith::AddIOp>(l, oldLen, iv);
+                b.create<mlir::memref::StoreOp>(l, elem, newMemRef, mlir::ValueRange{destIdx});
+                b.create<mlir::scf::YieldOp>(l);
+            }
+        );
+        
+        // Update descriptor 
+        mlir::Value ptrAsIdx = builder_.create<mlir::memref::ExtractAlignedPointerAsIndexOp>(loc_, newMemRef);
+        auto i64Ty = builder_.getI64Type();
+        mlir::Value ptrI64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, ptrAsIdx);
+        auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+        mlir::Value ptr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptrTy, ptrI64);
+        
+        mlir::Value newLenI64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, newLen);
+        
+        mlir::Value undef = builder_.create<mlir::LLVM::UndefOp>(loc_, getLLVMType(var->type));
+        llvm::SmallVector<int64_t, 1> ptrPos{0};
+        mlir::Value newDesc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, undef, ptr, ptrPos);
+        newDesc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, newDesc, newLenI64, lenPos);
+        
+        builder_.create<mlir::LLVM::StoreOp>(loc_, newDesc, var->value);
+
+        // Update runtimeDims for vector after append/concat 
+        if (var->type.baseType == BaseType::VECTOR) {
+            if (newStaticLen >= 0) {
+                if (var->runtimeDims.empty()) {
+                    var->runtimeDims.push_back(newStaticLen);
+                } else {
+                    var->runtimeDims[0] = newStaticLen;
+                }
+            } else {
+                var->runtimeDims = {-1};
+            }
+        }
+    }
+}

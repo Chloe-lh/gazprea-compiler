@@ -170,14 +170,10 @@ void MLIRGen::visit(ArrayAccessAssignStatNode *node) {
         mlir::Value zeroBasedIndex2 = builder_.create<mlir::arith::SubIOp>(loc_, indexValAsIndex2, one);
         
         // Store with two indices for 2D array
-        builder_.create<mlir::memref::StoreOp>(
-            loc_, val, arrayVar->value, mlir::ValueRange{zeroBasedIndex, zeroBasedIndex2}
-        );
+        accessElement(arrayVar, mlir::ValueRange{zeroBasedIndex, zeroBasedIndex2}, val);
     } else {
         // Store with single index for 1D array
-        builder_.create<mlir::memref::StoreOp>(
-            loc_, val, arrayVar->value, mlir::ValueRange{zeroBasedIndex}
-        );
+        accessElement(arrayVar, mlir::ValueRange{zeroBasedIndex}, val);
     }
 }
 
@@ -225,10 +221,10 @@ void MLIRGen::visit(ArrayAccessNode *node) {
         mlir::Value zeroBasedIndex2 = builder_.create<mlir::arith::SubIOp>(loc_, indexValAsIndex2, one);
         
         // Load element from 2D array
-        elemVal = builder_.create<mlir::memref::LoadOp>(loc_, arrVarInfo->value, mlir::ValueRange{zeroBasedIndex, zeroBasedIndex2});
+        elemVal = accessElement(arrVarInfo, mlir::ValueRange{zeroBasedIndex, zeroBasedIndex2});
     } else {
         // Load element from 1D array
-        elemVal = builder_.create<mlir::memref::LoadOp>(loc_, arrVarInfo->value, mlir::ValueRange{zeroBasedIndex});
+        elemVal = accessElement(arrVarInfo, mlir::ValueRange{zeroBasedIndex});
     }
 
     // Create scalar VarInfo with element's CompleteType.

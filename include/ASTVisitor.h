@@ -35,6 +35,7 @@ public:
   virtual void visit(ContinueStatNode *node) = 0;
   virtual void visit(ReturnStatNode *node) = 0;
   virtual void visit(CallStatNode *node) = 0;
+  virtual void visit(MethodCallStatNode *node) { (void)node; } // TODO: revise
   virtual void visit(IfNode *node) = 0;
   virtual void visit(LoopNode *node) = 0;
   virtual void visit(IteratorLoopNode *node) = 0;
@@ -42,6 +43,7 @@ public:
 
   // Expressions
   virtual void visit(ParenExpr *node) = 0;
+  virtual void visit(MethodCallExpr *node) { (void)node; } // TODO: revise
   virtual void visit(FuncCallExprOrStructLiteral *node) = 0;
   // Backwards-compatible overload: if we get a CallExprNode, forward to
   // FuncCallExpr handler
@@ -58,6 +60,7 @@ public:
   virtual void visit(EqExpr *node) = 0;
   virtual void visit(AndExpr *node) = 0;
   virtual void visit(OrExpr *node) = 0;
+  virtual void visit(ConcatExpr *node) = 0;
   virtual void visit(TrueNode *node) = 0;
   virtual void visit(FalseNode *node) = 0;
   virtual void visit(CharNode *node) = 0;

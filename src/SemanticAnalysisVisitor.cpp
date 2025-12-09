@@ -89,8 +89,6 @@ static int computeMissingReturnLine(const BlockNode* body) {
 
 void SemanticAnalysisVisitor::visit(FileNode* node) {
     // Init and enter global scope
-    // TODO: handle type aliases here
-    // note: can shadow other symbol names
     scopeByCtx_.clear();
     current_ = nullptr;
     enterScopeFor(node, false, nullptr);
@@ -131,8 +129,10 @@ void SemanticAnalysisVisitor::visit(ArrayStrideExpr *node) {
         throw SymbolError(node->line, "Semantic Analysis: unknown array '" + node->id + "'.");
     }
     CompleteType baseType = resolveUnresolvedType(current_, var->type, node->line);
-    if (baseType.baseType != BaseType::ARRAY) {
-        throw TypeError(node->line, "Semantic Analysis: stride operator applied to non-array type.");
+    if (baseType.baseType != BaseType::ARRAY && 
+        baseType.baseType != BaseType::VECTOR && 
+        baseType.baseType != BaseType::STRING) {
+        throw TypeError(node->line, "Semantic Analysis: stride operator applied to non-array/vector/string type.");
     }
     // stride expression must be integer
     if (node->expr) {
@@ -152,8 +152,10 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
         throw SymbolError(node->line, "Semantic Analysis: unknown array '" + node->id + "'.");
     }
     CompleteType baseType = resolveUnresolvedType(current_, var->type, node->line);
-    if (baseType.baseType != BaseType::ARRAY && baseType.baseType != BaseType::MATRIX) {
-        throw TypeError(node->line, "Semantic Analysis: slice operator applied to non-array type.");
+    if (baseType.baseType != BaseType::ARRAY && 
+        baseType.baseType != BaseType::VECTOR && 
+        baseType.baseType != BaseType::STRING) {
+        throw TypeError(node->line, "Semantic Analysis: slice operator applied to non-array/vector/string type.");
     }
     // Validate range
     if (node->range) {
@@ -217,11 +219,49 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
 // Built-in functions with a single identifier argument (length/len, shape,
 // reverse, format).
 void SemanticAnalysisVisitor::visit(BuiltInFuncNode *node) {
+    // Reset binding for this builtin node; will be set for identifier-based calls.
+    node->binding = nullptr;
     std::string fname = node->funcName;
+
+    // Special handling for FORMAT which may use expr instead of id
+    if (fname == "format") {
+        CompleteType argType(BaseType::UNKNOWN);
+        if (node->expr) {
+            node->expr->accept(*this);
+            argType = node->expr->type;
+        } else {
+             // Backward compatibility for ID
+             VarInfo* var = current_->resolveVar(node->id, node->line);
+             if (!var) {
+                 throw SymbolError(node->line, "Semantic Analysis: unknown identifier '" + node->id + "' in builtin call.");
+             }
+             // Bind the underlying variable for identifier-based format().
+             node->binding = var;
+             argType = resolveUnresolvedType(current_, var->type, node->line);
+        }
+
+        // Check scalar type
+        if (isScalarType(argType.baseType)) {
+             node->type = CompleteType(BaseType::STRING);
+             return;
+        } else if (argType.baseType == BaseType::STRING) {
+             throw TypeError(node->line, "Semantic Analysis: format() does not support string arguments.");
+        }
+        
+        throw TypeError(node->line, "Semantic Analysis: format() requires scalar argument.");
+    }
+
+    // For other functions, they expect ID
+    if (node->id.empty()) {
+         throw TypeError(node->line, "Semantic Analysis: " + fname + " requires an identifier argument.");
+    }
+
     VarInfo* var = current_->resolveVar(node->id, node->line);
     if (!var) {
         throw SymbolError(node->line, "Semantic Analysis: unknown identifier '" + node->id + "' in builtin call.");
     }
+    // Bind the underlying variable for identifier-based builtin calls.
+    node->binding = var;
     CompleteType argType = resolveUnresolvedType(current_, var->type, node->line);
 
     if (fname == "length") {
@@ -252,14 +292,6 @@ void SemanticAnalysisVisitor::visit(BuiltInFuncNode *node) {
             return;
         }
         throw TypeError(node->line, "Semantic Analysis: reverse() requires string/array/vector argument.");
-    }
-
-    if (fname == "format") {
-        if (argType.baseType == BaseType::STRING) {
-            node->type = argType;
-            return;
-        }
-        throw TypeError(node->line, "Semantic Analysis: format() requires string argument.");
     }
 
     throw SymbolError(node->line, "Semantic Analysis: unknown builtin function '" + node->funcName + "'.");
@@ -357,6 +389,9 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
 
     // Resolve any aliases inside the declared type.
     CompleteType declaredType = resolveUnresolvedType(current_, node->type, node->line);
+    
+    // Enforce containment hierarchy 
+    validateContainmentHierarchy(declaredType, node->line);
     // Permit ARRAY, VECTOR, and MATRIX declarations here; 2D arrays/matrices
     // share the same declaration node shape.
     if (declaredType.baseType != BaseType::ARRAY &&
@@ -744,8 +779,94 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
         node->type = CompleteType(BaseType::MATRIX, promoted, {outRows, outCols});
         return;
     }
-    // maybe vector and matrix
     node->type = CompleteType(BaseType::UNKNOWN);
+}
+
+void SemanticAnalysisVisitor::visit(ConcatExpr* node) {
+    node->left->accept(*this);
+    node->right->accept(*this);
+
+    const CompleteType& leftType = node->left->type;
+    const CompleteType& rightType = node->right->type;
+
+    // String Concatenation Logic
+    bool leftIsString = (leftType.baseType == BaseType::STRING);
+    bool rightIsString = (rightType.baseType == BaseType::STRING);
+    
+    if (leftIsString || rightIsString) {
+        auto isCharOrCharVector = [](const CompleteType& t) {
+            if (t.baseType == BaseType::CHARACTER) return true;
+            if ((t.baseType == BaseType::ARRAY || t.baseType == BaseType::VECTOR) &&
+                !t.subTypes.empty() && t.subTypes[0].baseType == BaseType::CHARACTER) {
+                return true;
+            }
+            return false;
+        };
+
+        if (leftIsString && (rightIsString || isCharOrCharVector(rightType))) {
+            node->type = CompleteType(BaseType::STRING);
+            return;
+        }
+        if (rightIsString && (leftIsString || isCharOrCharVector(leftType))) {
+             node->type = CompleteType(BaseType::STRING);
+             return;
+        }
+    }
+
+    // Array/Vector Concatenation Logic
+    auto getElemType = [](const CompleteType& t) -> CompleteType {
+        if (t.baseType == BaseType::ARRAY || t.baseType == BaseType::VECTOR) {
+             if (t.subTypes.empty()) return CompleteType(BaseType::UNKNOWN); 
+             return t.subTypes[0];
+        }
+        return t; // Scalar
+    };
+
+    CompleteType leftElem = getElemType(leftType);
+    CompleteType rightElem = getElemType(rightType);
+
+    CompleteType commonElem = promote(leftElem, rightElem);
+    if (commonElem.baseType == BaseType::UNKNOWN) {
+        commonElem = promote(rightElem, leftElem);
+    }
+
+    if (commonElem.baseType == BaseType::UNKNOWN) {
+        throw TypeError(node->line, "Semantic Analysis: Concatenation operands have incompatible types: " + toString(leftType) + " and " + toString(rightType));
+    }
+
+    BaseType resBase = BaseType::ARRAY;
+    if (leftType.baseType == BaseType::VECTOR || rightType.baseType == BaseType::VECTOR) {
+        resBase = BaseType::VECTOR;
+    }
+
+    std::vector<int> dims;
+    if (resBase == BaseType::ARRAY) {
+         int leftSize = 1;
+         int rightSize = 1;
+         
+         if (leftType.baseType == BaseType::ARRAY) {
+             if (leftType.dims.empty() || leftType.dims[0] == -1) leftSize = -1;
+             else leftSize = leftType.dims[0];
+         }
+         if (rightType.baseType == BaseType::ARRAY) {
+             if (rightType.dims.empty() || rightType.dims[0] == -1) rightSize = -1;
+             else rightSize = rightType.dims[0];
+         }
+         
+         if (leftSize != -1 && rightSize != -1) {
+             dims.push_back(leftSize + rightSize);
+         } else {
+             dims.push_back(-1); 
+         }
+    } else {
+        dims.push_back(-1); 
+    }
+    
+    if (resBase == BaseType::VECTOR && dims.empty()) {
+        dims.push_back(-1); 
+    }
+
+    node->type = CompleteType(resBase, commonElem, dims);
 }
 
 void SemanticAnalysisVisitor::visit(ArrayLiteralNode *node) {
@@ -799,7 +920,7 @@ void SemanticAnalysisVisitor::visit(ArrayLiteralNode *node) {
         }
 
         int64_t rows = static_cast<int64_t>(node->list->list.size());
-        node->type = CompleteType(BaseType::ARRAY, elementType, {static_cast<int>(rows), static_cast<int>(cols)});
+        node->type = CompleteType(BaseType::MATRIX, elementType, {static_cast<int>(rows), static_cast<int>(cols)});
         // std::cerr << "[DEBUG SEMANTIC] ArrayLiteralNode EXIT: 2D ARRAY with dims={" << rows << "," << cols << "}" << std::endl;
         return;
     }
@@ -927,12 +1048,85 @@ void SemanticAnalysisVisitor::visit(TypedDecNode* node) {
     node->type_alias->accept(*this);
     CompleteType varType = resolveUnresolvedType(current_, node->type_alias->type, node->line);
 
+    // Enforce containment hierarchy 
+    validateContainmentHierarchy(varType, node->line);
+
     // Ensure not already declared in scope
     current_->declareVar(node->name, varType, isConst, node->line);
 
     // Ensure init expr type matches with var type (if provided)
     if (node->init != nullptr) {
-        handleAssignError(node->name, varType, node->init->type, node->line);
+        CompleteType exprType = node->init->type;
+
+        // Special-case: alias-based matrix declarations with array-literal
+        // initializers should behave like direct matrix declarations.
+        if (varType.baseType == BaseType::MATRIX) {
+            if (auto lit = std::dynamic_pointer_cast<ArrayLiteralNode>(node->init)) {
+                int64_t litRows = lit->list ? static_cast<int64_t>(lit->list->list.size()) : 0;
+
+                // Expect exactly 2 dimensions on the declared matrix type.
+                if (varType.dims.size() < 2) {
+                    throw std::runtime_error(
+                        "SemanticAnalysis::TypedDecNode: Matrix alias '" + node->name +
+                        "' has insufficient dimension metadata.");
+                }
+
+                // Validate row count
+                if (varType.dims[0] >= 0 && varType.dims[0] != litRows) {
+                    throw TypeError(node->line,
+                        "Matrix initializer row count (" + std::to_string(litRows) +
+                        ") does not match declared size (" +
+                        std::to_string(varType.dims[0]) + ")");
+                }
+
+                // Determine and validate column count
+                int64_t litCols = 0;
+                if (litRows > 0) {
+                    auto firstRow =
+                        std::dynamic_pointer_cast<ArrayLiteralNode>(lit->list->list[0]);
+                    if (!firstRow) {
+                        throw TypeError(node->line,
+                            "Matrix initializer must use nested array literals for rows.");
+                    }
+                    litCols = firstRow->list
+                                  ? static_cast<int64_t>(firstRow->list->list.size())
+                                  : 0;
+                }
+
+                if (varType.dims[1] >= 0 && varType.dims[1] != litCols) {
+                    throw TypeError(node->line,
+                        "Matrix initializer column count (" + std::to_string(litCols) +
+                        ") does not match declared size (" +
+                        std::to_string(varType.dims[1]) + ")");
+                }
+
+                // Validate all rows have the same column count
+                for (size_t i = 1; lit->list && i < lit->list->list.size(); ++i) {
+                    if (auto rowLit = std::dynamic_pointer_cast<ArrayLiteralNode>(
+                            lit->list->list[i])) {
+                        int64_t rowSize = rowLit->list
+                                              ? static_cast<int64_t>(
+                                                    rowLit->list->list.size())
+                                              : 0;
+                        if (rowSize != litCols) {
+                            throw TypeError(
+                                node->line,
+                                "Matrix initializer has inconsistent row lengths: row 0 has " +
+                                    std::to_string(litCols) + " elements, row " +
+                                    std::to_string(i) + " has " +
+                                    std::to_string(rowSize) + " elements");
+                        }
+                    }
+                }
+
+                // Treat the initializer as a matrix of the declared type for
+                // assignment compatibility purposes.
+                exprType = varType;
+                node->init->type = varType;
+            }
+        }
+
+        handleAssignError(node->name, varType, exprType, node->line);
     }
 
     node->type_alias->type = varType;
@@ -950,6 +1144,8 @@ void SemanticAnalysisVisitor::visit(FuncPrototypeNode* node) {
         const auto& v = node->parameters[i];
         VarInfo param = v;
         param.type = resolveUnresolvedType(current_, param.type, node->line);
+        // Enforce containment hierarchy on parameter types.
+        validateContainmentHierarchy(param.type, node->line);
         params.push_back(param);
     }
 
@@ -959,6 +1155,7 @@ void SemanticAnalysisVisitor::visit(FuncPrototypeNode* node) {
     }
 
     node->returnType = resolveUnresolvedType(current_, node->returnType, node->line);
+    validateContainmentHierarchy(node->returnType, node->line);
 
     // Declare the function signature in the current (global) scope
     // Function prototypes may omit param names so we check that
@@ -980,6 +1177,7 @@ void SemanticAnalysisVisitor::visit(ProcedurePrototypeNode* node) {
         const auto &v = node->params[i];
         VarInfo param = v;
         param.type = resolveUnresolvedType(current_, param.type, node->line);
+        validateContainmentHierarchy(param.type, node->line);
         params.push_back(param);
     }
 
@@ -989,6 +1187,7 @@ void SemanticAnalysisVisitor::visit(ProcedurePrototypeNode* node) {
     }
 
     node->returnType = resolveUnresolvedType(current_, node->returnType, node->line);
+    validateContainmentHierarchy(node->returnType, node->line);
 
     // Declare the procedure signature in the current (global) scope
     try {
@@ -1020,6 +1219,7 @@ void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
             throw SymbolError(node->line, "Semantic Analysis: duplicate parameter name '" + v.identifier + "' in function '" + node->name + "'.");
         }
         param.type = resolveUnresolvedType(current_, param.type, node->line);
+        validateContainmentHierarchy(param.type, node->line);
         params.push_back(param);
     }
 
@@ -1029,6 +1229,7 @@ void SemanticAnalysisVisitor::visit(FuncBlockNode* node) {
     }
 
     node->returnType = resolveUnresolvedType(current_, node->returnType, node->line);
+    validateContainmentHierarchy(node->returnType, node->line);
 
     // Declare or validate existing prototype declr
     try {
@@ -1083,7 +1284,6 @@ void SemanticAnalysisVisitor::visit(ProcedureBlockNode* node) {
     }
 
     // Build parameter VarInfos, default const. 
-    // TODO: handle 'var' once AST carries it
     std::vector<VarInfo> params;
     params.reserve(node->params.size());
     std::unordered_set<std::string> paramNames;
@@ -1098,6 +1298,7 @@ void SemanticAnalysisVisitor::visit(ProcedureBlockNode* node) {
             throw SymbolError(node->line, std::string("Semantic Analysis: duplicate parameter name '") + v.identifier + "' in procedure '" + node->name + "'.");
         }
         param.type = resolveUnresolvedType(current_, param.type, node->line);
+        validateContainmentHierarchy(param.type, node->line);
         params.push_back(param);
     }
 
@@ -1174,6 +1375,9 @@ void SemanticAnalysisVisitor::visit(TupleTypedDecNode* node) {
     // For tuple-typed declarations, the declared type is already present
     // on the declaration node as a CompleteType
     CompleteType varType = resolveUnresolvedType(current_, node->type, node->line);
+
+    // Enforce containment hierarchy 
+    validateContainmentHierarchy(varType, node->line);
 
     // const by default
     bool isConst = true;
@@ -1265,6 +1469,8 @@ void SemanticAnalysisVisitor::visit(TypeAliasDecNode* node) {
             // If not an alias, leave as UNKNOWN; builder should have set to built-in type
         }
     }
+    // Check alias types follow type hierarchy 
+    validateContainmentHierarchy(aliased, node->line);
     current_->declareAlias(node->alias, aliased, node->line);
 
     // assume node has been initialized with correct type if not UNKNOWN
@@ -1303,7 +1509,7 @@ void SemanticAnalysisVisitor::visit(AssignStatNode* node) {
     VarInfo* varInfo = current_->resolveVar(node->name, node->line);
 
     if (varInfo->isConst) {
-        throw AssignError(node->line, "Semantic Analysis: cannot assign to const variable '" + node->name + "'."); // TODO add line num
+        throw AssignError(node->line, "Semantic Analysis: cannot assign to const variable '" + node->name + "'."); 
     }
 
     CompleteType varType = resolveUnresolvedType(current_, varInfo->type, node->line);
@@ -2196,10 +2402,6 @@ void SemanticAnalysisVisitor::visit(ExpExpr* node) {
     node->type = finalType;
 }
 
-/* TODO pt2
-    - handle array/vector/matrix element-wise type + len checking. Note matrix mult. requires a special check
-    - pt2 handle int/real -> array/vector promotion. ONLY promote to matrix if square.
-*/
 void SemanticAnalysisVisitor::visit(MultExpr* node) {
     node->left->accept(*this);
     node->right->accept(*this);
@@ -2245,10 +2447,6 @@ void SemanticAnalysisVisitor::visit(MultExpr* node) {
     node->type = finalType;
 }
 
-/* TODO pt2
-    - handle array/vector/matrix element-wise type + len checking
-    - pt2 handle int/real -> array/vector/matrix promotion.
-*/
 void SemanticAnalysisVisitor::visit(AddExpr* node) {
     node->left->accept(*this);
     node->right->accept(*this);
@@ -2419,7 +2617,6 @@ void SemanticAnalysisVisitor::visit(TupleLiteralNode* node) {
         throw LiteralError(node->line, "All tuples must have at least 2 elements, not " + std::to_string(node->elements.size()) + ".");
     }
 
-    // FIXME confirm and handle case where tuple<vector<tuple...>>.
     for (auto& exprNode: node->elements) {
         exprNode->accept(*this);
         if (exprNode->type.baseType == BaseType::TUPLE) {throw LiteralError(1, "Cannot have nested tuples.");
@@ -2518,11 +2715,6 @@ void SemanticAnalysisVisitor::visit(TupleTypeCastNode* node) {
 }
 
 
-/* TODO pt2
-    - handle array/vector/matrix + tuple + element-wise type + len checking. Note that this operator yields true iff all elements of array/vector/matrix type are equal.
-    - handle int/real -> array/vector/matrix promotion.
-    - handle error throw when struct types mismatch
-*/
 void SemanticAnalysisVisitor::visit(EqExpr* node) {
    node->left->accept(*this);
     node->right->accept(*this);
@@ -2708,4 +2900,120 @@ void SemanticAnalysisVisitor::handleGlobalErrors(DecNode *node) {
     if (!node->init) throw GlobalError(node->line, "Uninitialized global");
     if (!isScalarType(node->init->type.baseType)) throw GlobalError(node->line, "Non-scalar global variables are illegal");
     if (node->qualifier == "var") throw GlobalError(node->line, "'var' qualifier in global scope");
+}
+
+void SemanticAnalysisVisitor::visit(MethodCallExpr* node) {
+    // Resolve object
+    VarInfo* var = current_->resolveVar(node->objectName, node->line);
+    if (!var) throw SymbolError(node->line, "Unknown variable '" + node->objectName + "'");
+    
+    CompleteType objType = resolveUnresolvedType(current_, var->type, node->line);
+    
+    if (node->methodName == "len") {
+        if (objType.baseType != BaseType::STRING && 
+            objType.baseType != BaseType::VECTOR && 
+            objType.baseType != BaseType::ARRAY) {
+             throw TypeError(node->line, "len() only supported on string, vector, array");
+        }
+        // Check args: should be empty
+        if (!node->args.empty()) throw TypeError(node->line, "len() takes no arguments");
+        
+        node->type = CompleteType(BaseType::INTEGER);
+        return;
+    }
+    
+    throw SymbolError(node->line, "Unknown method '" + node->methodName + "' on type " + toString(objType));
+}
+
+void SemanticAnalysisVisitor::visit(MethodCallStatNode* node) {
+    // Similar logic but for statement context
+    VarInfo* var = current_->resolveVar(node->objectName, node->line);
+    if (!var) throw SymbolError(node->line, "Unknown variable '" + node->objectName + "'");
+    if (var->isConst) throw AssignError(node->line, "Cannot call mutating method on const variable");
+
+    CompleteType objType = resolveUnresolvedType(current_, var->type, node->line);
+
+    if (node->methodName == "push") {
+         if (objType.baseType == BaseType::STRING) {
+             if (node->args.size() != 1) throw TypeError(node->line, "push requires 1 argument");
+             node->args[0]->accept(*this);
+             if (node->args[0]->type.baseType != BaseType::CHARACTER) 
+                 throw TypeError(node->line, "push on string requires character argument");
+         } else if (objType.baseType == BaseType::VECTOR) {
+             if (node->args.size() != 1) throw TypeError(node->line, "push requires 1 argument");
+             node->args[0]->accept(*this);
+             
+             // Promote arg to element type
+             if (objType.subTypes.empty()) throw TypeError(node->line, "Vector has no element type");
+             CompleteType elemType = resolveUnresolvedType(current_, objType.subTypes[0], node->line);
+             CompleteType argType = resolveUnresolvedType(current_, node->args[0]->type, node->line);
+             
+             // Check compatibility using promotion
+             if (promote(argType, elemType) != elemType) {
+                 throw TypeError(node->line, "Cannot push type " + toString(argType) + " to vector<" + toString(elemType) + ">");
+             }
+         } else {
+             throw TypeError(node->line, "push not supported on " + toString(objType));
+         }
+    } else if (node->methodName == "append") {
+         if (objType.baseType == BaseType::STRING) {
+             if (node->args.size() != 1) throw TypeError(node->line, "append requires 1 argument");
+             node->args[0]->accept(*this);
+             
+             // Allow append(vector<char>) or append(array<char>)
+             CompleteType argType = resolveUnresolvedType(current_, node->args[0]->type, node->line);
+             bool isCharSeq = (argType.baseType == BaseType::VECTOR || argType.baseType == BaseType::ARRAY) &&
+                              !argType.subTypes.empty() &&
+                              argType.subTypes[0].baseType == BaseType::CHARACTER;
+                              
+             if (!isCharSeq) {
+                 throw TypeError(node->line, "append on string requires vector/array of characters");
+             }
+         } else if (objType.baseType == BaseType::VECTOR) {
+             // append(vector) - extend
+             if (node->args.size() != 1) throw TypeError(node->line, "append requires 1 argument");
+             node->args[0]->accept(*this);
+             
+             CompleteType argType = resolveUnresolvedType(current_, node->args[0]->type, node->line);
+             if (argType != objType && argType.baseType != BaseType::ARRAY) { 
+                 // Allow array with same element type
+                 if (argType.baseType == BaseType::ARRAY && !argType.subTypes.empty() && !objType.subTypes.empty() &&
+                     argType.subTypes[0] == objType.subTypes[0]) {
+                     // ok
+                 } else {
+                    throw TypeError(node->line, "append argument type mismatch");
+                 }
+             }
+         } else {
+             throw TypeError(node->line, "append not supported on " + toString(objType));
+         }
+    } else if (node->methodName == "concat") {
+         if (objType.baseType == BaseType::STRING) {
+             if (node->args.size() != 1) throw TypeError(node->line, "concat requires 1 argument");
+             node->args[0]->accept(*this);
+             if (node->args[0]->type.baseType != BaseType::STRING) 
+                 throw TypeError(node->line, "concat on string requires string argument");
+         } else if (objType.baseType == BaseType::VECTOR) {
+             // Treat concat as append for vectors
+             if (node->args.size() != 1) throw TypeError(node->line, "concat requires 1 argument");
+             node->args[0]->accept(*this);
+             
+             CompleteType argType = resolveUnresolvedType(current_, node->args[0]->type, node->line);
+             if (argType != objType && argType.baseType != BaseType::ARRAY) { 
+                 // Allow array with same element type
+                 if (argType.baseType == BaseType::ARRAY && !argType.subTypes.empty() && !objType.subTypes.empty() &&
+                     argType.subTypes[0] == objType.subTypes[0]) {
+                     // ok
+                 } else {
+                    throw TypeError(node->line, "concat argument type mismatch for vector");
+                 }
+             }
+         } else {
+             throw TypeError(node->line, "concat not supported on " + toString(objType));
+         }
+    } else {
+         throw SymbolError(node->line, "Unknown method '" + node->methodName + "'");
+    }
+    
+    node->type = CompleteType(BaseType::UNKNOWN);
 }

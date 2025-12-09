@@ -2,30 +2,44 @@
 #include "CompileTimeExceptions.h"
 #include "MLIRgen.h"
 
-void MLIRGen::visit(BuiltInFuncNode *node){
-    // Handle builtins at MLIR gen time. Currently support length/len; others
+void MLIRGen::visit(BuiltInFuncNode *node) {
     std::string fname = node->funcName;
-    
-    // Fast path: if constant was already computed, emit it as SSA
+
+    // 1) Constant-folded case first
     if (node->constant.has_value()) {
         ConstantValue cv = node->constant.value();
         if (cv.type.baseType == BaseType::INTEGER) {
             auto i32 = builder_.getI32Type();
             int64_t v = std::get<int64_t>(cv.value);
-            auto c = builder_.create<mlir::arith::ConstantOp>(loc_, i32, builder_.getIntegerAttr(i32, v));
+            auto c = builder_.create<mlir::arith::ConstantOp>(
+                loc_, i32, builder_.getIntegerAttr(i32, v));
+
             VarInfo vi{CompleteType(BaseType::INTEGER)};
-            vi.value = c.getResult();
+            vi.value   = c.getResult();
             vi.isLValue = false;
             pushValue(vi);
             return;
         }
+        // extend for other constant types as needed
     }
 
-    VarInfo* var = currScope_ ? currScope_->resolveVar(node->id, node->line) : nullptr;
-    if (!var) {
-        throw SymbolError(node->line, "MLIRGen: unknown identifier '" + node->id + "' in builtin call.");
+    // 2) Obtain VarInfo for the argument in a uniform way
+    VarInfo argInfo{CompleteType(BaseType::UNKNOWN)};
+
+    if (node->expr) {
+        // General expression argument: evaluate it.
+        node->expr->accept(*this);
+        argInfo = popValue();
+    } else if (node->binding) {
+        // Argument is a resolved identifier (length/shape/reverse, or format(id))
+        argInfo = *node->binding;
+    } else {
+        throw std::runtime_error(
+            "MLIRGen::BuiltInFuncNode: no expr or binding available for builtin '" +
+            fname + "'");
     }
-    CompleteType argType = var->type;
+
+    CompleteType argType = argInfo.type;
 
     if (fname == "length") {
         int64_t len = -1;
@@ -98,6 +112,61 @@ void MLIRGen::visit(BuiltInFuncNode *node){
         // int rank = static_cast<int>(argType.dims.size());
         // CompleteType arType = node->type->elemBaseType;
     throw std::runtime_error("MLIRGen: builtin '" + fname + "' not lowered");
+    }
+    
+    if (fname == "format") {
+        VarInfo argInfo{CompleteType(BaseType::UNKNOWN)};
+        if (node->expr) {
+            node->expr->accept(*this);
+            argInfo = popValue();
+        } else {
+            VarInfo* var = currScope_->resolveVar(node->id, node->line);
+            if (!var) throw SymbolError(node->line, "MLIRGen: unknown identifier '" + node->id + "'");
+            argInfo = *var; 
+        }
+        
+        mlir::LLVM::LLVMFuncOp formatFn;
+        mlir::Value argVal = getSSAValue(argInfo);
+        
+        if (argInfo.type.baseType == BaseType::INTEGER) {
+            formatFn = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("gazrt_format_int");
+        } else if (argInfo.type.baseType == BaseType::REAL) {
+            formatFn = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("gazrt_format_real");
+        } else if (argInfo.type.baseType == BaseType::CHARACTER) {
+            formatFn = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("gazrt_format_char");
+        } else if (argInfo.type.baseType == BaseType::BOOL) {
+            formatFn = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("gazrt_format_bool");
+            // Bool needs cast to i8
+            if (argVal.getType().isInteger(1)) {
+                argVal = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI8Type(), argVal);
+            }
+        } else if (argInfo.type.baseType == BaseType::STRING) {
+            pushValue(argInfo);
+            return;
+        } else {
+            throw std::runtime_error("MLIRGen: format() unsupported type " + toString(argInfo.type));
+        }
+        
+        auto call = builder_.create<mlir::LLVM::CallOp>(loc_, formatFn, mlir::ValueRange{argVal});
+        mlir::Value charPtr = call.getResult();
+        
+        auto strlenFn = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("strlen");
+        auto strlenCall = builder_.create<mlir::LLVM::CallOp>(loc_, strlenFn, mlir::ValueRange{charPtr});
+        mlir::Value len = strlenCall.getResult();
+        
+        CompleteType strType(BaseType::STRING);
+        mlir::Type descTy = getLLVMType(strType);
+        mlir::Value undef = builder_.create<mlir::LLVM::UndefOp>(loc_, descTy);
+        mlir::Value desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, undef, charPtr, llvm::SmallVector<int64_t, 1>{0});
+        desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, len, llvm::SmallVector<int64_t, 1>{1});
+        
+        VarInfo out(strType);
+        allocaLiteral(&out, node->line);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, desc, out.value);
+        
+        out.isLValue = false;
+        pushValue(out);
+        return;
     }
 }
 void MLIRGen::visit(FuncStatNode* node) {
@@ -321,4 +390,34 @@ void MLIRGen::visit(FuncCallExprOrStructLiteral* node) {
     }
 
     pushValue(resultVar);
+}
+
+
+void MLIRGen::visit(MethodCallExpr* node) {
+    if (node->objectName.empty()) throw std::runtime_error("MethodCallExpr: object name empty");
+    VarInfo* var = currScope_->resolveVar(node->objectName, node->line);
+    if (!var) throw std::runtime_error("MethodCallExpr: var not found");
+
+    if (node->methodName == "len") {
+        // Just return length
+        mlir::Value descriptor = var->value;
+        if (var->value.getType().isa<mlir::LLVM::LLVMPointerType>()) {
+             descriptor = builder_.create<mlir::LLVM::LoadOp>(loc_, getLLVMType(var->type), var->value);
+        }
+        
+        // Descriptor is {ptr, len}
+        llvm::SmallVector<int64_t, 1> lenPos{1};
+        mlir::Value lenI64 = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, descriptor, lenPos);
+        
+        // Return as INTEGER (i32)
+        auto i32Ty = builder_.getI32Type();
+        mlir::Value lenI32 = builder_.create<mlir::arith::TruncIOp>(loc_, i32Ty, lenI64);
+        
+        VarInfo out{CompleteType(BaseType::INTEGER)};
+        out.value = lenI32;
+        out.isLValue = false;
+        pushValue(out);
+    } else {
+        throw std::runtime_error("MethodCallExpr: Unknown method " + node->methodName);
+    }
 }
