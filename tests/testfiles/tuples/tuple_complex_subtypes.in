@@ -1,7 +1,7 @@
 procedure main() returns integer {
     // Tuple with subtypes: Vector, String, Array, Matrix, Scalar
     // Using standard array initialization for vector and array fields
-    tuple(vector<integer>, string, integer[2], integer[2][2], real) complex_tuple;
+    var tuple(vector<integer>, string, integer[2], integer[2][2], real) complex_tuple;
     
     var vector<integer> v = [1, 2];
     var string s = "hello";
