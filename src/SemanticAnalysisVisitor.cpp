@@ -186,17 +186,31 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
             }
         }
     }
-    // slicing yields an array of the same element type, but with dynamic dimensions
+    // slicing yields an array of the same element type; try to compute static length when bounds are literals
+    int computedLen = -1;
+    if (baseType.dims.size() >= 1 && node->range) {
+        // Default 1-based bounds if omitted
+        int startVal = 1;
+        int endVal = baseType.dims[0]; // if missing, clamp to full length when known
+        bool startIsLit = false, endIsLit = false;
+        if (auto s = std::dynamic_pointer_cast<IntNode>(node->range->start)) { startVal = s->value; startIsLit = true; }
+        if (auto e = std::dynamic_pointer_cast<IntNode>(node->range->end)) { endVal = e->value; endIsLit = true; }
+        if (startIsLit && endIsLit && startVal > 0 && endVal >= startVal) {
+            // Exclusive end (1-based): len = end - start
+            computedLen = endVal - startVal;
+        }
+    }
+
     if (baseType.baseType == BaseType::MATRIX) {
         // Slicing a matrix along the first dimension yields an array of rows
         int rowLen = -1;
         if (baseType.dims.size() >= 2) rowLen = baseType.dims[1];
         CompleteType rowType(BaseType::ARRAY, baseType.subTypes.empty() ? CompleteType(BaseType::UNKNOWN) : baseType.subTypes[0], {rowLen});
-        node->type = CompleteType(BaseType::ARRAY, rowType, {-1});
+        node->type = CompleteType(BaseType::ARRAY, rowType, {computedLen});
     } else {
         node->type = baseType;
         node->type.dims.clear();
-        node->type.dims.push_back(-1); // Dynamic dimension
+        node->type.dims.push_back(computedLen);
     }
 }
 
@@ -380,6 +394,17 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
             node->init->type = declaredType;
         }
         // std::cerr << "[DEBUG] Initializer type: " << toString(initType) << "\n";
+
+        // Disallow aliasing only when lhs and rhs are the same composite kind
+        if (auto idInit = std::dynamic_pointer_cast<IdNode>(node->init)) {
+            CompleteType rhsType = resolveUnresolvedType(current_, idInit->type, node->line);
+            if (declaredType.baseType == rhsType.baseType &&
+                (declaredType.baseType == BaseType::ARRAY ||
+                 declaredType.baseType == BaseType::VECTOR ||
+                 declaredType.baseType == BaseType::MATRIX)) {
+                throw AliasingError(node->line, "Semantic Analysis: Aliasing not permitted for initializer of '" + node->id + "'.");
+            }
+        }
 
         // 1. Handle array literals as initializer
         if (auto lit = std::dynamic_pointer_cast<ArrayLiteralNode>(node->init)) {
