@@ -22,13 +22,16 @@
 #include <vector>
 
 bool VERBOSE_ERRORS = false;
+bool DUMP_AST_POST_SEMA = false;
 
 int main(int argc, char **argv) {
   std::vector<std::string> positional_args;
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
-    if (arg == "--verbose-errors") {
+    if (arg == "--verbose-errors" || arg == "-ve") {
       VERBOSE_ERRORS = true;
+    } else if (arg == "--dump-ast-post-sema" || arg == "-daps") {
+      DUMP_AST_POST_SEMA = true;
     } else {
       positional_args.push_back(arg);
     }
@@ -37,7 +40,7 @@ int main(int argc, char **argv) {
   if (positional_args.size() < 2) {
     std::cout << "Missing required argument.\n"
               << "Required arguments: <input file path> <output file path>\n"
-              << "Optional flags: --verbose-errors\n";
+              << "Optional flags: --verbose-errors --dump-ast-post-sema\n";
     return 1;
   }
 
@@ -106,6 +109,13 @@ int main(int argc, char **argv) {
     ast->accept(semVisitor);
     Scope* rootScope = semVisitor.getRootScope();
     const auto* scopeMap = &semVisitor.getScopeMap();
+
+    if (DUMP_AST_POST_SEMA) {
+      std::cout << "--- Abstract Syntax Tree (post-sema) ---" << std::endl;
+      gazprea::ASTPrinter printer(std::cout, true);
+      ast->accept(printer);
+      std::cout << "--------------------------\n" << std::endl;
+    }
 
     // Run constant folding pass (uses semantic info from previous pass)
     ConstantFoldingVisitor cfv;

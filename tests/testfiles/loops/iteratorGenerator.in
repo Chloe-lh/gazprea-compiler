@@ -1,0 +1,11 @@
+procedure main() returns integer {
+    // Generator expression produces an array; iterator should walk it
+    loop x in [i in 2..6 | i * 4 - 1] {
+        x -> std_output;
+        " " -> std_output;
+    }
+    "\n" -> std_output;
+    return 0;
+}
+//CHECK_FILE:iteratorGenerator.out
+

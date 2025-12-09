@@ -1,0 +1,13 @@
+procedure main() returns integer {
+    vector<integer> v = [9, 8, 7];
+
+    loop x in v {
+        x -> std_output;
+        " " -> std_output;
+    }
+    "\n" -> std_output;
+
+    return 0;
+}
+//CHECK_FILE:iteratorVector.out
+

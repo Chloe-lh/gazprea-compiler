@@ -47,6 +47,17 @@ void MLIRGen::visit(InferredDecNode* node) {
     } else {
         throw StatementError(node->line, "Cannot infer variable '" + node->name + "' without qualifier."); // TODO: line number
     }
-    
+
+    // Ensure storage exists for dynamic arrays (needs runtime size) before assignment
+    if (declaredVar->type.baseType == BaseType::ARRAY &&
+        declaredVar->type.dims.size() == 1 &&
+        declaredVar->type.dims[0] < 0 &&
+        !declaredVar->value) {
+        mlir::Value sizeValue = computeArraySize(&literal, node->line);
+        allocaVar(declaredVar, node->line, sizeValue);
+    } else if (!declaredVar->value) {
+        allocaVar(declaredVar, node->line);
+    }
+
     assignTo(&literal, declaredVar, node->line);
 }

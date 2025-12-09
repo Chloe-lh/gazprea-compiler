@@ -1,0 +1,25 @@
+procedure main() returns integer {
+    integer start = 2;
+    integer finish = 5;
+    integer[5] arr = [5, 6, 7, 8, 9];
+
+    integer[*] res = [x in arr[start..finish] | x + 1];
+
+    loop v in res {
+        v -> std_output;
+        " " -> std_output;
+    }
+    "\n" -> std_output;
+
+    // Mutate original array after generator; result should stay the same.
+    arr[3] = 100;
+
+    loop v in res {
+        v -> std_output;
+        " " -> std_output;
+    }
+    "\n" -> std_output;
+
+    return 0;
+}
+//CHECK_FILE:generatorArrayDynamic.out

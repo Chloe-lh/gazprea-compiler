@@ -1,0 +1,9 @@
+procedure main() returns integer {
+
+    integer[5] arr = [i in 1..5 | i];
+    arr -> std_output;
+
+    return 0;
+}
+
+//CHECK_FILE:gen_simple.out

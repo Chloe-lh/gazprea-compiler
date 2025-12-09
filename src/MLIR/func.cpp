@@ -46,13 +46,20 @@ void MLIRGen::visit(BuiltInFuncNode *node) {
         if (!argType.dims.empty()) {
             len = argType.dims[0];
         }
-        if (len < 0) {
-            throw std::runtime_error("MLIRGen: length() requires a sized array/vector/matrix.");
+
+        mlir::Value lenVal;
+        if (len >= 0) {
+            auto i32 = builder_.getI32Type();
+            lenVal = builder_.create<mlir::arith::ConstantOp>(loc_, i32, builder_.getIntegerAttr(i32, len));
+        } else {
+            // Dynamic length: compute at runtime from the argument's VarInfo
+            mlir::Value idxLen = computeArraySize(&argInfo, node->line); // index type
+            auto i32 = builder_.getI32Type();
+            lenVal = builder_.create<mlir::arith::IndexCastOp>(loc_, i32, idxLen);
         }
-        auto i32 = builder_.getI32Type();
-        auto c = builder_.create<mlir::arith::ConstantOp>(loc_, i32, builder_.getIntegerAttr(i32, len));
+
         VarInfo vi{CompleteType(BaseType::INTEGER)};
-        vi.value = c.getResult();
+        vi.value = lenVal;
         vi.isLValue = false;
         pushValue(vi);
         return;
@@ -99,12 +106,76 @@ void MLIRGen::visit(BuiltInFuncNode *node) {
         return;
     }
     if(fname == "reverse"){
-        // if (argType.dims.empty() || argType.dims[0] < 0) {
-        //     throw std::runtime_error("MLIRGen: shape() requires a sized array/vector/string");
-        // }
-        // int rank = static_cast<int>(argType.dims.size());
-        // CompleteType arType = node->type->elemBaseType;
-    throw std::runtime_error("MLIRGen: builtin '" + fname + "' not lowered");
+        if (argType.baseType != BaseType::VECTOR && argType.baseType != BaseType::ARRAY && argType.baseType != BaseType::STRING) {
+            throw std::runtime_error("MLIRGen: reverse() requires a vector, array, or string argument.");
+        }
+
+        // Only 1-D is supported for now.
+        if (!argType.dims.empty() && argType.dims.size() > 1) {
+            throw std::runtime_error("MLIRGen: reverse() only supports 1-D values.");
+        }
+
+        // Determine length (index type)
+        mlir::Value lenIdx = computeArraySize(&argInfo, node->line);
+        auto idxTy = builder_.getIndexType();
+
+        // Allocate output storage
+        VarInfo out(argType);
+
+        // Element type for buffer
+        mlir::Type elemTy = (argType.baseType == BaseType::STRING)
+                                ? builder_.getI8Type()
+                                : getLLVMType(argType.subTypes[0]);
+
+        // Build a buffer to hold reversed data
+        auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, elemTy);
+        mlir::Value newBuf = builder_.create<mlir::memref::AllocaOp>(loc_, memTy, lenIdx);
+
+        auto c0 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+        auto c1 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
+
+        builder_.create<mlir::scf::ForOp>(
+            loc_, c0, lenIdx, c1, mlir::ValueRange{},
+            [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value iv, mlir::ValueRange) {
+                // srcIdx = lenIdx - 1 - iv
+                mlir::Value one  = b.create<mlir::arith::ConstantIndexOp>(l, 1);
+                mlir::Value srcIdx = b.create<mlir::arith::SubIOp>(l, lenIdx, one);
+                srcIdx = b.create<mlir::arith::SubIOp>(l, srcIdx, iv);
+
+                mlir::Value srcElem = accessElement(&argInfo, mlir::ValueRange{srcIdx});
+                b.create<mlir::memref::StoreOp>(l, srcElem, newBuf, mlir::ValueRange{iv});
+                b.create<mlir::scf::YieldOp>(l);
+            });
+
+        if (argType.baseType == BaseType::ARRAY) {
+            out.value = newBuf;
+            out.runtimeDims = {-1};
+            syncRuntimeDims(&out);
+        } else { // VECTOR or STRING
+            allocaVar(&out, node->line); // alloc descriptor pointer
+
+            // Build descriptor {ptr, len}
+            mlir::Value ptrAsIdx = builder_.create<mlir::memref::ExtractAlignedPointerAsIndexOp>(loc_, newBuf);
+            auto i64Ty = builder_.getI64Type();
+            mlir::Value ptrI64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, ptrAsIdx);
+            auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+            mlir::Value ptr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptrTy, ptrI64);
+
+            mlir::Value lenI64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, lenIdx);
+
+            mlir::Type descTy = getLLVMType(out.type);
+            mlir::Value undef = builder_.create<mlir::LLVM::UndefOp>(loc_, descTy);
+            mlir::Value desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, undef, ptr, llvm::SmallVector<int64_t, 1>{0});
+            desc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, desc, lenI64, llvm::SmallVector<int64_t, 1>{1});
+            builder_.create<mlir::LLVM::StoreOp>(loc_, desc, out.value);
+
+            out.runtimeDims = {-1};
+            syncRuntimeDims(&out);
+        }
+
+        out.isLValue = false;
+        pushValue(out);
+        return;
     }
     
     if (fname == "format") {

@@ -43,6 +43,7 @@ public:
   void visit(DestructAssignStatNode *node) override;
   void visit(TupleAccessAssignStatNode *node) override;
   void visit(StructAccessAssignStatNode *node) override;
+  void visit(ArrayAccessAssignStatNode *node) override;
   void visit(OutputStatNode *node) override;
   void visit(InputStatNode *node) override;
   void visit(BreakStatNode *node) override;
@@ -51,6 +52,7 @@ public:
   void visit(CallStatNode *node) override;
   void visit(IfNode *node) override;
   void visit(LoopNode *node) override;
+  void visit(IteratorLoopNode *node) override;
   void visit(BlockNode *node) override;
 
   // Expressions
@@ -88,6 +90,7 @@ public:
   void visit(ExprListNode *node) override;
   void visit(ArrayLiteralNode *node) override;
   void visit(RangeExprNode *node) override;
+  void visit(GeneratorExprNode *node) override;
 
   
 

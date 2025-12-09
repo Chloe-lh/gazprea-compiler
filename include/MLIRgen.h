@@ -55,6 +55,8 @@ public:
     void visit(MethodCallStatNode* node) override;
     void visit(IfNode* node)            override;
     void visit(LoopNode* node)          override;
+    void visit(IteratorLoopNode* node)  override;
+    void visit(GeneratorExprNode* node) override;
     void visit(BlockNode* node)         override;
 
 
@@ -104,9 +106,16 @@ public:
     void assignToArray(VarInfo* literal, VarInfo* variable, int line);
     void assignToVector(VarInfo* literal, VarInfo* variable, int line);
     void allocaLiteral(VarInfo* varInfo, int line);
-    void allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue = nullptr);
+    void allocaVar(VarInfo* varInfo, int line, const std::vector<mlir::Value>& sizeValues = {});
+    inline void allocaVar(VarInfo* varInfo, int line, mlir::Value sizeValue) {
+        std::vector<mlir::Value> sizes;
+        if (sizeValue) sizes.push_back(sizeValue);
+        allocaVar(varInfo, line, sizes);
+    }
     mlir::Value computeArraySize(VarInfo* source, int line);
+    // Allocate a 1-D vector; supports both static (int) and dynamic (Value) lengths.
     mlir::Value allocaVector(int len, VarInfo *varInfo);
+    mlir::Value allocaVector(mlir::Value len, VarInfo *varInfo);
     void zeroInitializeVar(VarInfo* varInfo);
     VarInfo castType(VarInfo* from, CompleteType* to, int line);
     VarInfo promoteType(VarInfo* from, CompleteType* to, int line);

@@ -61,6 +61,7 @@ void ContinueStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ReturnStatNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void IfNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void LoopNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void IteratorLoopNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
 // Extended nodes
 void ProcedureBlockNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
@@ -80,6 +81,7 @@ void ArrayTypedDecNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ExprListNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void ArrayLiteralNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void RangeExprNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void GeneratorExprNode::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
 // Builtins
 void BuiltInFuncNode::accept(ASTVisitor &visitor) { visitor.visit(this); }

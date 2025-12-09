@@ -1,0 +1,27 @@
+procedure main() returns integer {
+    // start > end with stride: should emit nothing
+    loop a in 5..3 by 2 {
+        a -> std_output;
+        "!" -> std_output;
+    }
+    "X\n" -> std_output;
+
+    // Nested with stride depending on outer iterator
+    loop i in 1..3 {
+        loop j in i..(i * 3) by (i + 1) {
+            "(" -> std_output; i -> std_output; "," -> std_output;
+            j -> std_output; ")" -> std_output; " " -> std_output;
+        }
+        "\n" -> std_output;
+    }
+
+    // Stride larger than range: single iteration
+    loop k in 1..4 by 10 {
+        k -> std_output;
+    }
+    "\n" -> std_output;
+
+    return 0;
+}
+//CHECK_FILE:iteratorRangeStrideComplex.out
+

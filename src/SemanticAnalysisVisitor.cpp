@@ -2,7 +2,6 @@
 #include "AST.h"
 #include "CompileTimeExceptions.h"
 #include "Types.h"
-#include "run_time_errors.h"
 #include <memory>
 #include <optional>
 #include <cstdio>
@@ -173,7 +172,7 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
                 // Only check bounds if index is positive and out of range
                 // Negative indices are allowed and will be converted at runtime
                 if (in->value > 0 && in->value > sz) {
-                    IndexError((std::string("Index ") + std::to_string(in->value) + " out of range for array of len " + std::to_string(sz)).c_str());
+                    throw SizeError(node->line, "Index " + std::to_string(in->value) + " out of range for array of len " + std::to_string(sz));
                     return;
                 }
             }
@@ -183,16 +182,38 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
                 // Only check bounds if index is positive and out of range
                 // Negative indices are allowed and will be converted at runtime
                 if (in->value > 0 && in->value > sz) {
-                    IndexError((std::string("Index ") + std::to_string(in->value) + " out of range for array of len " + std::to_string(sz)).c_str());
+                    throw SizeError(node->line, "Index " + std::to_string(in->value) + " out of range for array of len " + std::to_string(sz));
                     return;
                 }
             }
         }
     }
-    // slicing yields an array of the same element type, but with dynamic dimensions
-    node->type = baseType;
-    node->type.dims.clear();
-    node->type.dims.push_back(-1); // Dynamic dimension
+    // slicing yields an array of the same element type; try to compute static length when bounds are literals
+    int computedLen = -1;
+    if (baseType.dims.size() >= 1 && node->range) {
+        // Default 1-based bounds if omitted
+        int startVal = 1;
+        int endVal = baseType.dims[0]; // if missing, clamp to full length when known
+        bool startIsLit = false, endIsLit = false;
+        if (auto s = std::dynamic_pointer_cast<IntNode>(node->range->start)) { startVal = s->value; startIsLit = true; }
+        if (auto e = std::dynamic_pointer_cast<IntNode>(node->range->end)) { endVal = e->value; endIsLit = true; }
+        if (startIsLit && endIsLit && startVal > 0 && endVal >= startVal) {
+            // Exclusive end (1-based): len = end - start
+            computedLen = endVal - startVal;
+        }
+    }
+
+    if (baseType.baseType == BaseType::MATRIX) {
+        // Slicing a matrix along the first dimension yields an array of rows
+        int rowLen = -1;
+        if (baseType.dims.size() >= 2) rowLen = baseType.dims[1];
+        CompleteType rowType(BaseType::ARRAY, baseType.subTypes.empty() ? CompleteType(BaseType::UNKNOWN) : baseType.subTypes[0], {rowLen});
+        node->type = CompleteType(BaseType::ARRAY, rowType, {computedLen});
+    } else {
+        node->type = baseType;
+        node->type.dims.clear();
+        node->type.dims.push_back(computedLen);
+    }
 }
 
 // Built-in functions with a single identifier argument (length/len, shape,
@@ -293,8 +314,8 @@ void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
     }
 
     CompleteType baseType = resolveUnresolvedType(current_, var->type, node->line);
-    if (baseType.baseType != BaseType::ARRAY && baseType.baseType != BaseType::VECTOR) {
-        throw TypeError(node->line, "Semantic Analysis: index operator applied to non-array type.");
+    if (baseType.baseType != BaseType::ARRAY && baseType.baseType != BaseType::VECTOR && baseType.baseType != BaseType::MATRIX) {
+        throw TypeError(node->line, "Semantic Analysis: index operator applied to non-array/matrix type.");
     }
 
     // ! INDEX CAN BE NEGATIVE (dynamic check)
@@ -308,12 +329,12 @@ void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
             int size = baseType.dims[0];
             if (size != -1) {
                 if (indexVal > size || indexVal < 1) { // 1-based indexing check at compile time
-                     IndexError(("Index " + std::to_string(indexVal) + " out of range for array/vector of len " + std::to_string(size)).c_str());
+                     throw IndexError(node->line, "Index " + std::to_string(indexVal) + " out of range for array/vector of len " + std::to_string(size));
                 }
             } else {
                 // Dynamic size (-1): check for < 1 at compile time?
                 if (indexVal < 1) {
-                     IndexError(("Index " + std::to_string(indexVal) + " out of range (must be >= 1)").c_str());
+                     throw IndexError(node->line, "Index " + std::to_string(indexVal) + " out of range (must be >= 1)");
                 }
             }
         }
@@ -336,11 +357,11 @@ void SemanticAnalysisVisitor::visit(ArrayAccessNode *node) {
             int size2 = baseType.dims[1];
             if (size2 != -1) {
                 if (indexVal2 > size2 || indexVal2 < 1) {
-                    IndexError(("Second index " + std::to_string(indexVal2) + " out of range for dimension of length " + std::to_string(size2)).c_str());
+                    throw IndexError(node->line, "Second index " + std::to_string(indexVal2) + " out of range for dimension of length " + std::to_string(size2));
                 }
             } else {
                 if (indexVal2 < 1) {
-                     IndexError(("Second index " + std::to_string(indexVal2) + " out of range (must be >= 1)").c_str());
+                     throw IndexError(node->line, "Second index " + std::to_string(indexVal2) + " out of range (must be >= 1)");
                 }
             }
         }
@@ -382,8 +403,10 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
 
     node->type = declaredType;
 
-    // Qualifier checks
-    bool isConst = (node->qualifier != "var");
+    // Qualifier checks: arrays default to mutable unless explicitly 'const'
+    if (node->qualifier.empty()) node->qualifier = "var";
+    bool isConst = (node->qualifier == "const");
+    // Older qualifier usage: empty qualifier should still default to mutable
     if (!isConst && current_->isInGlobal()) {
         throw GlobalError(node->line, "'var' is not allowed in global scope.");
     }
@@ -400,7 +423,23 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
         // std::cerr << "[DEBUG] Initializer present for " << node->id << "\n";
         node->init->accept(*this);
         CompleteType initType = resolveUnresolvedType(current_, node->init->type, node->line);
+        // If a generator produced UNKNOWN (e.g., dynamic matrix), fall back to declared type
+        if (initType.baseType == BaseType::UNKNOWN) {
+            initType = declaredType;
+            node->init->type = declaredType;
+        }
         // std::cerr << "[DEBUG] Initializer type: " << toString(initType) << "\n";
+
+        // Disallow aliasing only when lhs and rhs are the same composite kind
+        if (auto idInit = std::dynamic_pointer_cast<IdNode>(node->init)) {
+            CompleteType rhsType = resolveUnresolvedType(current_, idInit->type, node->line);
+            if (declaredType.baseType == rhsType.baseType &&
+                (declaredType.baseType == BaseType::ARRAY ||
+                 declaredType.baseType == BaseType::VECTOR ||
+                 declaredType.baseType == BaseType::MATRIX)) {
+                throw AliasingError(node->line, "Semantic Analysis: Aliasing not permitted for initializer of '" + node->id + "'.");
+            }
+        }
 
         // 1. Handle array literals as initializer
         if (auto lit = std::dynamic_pointer_cast<ArrayLiteralNode>(node->init)) {
@@ -537,7 +576,7 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                 if (declaredType.baseType == BaseType::MATRIX) {
                     // Update the literal node's type to match
                     if (lit->type.dims != declaredType.dims) {
-                        SizeError("Initializer dimensions do not match declared matrix dimensions");
+                        throw SizeError(node->line, "Initializer dimensions do not match declared matrix dimensions");
                     }
                     
                     // Do NOT modify inner array types - they should remain as ARRAY with 1D
@@ -578,7 +617,7 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
             }
 
             if (declaredType.dims.size() != initType.dims.size()) {
-                SizeError(("Semantic Analysis: Initializer dimension rank mismatch for '" + node->id + "'.").c_str());
+                throw SizeError(node->line, "Semantic Analysis: Initializer dimension rank mismatch for '" + node->id + "'.");
             }
 
             // Skip lhs dims inference if rhs is also dynamic (-1)
@@ -590,8 +629,8 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                     if (lhsDim < 0) {
                         if (rhsDim < 0) {
                             // Still no concrete dimension to lock onto.
-                            SizeError(("Semantic Analysis: Cannot infer array length from initializer for '" +
-                                        node->id + "'.").c_str());
+                            throw SizeError(node->line, "Semantic Analysis: Cannot infer array length from initializer for '" +
+                                        node->id + "'.");
                         }
                         // Only infer dimensions for non-vector types (arrays)
                         // Vectors remain dynamic (-1)
@@ -600,8 +639,8 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                         }
                     } else {
                         if (rhsDim >= 0 && rhsDim != lhsDim) {
-                            SizeError(("Semantic Analysis: Initializer dimensions do not match declared size for '" +
-                                        node->id + "'.").c_str());
+                            throw SizeError(node->line, "Semantic Analysis: Initializer dimensions do not match declared size for '" +
+                                        node->id + "'.");
                         }
                     }
                 }
@@ -610,6 +649,22 @@ void SemanticAnalysisVisitor::visit(ArrayTypedDecNode *node) {
                 declared->type.dims = declaredType.dims;
                 node->type.dims = declaredType.dims;
                 }
+        }
+
+        // If initializer is a matrix with concrete dimensions (e.g., generator)
+        // and the declared matrix uses wildcards, adopt the concrete dims so
+        // downstream allocation/codegen knows the real shape.
+        if (declaredType.baseType == BaseType::MATRIX && initType.baseType == BaseType::MATRIX) {
+            if (declaredType.dims.size() < 2) declaredType.dims.resize(2, -1);
+            if (initType.dims.size() == 2) {
+                for (size_t i = 0; i < 2; ++i) {
+                    if (declaredType.dims[i] < 0 && initType.dims[i] >= 0) {
+                        declaredType.dims[i] = initType.dims[i];
+                    }
+                }
+                declared->type.dims = declaredType.dims;
+                node->type.dims = declaredType.dims;
+            }
         }
         handleGlobalErrors(node);
 
@@ -692,7 +747,7 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
         int Rlen = getDim(rightType.dims, 0);
         // Only enforce equality if both dimensions are known statically.
         if (Llen >= 0 && Rlen >= 0 && Llen != Rlen) {
-             SizeError(("Semantic Analysis: vectors/arrays must have the same dimensions in order to calculate dot product. Got " + std::to_string(Llen) + " and " + std::to_string(Rlen)).c_str());
+            throw SizeError(node->line, "Semantic Analysis: vectors/arrays must have the same dimensions in order to calculate dot product. Got " + std::to_string(Llen) + " and " + std::to_string(Rlen));
         }
         node->type = promoted;
         return;
@@ -709,8 +764,8 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
         
         // Only enforce compatibility if inner dimensions are known statically.
         if (Lcol >= 0 && Rrow >= 0 && Lcol != Rrow) {
-            SizeError(("Semantic Analysis: invalid matrix dimensions for matrix multiplication - left columns (" +
-                       std::to_string(Lcol) + ") must equal right rows (" + std::to_string(Rrow) + ")").c_str());
+            throw SizeError(node->line, "Semantic Analysis: invalid matrix dimensions for matrix multiplication - left columns (" +
+                       std::to_string(Lcol) + ") must equal right rows (" + std::to_string(Rrow) + ")");
         }
         
         // Ensure element type promotion succeeded
@@ -1809,6 +1864,456 @@ void SemanticAnalysisVisitor::visit(LoopNode* node) {
     exitScope();
 }
 
+void SemanticAnalysisVisitor::visit(IteratorLoopNode* node) {
+    if (!node->domainExpr) {
+        throw std::runtime_error("IteratorLoop: missing domain expression");
+    }
+    if (!node->body) {
+        throw std::runtime_error("IteratorLoop: missing loop body");
+    }
+
+    static int loopTempCounter = 0;
+
+    auto range = std::dynamic_pointer_cast<RangeExprNode>(node->domainExpr);
+    if (!range) {
+        // Array/vector/slice domain branch
+        node->domainExpr->accept(*this);
+        CompleteType domType = resolveUnresolvedType(current_, node->domainExpr->type, node->line);
+        if (domType.baseType != BaseType::ARRAY && domType.baseType != BaseType::VECTOR && domType.baseType != BaseType::MATRIX) {
+            throw TypeError(node->line, "Iterator loop domain must be array/vector/matrix slice or range.");
+        }
+        const std::string arrName = "__loop_arr_" + std::to_string(loopTempCounter);
+        const std::string lenName = "__loop_len_" + std::to_string(loopTempCounter);
+        const std::string idxName = "__loop_idx_" + std::to_string(loopTempCounter);
+        loopTempCounter++;
+
+        // const __loop_arr = <domainExpr>
+        auto arrDec = std::make_shared<InferredDecNode>(arrName, "const", node->domainExpr);
+        arrDec->line = node->line;
+
+        // const __loop_len = length(__loop_arr)
+        auto lenCall = std::make_shared<BuiltInFuncNode>("length", arrName);
+        lenCall->line = node->line;
+        auto lenDec = std::make_shared<InferredDecNode>(lenName, "const", lenCall);
+        lenDec->line = node->line;
+
+        // var __loop_idx = 1 (1-based iterator)
+        auto idxInitLit = std::make_shared<IntNode>(1);
+        idxInitLit->line = node->line;
+        auto idxDec = std::make_shared<InferredDecNode>(idxName, "var", idxInitLit);
+        idxDec->line = node->line;
+
+        // Condition: __loop_idx <= __loop_len
+        auto idxIdForCond = std::make_shared<IdNode>(idxName);
+        idxIdForCond->line = node->line;
+        auto lenIdForCond = std::make_shared<IdNode>(lenName);
+        lenIdForCond->line = node->line;
+        auto condExpr = std::make_shared<CompExpr>("<=", idxIdForCond, lenIdForCond);
+        condExpr->line = node->line;
+
+        // Iterator binding: const iter = __loop_arr[__loop_idx - 1]
+        auto idxIdForAccess = std::make_shared<IdNode>(idxName);
+        idxIdForAccess->line = node->line;
+        auto arrAccess = std::make_shared<ArrayAccessNode>(arrName, idxIdForAccess);
+        arrAccess->line = node->line;
+        auto iterDec = std::make_shared<InferredDecNode>(node->iterName, "const", arrAccess);
+        iterDec->line = node->line;
+
+        // __loop_idx = __loop_idx + 1
+        auto idxIdForInc = std::make_shared<IdNode>(idxName);
+        idxIdForInc->line = node->line;
+        auto oneLit = std::make_shared<IntNode>(1);
+        oneLit->line = node->line;
+        auto incExpr = std::make_shared<AddExpr>("+", idxIdForInc, oneLit);
+        incExpr->line = node->line;
+        auto incStat = std::make_shared<AssignStatNode>(idxName, incExpr);
+        int maxBodyLine = node->line;
+        if (node->body) {
+            for (const auto& d : node->body->decs) {
+                if (d) maxBodyLine = std::max(maxBodyLine, d->line);
+            }
+            for (const auto& s : node->body->stats) {
+                if (s) maxBodyLine = std::max(maxBodyLine, s->line);
+            }
+        }
+        incStat->line = maxBodyLine + 1; // ensure synthesized increment is after user decls/stats
+
+        // While body: iterator binding + original body + increment
+        std::vector<std::shared_ptr<DecNode>> bodyDecs;
+        std::vector<std::shared_ptr<StatNode>> bodyStats;
+        bodyDecs.push_back(iterDec);
+        if (node->body) {
+            bodyDecs.insert(bodyDecs.end(), node->body->decs.begin(), node->body->decs.end());
+            bodyStats.insert(bodyStats.end(), node->body->stats.begin(), node->body->stats.end());
+        }
+        bodyStats.push_back(incStat);
+        auto whileBody = std::make_shared<BlockNode>(std::move(bodyDecs), std::move(bodyStats));
+        whileBody->line = node->line;
+
+        auto whileNode = std::make_shared<LoopNode>(whileBody, condExpr);
+        whileNode->kind = LoopKind::While;
+        whileNode->line = node->line;
+
+        // Outer block: declare temps then execute while
+        std::vector<std::shared_ptr<DecNode>> outerDecs;
+        outerDecs.push_back(arrDec);
+        outerDecs.push_back(lenDec);
+        outerDecs.push_back(idxDec);
+        std::vector<std::shared_ptr<StatNode>> outerStats;
+        outerStats.push_back(whileNode);
+        auto lowered = std::make_shared<BlockNode>(std::move(outerDecs), std::move(outerStats));
+        lowered->line = node->line;
+
+        node->lowered = lowered;
+        lowered->accept(*this);
+        node->type = CompleteType(BaseType::UNKNOWN);
+        return;
+    }
+
+    // Prepare start/end/step expressions (default start to 1 if omitted, step to 1)
+    std::shared_ptr<ExprNode> startExpr = range->start;
+    std::shared_ptr<ExprNode> endExpr = range->end;
+    std::shared_ptr<ExprNode> stepExpr = range->step;
+    if (!startExpr) {
+        startExpr = std::make_shared<IntNode>(1);
+        startExpr->line = node->line;
+    }
+    if (!endExpr) {
+        throw TypeError(node->line, "Iterator loop range requires an end expression.");
+    }
+    if (!stepExpr) {
+        stepExpr = std::make_shared<IntNode>(1);
+        stepExpr->line = node->line;
+    }
+
+    // Type-check bounds and stride
+    startExpr->accept(*this);
+    endExpr->accept(*this);
+    stepExpr->accept(*this);
+    if (startExpr->type.baseType != BaseType::INTEGER) {
+        throw TypeError(node->line, "Iterator loop range start must be integer.");
+    }
+    if (endExpr->type.baseType != BaseType::INTEGER) {
+        throw TypeError(node->line, "Iterator loop range end must be integer.");
+    }
+    if (stepExpr->type.baseType != BaseType::INTEGER) {
+        throw TypeError(node->line, "Iterator loop range stride must be integer.");
+    }
+
+    // Reject non-positive stride
+    if (auto stepInt = std::dynamic_pointer_cast<IntNode>(stepExpr)) {
+        if (stepInt->value <= 0) {
+            throw StrideError(node->line, "Iterator loop range stride must be positive.");
+        }
+    }
+
+    // Hidden temp names
+    const std::string startName = "__loop_start_" + std::to_string(loopTempCounter);
+    const std::string endName   = "__loop_end_" + std::to_string(loopTempCounter);
+    const std::string idxName   = "__loop_idx_" + std::to_string(loopTempCounter);
+    const std::string stepName  = "__loop_step_" + std::to_string(loopTempCounter);
+    loopTempCounter++;
+
+    // Declarations for start/end/step/idx
+    auto startDec = std::make_shared<InferredDecNode>(startName, "const", startExpr);
+    startDec->line = node->line;
+    auto endDec = std::make_shared<InferredDecNode>(endName, "const", endExpr);
+    endDec->line = node->line;
+    auto stepDec = std::make_shared<InferredDecNode>(stepName, "const", stepExpr);
+    stepDec->line = node->line;
+
+    auto idxInit = std::make_shared<IdNode>(startName);
+    idxInit->line = node->line;
+    auto idxDec = std::make_shared<InferredDecNode>(idxName, "var", idxInit);
+    idxDec->line = node->line;
+
+    // While condition: idx <= end
+    auto idxIdForCond = std::make_shared<IdNode>(idxName);
+    idxIdForCond->line = node->line;
+    auto endIdForCond = std::make_shared<IdNode>(endName);
+    endIdForCond->line = node->line;
+    auto condExpr = std::make_shared<CompExpr>("<=", idxIdForCond, endIdForCond);
+    condExpr->line = node->line;
+
+    // Iterator binding: const iter = idx
+    auto idxIdForIter = std::make_shared<IdNode>(idxName);
+    idxIdForIter->line = node->line;
+    auto iterDec = std::make_shared<InferredDecNode>(node->iterName, "const", idxIdForIter);
+    iterDec->line = node->line;
+
+    // idx = idx + step
+    auto idxIdForInc = std::make_shared<IdNode>(idxName);
+    idxIdForInc->line = node->line;
+    auto stepIdForInc = std::make_shared<IdNode>(stepName);
+    stepIdForInc->line = node->line;
+    auto incExpr = std::make_shared<AddExpr>("+", idxIdForInc, stepIdForInc);
+    incExpr->line = node->line;
+    auto incStat = std::make_shared<AssignStatNode>(idxName, incExpr);
+    int maxBodyLine = node->line;
+    if (node->body) {
+        for (const auto& d : node->body->decs) {
+            if (d) maxBodyLine = std::max(maxBodyLine, d->line);
+        }
+        for (const auto& s : node->body->stats) {
+            if (s) maxBodyLine = std::max(maxBodyLine, s->line);
+        }
+    }
+    incStat->line = maxBodyLine + 1; // ensure synthesized increment is after user decls/stats
+
+    // While body: iterator binding + original body
+    std::vector<std::shared_ptr<DecNode>> bodyDecs;
+    std::vector<std::shared_ptr<StatNode>> bodyStats;
+    bodyDecs.push_back(iterDec);
+    if (node->body) {
+        // Preserve existing declarations/statements
+        bodyDecs.insert(bodyDecs.end(), node->body->decs.begin(), node->body->decs.end());
+        bodyStats.insert(bodyStats.end(), node->body->stats.begin(), node->body->stats.end());
+    }
+    bodyStats.push_back(incStat);
+    auto whileBody = std::make_shared<BlockNode>(std::move(bodyDecs), std::move(bodyStats));
+    whileBody->line = node->line;
+
+    auto whileNode = std::make_shared<LoopNode>(whileBody, condExpr);
+    whileNode->kind = LoopKind::While;
+    whileNode->line = node->line;
+
+    // Outer block: declare temps then execute while
+    std::vector<std::shared_ptr<DecNode>> outerDecs;
+    outerDecs.push_back(startDec);
+    outerDecs.push_back(endDec);
+    outerDecs.push_back(stepDec);
+    outerDecs.push_back(idxDec);
+    std::vector<std::shared_ptr<StatNode>> outerStats;
+    outerStats.push_back(whileNode);
+    auto lowered = std::make_shared<BlockNode>(std::move(outerDecs), std::move(outerStats));
+    lowered->line = node->line;
+
+    // Store lowered form for downstream passes
+    node->lowered = lowered;
+
+    // Visit lowered form
+    lowered->accept(*this);
+    node->type = CompleteType(BaseType::UNKNOWN);
+}
+
+void SemanticAnalysisVisitor::visit(GeneratorExprNode* node) {
+    // Arity check: only 1D for now
+    if (node->domains.empty() || node->domains.size() > 2) {
+        throw TypeError(node->line, "Generator must have 1 or 2 domain variables.");
+    }
+
+    size_t arity = node->domains.size();
+    if (arity == 0 || arity > 2) {
+        throw TypeError(node->line, "Generator must have 1 or 2 domain variables.");
+    }
+
+    auto analyzeDomain = [&](std::pair<std::string, std::shared_ptr<ExprNode>>& domPair, int idx) -> std::tuple<CompleteType,int,CompleteType> {
+        if (!domPair.second) {
+            throw TypeError(node->line, "Generator domain is null.");
+        }
+        domPair.second->accept(*this);
+        CompleteType domType = resolveUnresolvedType(current_, domPair.second->type, node->line);
+        if (domType.baseType != BaseType::ARRAY && domType.baseType != BaseType::VECTOR && domType.baseType != BaseType::UNKNOWN) {
+            throw TypeError(node->line, "Generator domain must be array/vector or range.");
+        }
+        if (domType.baseType == BaseType::MATRIX || domType.dims.size() > 1) {
+            throw TypeError(node->line, "Generator domain must be 1D array/vector or range.");
+        }
+        int len = -1;
+        if (!domType.dims.empty() && domType.dims[0] >= 0) len = domType.dims[0];
+        if (auto rangeDom = std::dynamic_pointer_cast<RangeExprNode>(domPair.second)) {
+            int startLit = 1;
+            int endLit = -1;
+            int stepLit = 1;
+            bool startIsLit = false, endIsLit = false, stepIsLit = false;
+            if (rangeDom->start) {
+                if (auto s = std::dynamic_pointer_cast<IntNode>(rangeDom->start)) { startLit = s->value; startIsLit = true; }
+            } else { startIsLit = true; startLit = 1; }
+            if (rangeDom->end) {
+                if (auto e = std::dynamic_pointer_cast<IntNode>(rangeDom->end)) { endLit = e->value; endIsLit = true; }
+            }
+            if (rangeDom->step) {
+                if (auto st = std::dynamic_pointer_cast<IntNode>(rangeDom->step)) { stepLit = st->value; stepIsLit = true; }
+            } else { stepIsLit = true; stepLit = 1; }
+            if (stepLit <= 0 && stepIsLit) throw StrideError(node->line, "Iterator loop range stride must be positive.");
+            if (startIsLit && endIsLit && stepIsLit) {
+                if (endLit < startLit) len = 0;
+                else len = static_cast<int>((static_cast<int64_t>(endLit - startLit) / stepLit) + 1);
+            }
+        }
+        CompleteType iterType(BaseType::UNKNOWN);
+        if (domType.baseType == BaseType::ARRAY || domType.baseType == BaseType::VECTOR || domType.baseType == BaseType::MATRIX) {
+            if (!domType.subTypes.empty()) iterType = domType.subTypes[0];
+        } else {
+            iterType = CompleteType(BaseType::INTEGER);
+        }
+        return {domType, len, iterType};
+    };
+
+    auto domInfo0 = analyzeDomain(node->domains[0], 0);
+    CompleteType domType0; int len0; CompleteType iterType0;
+    std::tie(domType0, len0, iterType0) = domInfo0;
+
+    CompleteType domType1; int len1 = -1; CompleteType iterType1(BaseType::UNKNOWN);
+    if (arity == 2) {
+        auto domInfo1 = analyzeDomain(node->domains[1], 1);
+        std::tie(domType1, len1, iterType1) = domInfo1;
+    }
+
+    // Bind iterator(s) with inferred element type(s) in a child scope, then visit RHS to refine
+    enterScopeFor(node, current_->isInLoop(), current_->getReturnType());
+    current_->declareVar(node->domains[0].first, iterType0, true, node->line);
+    if (arity == 2) {
+        current_->declareVar(node->domains[1].first, iterType1, true, node->line);
+    }
+    if (node->rhs) node->rhs->accept(*this);
+    CompleteType elemType = resolveUnresolvedType(current_, node->rhs ? node->rhs->type : CompleteType(BaseType::UNKNOWN), node->line);
+    exitScope();
+
+    // Build result type (2D uses MATRIX for clarity)
+    CompleteType resultType(arity == 2 ? BaseType::MATRIX : BaseType::ARRAY);
+    resultType.subTypes.push_back(elemType);
+    if (arity == 1) {
+        resultType.dims = {len0};
+    } else {
+        resultType.dims = {len0, len1};
+    }
+    node->type = resultType;
+
+    // Allocate result var (in lowered block) with computed len (static or dynamic)
+    static int genTempCounter = 0;
+    std::string resName = "__gen_tmp_" + std::to_string(genTempCounter++);
+    auto resDec = std::make_shared<ArrayTypedDecNode>("var", resName, resultType);
+    resDec->line = node->line;
+    // Declare in current scope so downstream passes can resolve it
+    current_->declareVar(resName, resultType, false, node->line);
+
+    auto one = std::make_shared<IntNode>(1); one->line = node->line;
+
+    if (arity == 1) {
+        // Write index declaration (var w = 1)
+        auto wName = "__gen_w_" + std::to_string(genTempCounter);
+        auto wDec = std::make_shared<InferredDecNode>(wName, "var", one);
+        wDec->line = node->line;
+        current_->declareVar(wName, CompleteType(BaseType::INTEGER), false, node->line);
+
+        // res[w] = rhs; w++
+        auto resId = std::make_shared<IdNode>(resName); resId->line = node->line;
+        auto wIdForStore = std::make_shared<IdNode>(wDec->name); wIdForStore->line = node->line;
+        auto arrAccess = std::make_shared<ArrayAccessNode>(resId->id, wIdForStore);
+        arrAccess->line = node->line;
+        auto storeStat = std::make_shared<ArrayAccessAssignStatNode>(arrAccess, node->rhs);
+        storeStat->line = node->line;
+
+        auto wIdForInc = std::make_shared<IdNode>(wDec->name); wIdForInc->line = node->line;
+        auto incExpr = std::make_shared<AddExpr>("+", wIdForInc, one);
+        incExpr->line = node->line;
+        auto incStat = std::make_shared<AssignStatNode>(wDec->name, incExpr);
+        incStat->line = node->line;
+
+        std::vector<std::shared_ptr<DecNode>> loopDecs;
+        std::vector<std::shared_ptr<StatNode>> loopStats;
+        loopStats.push_back(storeStat);
+        loopStats.push_back(incStat);
+        auto loopBody = std::make_shared<BlockNode>(std::move(loopDecs), std::move(loopStats));
+        loopBody->line = node->line;
+
+        auto iterLoop = std::make_shared<IteratorLoopNode>(node->domains[0].first, node->domains[0].second, loopBody);
+        iterLoop->line = node->line;
+
+        std::vector<std::shared_ptr<DecNode>> loweredDecs;
+        loweredDecs.push_back(resDec);
+        loweredDecs.push_back(wDec);
+        std::vector<std::shared_ptr<StatNode>> loweredStats;
+        loweredStats.push_back(iterLoop);
+        auto lowered = std::make_shared<BlockNode>(std::move(loweredDecs), std::move(loweredStats));
+        lowered->line = node->line;
+
+        node->lowered = lowered;
+        node->loweredResultName = resName;
+
+        for (const auto& s : lowered->stats) {
+            if (s) s->accept(*this);
+        }
+    } else {
+        // 2D: write indices wRow, wCol
+        auto wRowName = "__gen_w_row_" + std::to_string(genTempCounter);
+        auto wColName = "__gen_w_col_" + std::to_string(genTempCounter);
+        auto wRowDec = std::make_shared<InferredDecNode>(wRowName, "var", one);
+        wRowDec->line = node->line;
+        auto wColDec = std::make_shared<InferredDecNode>(wColName, "var", one);
+        wColDec->line = node->line;
+        current_->declareVar(wRowName, CompleteType(BaseType::INTEGER), false, node->line);
+        current_->declareVar(wColName, CompleteType(BaseType::INTEGER), false, node->line);
+
+        // Store: res[wRow][wCol] = rhs
+        auto resId = std::make_shared<IdNode>(resName); resId->line = node->line;
+        auto wRowId = std::make_shared<IdNode>(wRowName); wRowId->line = node->line;
+        auto wColId = std::make_shared<IdNode>(wColName); wColId->line = node->line;
+        auto arrAccess = std::make_shared<ArrayAccessNode>(resId->id, wRowId, wColId);
+        arrAccess->line = node->line;
+        auto storeStat = std::make_shared<ArrayAccessAssignStatNode>(arrAccess, node->rhs);
+        storeStat->line = node->line;
+
+        // wCol = wCol + 1
+        auto wColIdInc = std::make_shared<IdNode>(wColName); wColIdInc->line = node->line;
+        auto incColExpr = std::make_shared<AddExpr>("+", wColIdInc, one);
+        incColExpr->line = node->line;
+        auto incColStat = std::make_shared<AssignStatNode>(wColName, incColExpr);
+        incColStat->line = node->line;
+
+        // inner loop body
+        std::vector<std::shared_ptr<DecNode>> innerDecs;
+        std::vector<std::shared_ptr<StatNode>> innerStats;
+        innerStats.push_back(storeStat);
+        innerStats.push_back(incColStat);
+        auto innerBody = std::make_shared<BlockNode>(std::move(innerDecs), std::move(innerStats));
+        innerBody->line = node->line;
+
+        auto innerIter = std::make_shared<IteratorLoopNode>(node->domains[1].first, node->domains[1].second, innerBody);
+        innerIter->line = node->line;
+
+        // Reset wCol to 1 before inner loop
+        auto resetCol = std::make_shared<AssignStatNode>(wColName, one);
+        resetCol->line = node->line;
+
+        // wRow = wRow + 1 after inner loop
+        auto wRowIdInc = std::make_shared<IdNode>(wRowName); wRowIdInc->line = node->line;
+        auto incRowExpr = std::make_shared<AddExpr>("+", wRowIdInc, one);
+        incRowExpr->line = node->line;
+        auto incRowStat = std::make_shared<AssignStatNode>(wRowName, incRowExpr);
+        incRowStat->line = node->line;
+
+        // Outer loop body: reset col, inner iter, inc row
+        std::vector<std::shared_ptr<DecNode>> outerDecsInBody;
+        std::vector<std::shared_ptr<StatNode>> outerStatsInBody;
+        outerStatsInBody.push_back(resetCol);
+        outerStatsInBody.push_back(innerIter);
+        outerStatsInBody.push_back(incRowStat);
+        auto outerBody = std::make_shared<BlockNode>(std::move(outerDecsInBody), std::move(outerStatsInBody));
+        outerBody->line = node->line;
+
+        auto outerIter = std::make_shared<IteratorLoopNode>(node->domains[0].first, node->domains[0].second, outerBody);
+        outerIter->line = node->line;
+
+        std::vector<std::shared_ptr<DecNode>> loweredDecs;
+        loweredDecs.push_back(resDec);
+        loweredDecs.push_back(wRowDec);
+        loweredDecs.push_back(wColDec);
+        std::vector<std::shared_ptr<StatNode>> loweredStats;
+        loweredStats.push_back(outerIter);
+        auto lowered = std::make_shared<BlockNode>(std::move(loweredDecs), std::move(loweredStats));
+        lowered->line = node->line;
+
+        node->lowered = lowered;
+        node->loweredResultName = resName;
+
+        for (const auto& s : lowered->stats) {
+            if (s) s->accept(*this);
+        }
+    }
+}
+
 void SemanticAnalysisVisitor::visit(ParenExpr* node) {
     node->expr->accept(*this);
     node->type = node->expr->type;
@@ -1995,7 +2500,7 @@ void SemanticAnalysisVisitor::visit(AddExpr* node) {
         auto lsz = getCompileTimeSize(node->left);
         auto rsz = getCompileTimeSize(node->right);
         if (lsz.has_value() && rsz.has_value() && lsz.value() != rsz.value()) {
-            SizeError("Semantic Analysis: Arrays must have same size");
+            throw SizeError(node->line, "Semantic Analysis: Arrays must have same size");
         }
     }
     CompleteType finalType = promote(leftOperandType, rightOperandType);
@@ -2135,7 +2640,7 @@ void SemanticAnalysisVisitor::visit(TupleAccessNode* node) {
     }
 
     if (node->index > varInfo->type.subTypes.size() || node->index == 0) {
-        IndexError(("Index " + std::to_string(node->index) + " out of range for tuple of len " + std::to_string(varInfo->type.subTypes.size())).c_str());
+        throw SizeError(node->line, "Index " + std::to_string(node->index) + " out of range for tuple of len " + std::to_string(varInfo->type.subTypes.size()));
         return; 
     }
 

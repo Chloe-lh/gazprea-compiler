@@ -52,7 +52,7 @@ class DecNode : public ASTNode {
 public:
   std::string name;
   std::string declTypeName; // Renamed from 'type' to 'declTypeName'
-  std::string qualifier = "const";      // default const; overridden where needed
+  std::string qualifier = "const";      // default const; builders can override per-kind
   std::shared_ptr<ExprNode> init;       // optional initializer shared by declarations
   virtual ~DecNode() = default;
   virtual void accept(ASTVisitor &visitor) = 0;
@@ -243,8 +243,24 @@ class RangeExprNode : public ExprNode {
 public:
   std::shared_ptr<ExprNode> start; // nullable
   std::shared_ptr<ExprNode> end;   // nullable
-  RangeExprNode(std::shared_ptr<ExprNode> s, std::shared_ptr<ExprNode> e)
-      : start(std::move(s)), end(std::move(e)) {}
+  std::shared_ptr<ExprNode> step;  // nullable (stride)
+  RangeExprNode(std::shared_ptr<ExprNode> s, std::shared_ptr<ExprNode> e,
+                std::shared_ptr<ExprNode> p = nullptr)
+      : start(std::move(s)), end(std::move(e)), step(std::move(p)) {}
+  void accept(ASTVisitor &visitor) override;
+};
+
+// Generator: [ domains | expr ], supports 1D or 2D (arity 1 or 2)
+class GeneratorExprNode : public ExprNode {
+public:
+  std::vector<std::pair<std::string, std::shared_ptr<ExprNode>>> domains; // (iterName, domainExpr)
+  std::shared_ptr<ExprNode> rhs;
+  // Lowered materialization: block that allocates and fills result; result binding name
+  std::shared_ptr<BlockNode> lowered;
+  std::string loweredResultName;
+  GeneratorExprNode(std::vector<std::pair<std::string, std::shared_ptr<ExprNode>>> doms,
+                    std::shared_ptr<ExprNode> r)
+      : domains(std::move(doms)), rhs(std::move(r)) {}
   void accept(ASTVisitor &visitor) override;
 };
 // expression classes
@@ -548,6 +564,20 @@ public:
   LoopNode(std::shared_ptr<BlockNode> body,
            std::shared_ptr<ExprNode> cond = nullptr)
       : body(std::move(body)), cond(std::move(cond)), kind(LoopKind::Plain) {}
+  void accept(ASTVisitor &visitor) override;
+};
+
+// Iterator loop (loop <id> in <domain>)
+class IteratorLoopNode : public StatNode {
+public:
+  std::string iterName;
+  std::shared_ptr<ExprNode> domainExpr;
+  std::shared_ptr<BlockNode> body;
+  std::shared_ptr<BlockNode> lowered; // lowered while-form subtree
+  IteratorLoopNode(std::string iter, std::shared_ptr<ExprNode> domain,
+                   std::shared_ptr<BlockNode> b)
+      : iterName(std::move(iter)), domainExpr(std::move(domain)),
+        body(std::move(b)), lowered(nullptr) {}
   void accept(ASTVisitor &visitor) override;
 };
 

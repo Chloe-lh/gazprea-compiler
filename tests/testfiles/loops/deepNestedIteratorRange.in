@@ -1,0 +1,23 @@
+procedure main() returns integer {
+    // Expected pattern:
+    // i=1..2; j= i..(i+1); k= j-1 .. j; m=1..(i+j+k)
+    // We print the tuple (i,j,k,m)
+    loop i in 1..2 {
+        loop j in i..(i + 1) {
+            loop k in (j - 1)..j {
+                loop m in 1..(i + j + k) {
+                    "(" -> std_output;
+                    i -> std_output; "," -> std_output;
+                    j -> std_output; "," -> std_output;
+                    k -> std_output; "," -> std_output;
+                    m -> std_output; ")" -> std_output;
+                    " " -> std_output;
+                }
+            }
+        }
+        "\n" -> std_output;
+    }
+    return 0;
+}
+//CHECK_FILE:deepNestedIteratorRange.out
+

@@ -1,0 +1,6 @@
+procedure main() returns integer {
+    integer[2][2] m = [[1, 2], [3, 4]];
+    integer[][] bad = [x in m | x];
+    return 0;
+}
+//CHECK_FILE:generatorArray2DInvalid.out

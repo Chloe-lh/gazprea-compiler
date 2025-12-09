@@ -1,0 +1,9 @@
+procedure main() returns integer {
+    // Invalid stride: zero
+    loop i in 1..5 by 0 {
+        i -> std_output;
+    }
+    return 0;
+}
+//CHECK_FILE:iteratorRangeStrideInvalid.out
+

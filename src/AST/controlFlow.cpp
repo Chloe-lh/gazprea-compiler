@@ -157,4 +157,46 @@ ASTBuilder::visitWhileLoopBlock(GazpreaParser::WhileLoopBlockContext *ctx) {
 
   return node_any(std::move(node));
 }
+
+// LOOP ID IN (rangeExpr | array_literal) (block|stat) #ForLoopBlock
+std::any ASTBuilder::visitForLoopBlock(GazpreaParser::ForLoopBlockContext *ctx) {
+  // identifier
+  std::string iter = ctx->ID() ? ctx->ID()->getText() : "";
+
+  // domain expression (rangeExpr | expr per grammar)
+  std::shared_ptr<ExprNode> domain = nullptr;
+  if (ctx->rangeExpr()) {
+    auto anyDom = visit(ctx->rangeExpr());
+    if (anyDom.has_value()) {
+      domain = safe_any_cast_ptr<ExprNode>(anyDom);
+    }
+  } else if (ctx->expr()) {
+    auto anyDom = visit(ctx->expr());
+    if (anyDom.has_value()) {
+      domain = safe_any_cast_ptr<ExprNode>(anyDom);
+    }
+  }
+
+  // body: block or single stat (wrap in block)
+  std::shared_ptr<BlockNode> body = nullptr;
+  if (ctx->block()) {
+    auto anyBlock = visit(ctx->block());
+    if (anyBlock.has_value()) {
+      body = safe_any_cast_ptr<BlockNode>(anyBlock);
+    }
+  } else if (ctx->stat()) {
+    auto statAny = visit(ctx->stat());
+    auto stat = safe_any_cast_ptr<StatNode>(statAny);
+    if (stat) {
+      std::vector<std::shared_ptr<DecNode>> decs;
+      std::vector<std::shared_ptr<StatNode>> stats;
+      stats.push_back(stat);
+      body = std::make_shared<BlockNode>(std::move(decs), std::move(stats));
+    }
+  }
+
+  auto node = std::make_shared<IteratorLoopNode>(iter, domain, body);
+  setLocationFromCtx(node, ctx);
+  return node_any(std::move(node));
+}
 }

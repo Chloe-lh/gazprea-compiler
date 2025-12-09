@@ -1,0 +1,14 @@
+procedure main() returns integer {
+    loop i in 1..3 {
+        i -> std_output;
+        " " -> std_output;
+    }
+    "\n" -> std_output;
+    // Negative/empty range: should not iterate
+    loop j in 1..-2 {
+        j -> std_output;
+    }
+    return 0;
+}
+//CHECK_FILE:iteratorRange.out
+

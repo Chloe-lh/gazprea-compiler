@@ -170,6 +170,61 @@ void ASTPrinter::visit(RangeExprNode *node) {
     indent--;
     popChildContext();
   }
+  if (node->step) {
+    pushChildContext(true);
+    printTreeLine("Step");
+    indent++;
+    pushChildContext(true);
+    node->step->accept(*this);
+    popChildContext();
+    indent--;
+    popChildContext();
+  }
+  indent--;
+}
+
+void ASTPrinter::visit(GeneratorExprNode *node) {
+  printTreeLine("GeneratorExprNode");
+  indent++;
+  pushChildContext(false);
+  printTreeLine("Domains");
+  indent++;
+  for (size_t i = 0; i < node->domains.size(); ++i) {
+    pushChildContext(i + 1 < node->domains.size());
+    printTreeLine("Domain", "iter: " + node->domains[i].first);
+    indent++;
+    pushChildContext(true);
+    if (node->domains[i].second) {
+      node->domains[i].second->accept(*this);
+    } else {
+      printTreeLine("null domain expr");
+    }
+    popChildContext();
+    indent--;
+  }
+  indent--;
+  popChildContext();
+
+  pushChildContext(true);
+  printTreeLine("RHS");
+  indent++;
+  pushChildContext(true);
+  if (node->rhs) node->rhs->accept(*this);
+  else printTreeLine("null rhs");
+  popChildContext();
+  indent--;
+  popChildContext();
+
+  if (node->lowered) {
+    pushChildContext(true);
+    printTreeLine("Lowered");
+    indent++;
+    pushChildContext(true);
+    node->lowered->accept(*this);
+    popChildContext();
+    indent--;
+    popChildContext();
+  }
   indent--;
 }
 
@@ -252,6 +307,48 @@ void ASTPrinter::visit(LoopNode *node) {
   popChildContext();
   indent--;
   popChildContext();
+  indent--;
+}
+
+void ASTPrinter::visit(IteratorLoopNode *node) {
+  printTreeLine("IteratorLoopNode", "iter: " + node->iterName);
+  indent++;
+  pushChildContext(false);
+  printTreeLine("Domain");
+  indent++;
+  pushChildContext(true);
+  if (node->domainExpr) {
+    node->domainExpr->accept(*this);
+  } else {
+    printTreeLine("null domain");
+  }
+  popChildContext();
+  indent--;
+  popChildContext();
+
+  pushChildContext(true);
+  printTreeLine("Body");
+  indent++;
+  pushChildContext(true);
+  if (node->body) {
+    node->body->accept(*this);
+  } else {
+    printTreeLine("null body");
+  }
+  popChildContext();
+  indent--;
+  popChildContext();
+
+  if (node->lowered) {
+    pushChildContext(true);
+    printTreeLine("Lowered");
+    indent++;
+    pushChildContext(true);
+    node->lowered->accept(*this);
+    popChildContext();
+    indent--;
+    popChildContext();
+  }
   indent--;
 }
 
@@ -543,6 +640,31 @@ void ASTPrinter::visit(StructAccessAssignStatNode *node) {
   } else {
     printTreeLine("ERROR: null expression");
   }
+  popChildContext();
+  indent--;
+}
+
+void ASTPrinter::visit(ArrayAccessAssignStatNode *node) {
+  printTreeLine("ArrayAccessAssignStatNode");
+  indent++;
+  pushChildContext(false);
+  printTreeLine("Target");
+  indent++;
+  pushChildContext(true);
+  if (node->target) node->target->accept(*this);
+  else printTreeLine("null target");
+  popChildContext();
+  indent--;
+  popChildContext();
+
+  pushChildContext(true);
+  printTreeLine("Expr");
+  indent++;
+  pushChildContext(true);
+  if (node->expr) node->expr->accept(*this);
+  else printTreeLine("null expr");
+  popChildContext();
+  indent--;
   popChildContext();
   indent--;
 }

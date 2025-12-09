@@ -231,31 +231,36 @@ void MLIRGen::emitPrintArray(int line, const VarInfo &arrayVarInfo) {
         [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value iv, mlir::ValueRange args) {
             // Print space if i > 0
             auto isZero = b.create<mlir::arith::CmpIOp>(l, mlir::arith::CmpIPredicate::eq, iv, c0);
-            b.create<mlir::scf::IfOp>(l, isZero,
-                [&](mlir::OpBuilder &thenBuilder, mlir::Location thenLoc) {
-                    // Then block (i == 0): Do nothing
-                    thenBuilder.create<mlir::scf::YieldOp>(thenLoc);
-                },
-                [&](mlir::OpBuilder &elseBuilder, mlir::Location elseLoc) {
-                    // Else block (i > 0): Print space
-                    auto i8Ty = elseBuilder.getI8Type();
-                    auto space = elseBuilder.create<mlir::arith::ConstantOp>(
-                        elseLoc, i8Ty, elseBuilder.getIntegerAttr(i8Ty, static_cast<int>(' ')));
-                    
-                    // Inlined emitPrintScalar logic for character
-                    const char* formatStrName = "charFormat";
-                    auto formatString = module_.lookupSymbol<mlir::LLVM::GlobalOp>(formatStrName);
-                    auto printfFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("printf");
-                    if (!formatString || !printfFunc) {
-                        throw std::runtime_error("MLIRGen::emitPrintArray: Format string or printf not found.");
-                    }
-                    mlir::Value formatStringPtr = elseBuilder.create<mlir::LLVM::AddressOfOp>(elseLoc, formatString);
-                    mlir::Value valueToPrint = elseBuilder.create<mlir::arith::ExtSIOp>(elseLoc, elseBuilder.getI32Type(), space.getResult());
-                    elseBuilder.create<mlir::LLVM::CallOp>(elseLoc, printfFunc, mlir::ValueRange{formatStringPtr, valueToPrint});
-                    
-                    elseBuilder.create<mlir::scf::YieldOp>(elseLoc);
+            // Explicit IfOp construction to ensure terminators in both regions
+            auto ifOp = b.create<mlir::scf::IfOp>(l, isZero, /*withElseRegion=*/true);
+            // Then block (i == 0): do nothing
+            {
+                mlir::Block &thenBlock = ifOp.getThenRegion().front();
+                thenBlock.clear(); // remove default terminator
+                mlir::OpBuilder thenBuilder(&thenBlock, thenBlock.end());
+                thenBuilder.create<mlir::scf::YieldOp>(l);
+            }
+            // Else block (i > 0): print a space
+            {
+                mlir::Block &elseBlock = ifOp.getElseRegion().front();
+                elseBlock.clear(); // remove default terminator
+                mlir::OpBuilder elseBuilder(&elseBlock, elseBlock.end());
+                auto i8Ty = elseBuilder.getI8Type();
+                auto space = elseBuilder.create<mlir::arith::ConstantOp>(
+                    l, i8Ty, elseBuilder.getIntegerAttr(i8Ty, static_cast<int>(' ')));
+
+                const char* formatStrName = "charFormat";
+                auto formatString = module_.lookupSymbol<mlir::LLVM::GlobalOp>(formatStrName);
+                auto printfFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("printf");
+                if (!formatString || !printfFunc) {
+                    throw std::runtime_error("MLIRGen::emitPrintArray: Format string or printf not found.");
                 }
-            );
+                mlir::Value formatStringPtr = elseBuilder.create<mlir::LLVM::AddressOfOp>(l, formatString);
+                mlir::Value valueToPrint = elseBuilder.create<mlir::arith::ExtSIOp>(l, elseBuilder.getI32Type(), space.getResult());
+                elseBuilder.create<mlir::LLVM::CallOp>(l, printfFunc, mlir::ValueRange{formatStringPtr, valueToPrint});
+                elseBuilder.create<mlir::scf::YieldOp>(l);
+            }
+            b.setInsertionPointAfter(ifOp);
             
             // Load element
             mlir::Value elemVal = accessElement(const_cast<VarInfo*>(&arrayVarInfo), mlir::ValueRange{iv});

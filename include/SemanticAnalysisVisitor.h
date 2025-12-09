@@ -47,6 +47,8 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         virtual void visit(MethodCallStatNode* node) override;
         virtual void visit(IfNode* node)            override;
         virtual void visit(LoopNode* node)          override;
+        virtual void visit(IteratorLoopNode* node)  override;
+        virtual void visit(GeneratorExprNode* node) override;
         virtual void visit(BlockNode* node)         override;
 
 

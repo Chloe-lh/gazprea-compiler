@@ -3,13 +3,9 @@ procedure main() returns integer {
     
     v.push(10);
     v.push(20);
+    v.push(30);
     
     v.len() -> std_output;
-    "\n" -> std_output;
-    
-    // Need to assign to array to print
-    integer[2] arr = v;
-    arr -> std_output;
     "\n" -> std_output;
     
     return 0;

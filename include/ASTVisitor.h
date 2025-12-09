@@ -28,9 +28,7 @@ public:
   virtual void visit(DestructAssignStatNode *node) = 0;
   virtual void visit(TupleAccessAssignStatNode *node) = 0;
   virtual void visit(StructAccessAssignStatNode *node) = 0;
-  // TODO just added ArrayAccessAssignStatNode
-  // TODO needs to be added to semantic pass
-  virtual void visit(ArrayAccessAssignStatNode *node) { (void)node; }
+  virtual void visit(ArrayAccessAssignStatNode *node) = 0;
   virtual void visit(OutputStatNode *node) = 0;
   virtual void visit(InputStatNode *node) = 0;
   virtual void visit(BreakStatNode *node) = 0;
@@ -40,6 +38,7 @@ public:
   virtual void visit(MethodCallStatNode *node) { (void)node; } // TODO: revise
   virtual void visit(IfNode *node) = 0;
   virtual void visit(LoopNode *node) = 0;
+  virtual void visit(IteratorLoopNode *node) = 0;
   virtual void visit(BlockNode *node) = 0;
 
   // Expressions
@@ -78,6 +77,7 @@ public:
   virtual void visit(ArraySliceExpr *node)= 0;
   virtual void visit(ArrayAccessNode *node) = 0;
   virtual void visit(ArrayTypedDecNode *node) = 0;
+  virtual void visit(GeneratorExprNode *node) = 0;
   virtual void visit(ExprListNode *node) = 0;
   virtual void visit(ArrayLiteralNode *node) = 0;
   virtual void visit(RangeExprNode *node) = 0;
