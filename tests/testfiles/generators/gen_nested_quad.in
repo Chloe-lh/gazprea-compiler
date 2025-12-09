@@ -2,7 +2,7 @@ procedure main() returns integer {
     integer[5] base = [1, 2, 3, 4, 5];
 
     // Four nested generators in one declaration; no slicing anywhere
-    integer[*] nested = [a in [b in [c in [d in base | d] | c] | b] | a];
+    integer[*] nested = [a in [b in [c in [d in base | d+1] | c+1] | b+1] | a+1];
 
     nested -> std_output;
     "\n" -> std_output;

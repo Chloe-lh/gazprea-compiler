@@ -1696,7 +1696,16 @@ void SemanticAnalysisVisitor::visit(IteratorLoopNode* node) {
         auto incExpr = std::make_shared<AddExpr>("+", idxIdForInc, oneLit);
         incExpr->line = node->line;
         auto incStat = std::make_shared<AssignStatNode>(idxName, incExpr);
-        incStat->line = node->line;
+        int maxBodyLine = node->line;
+        if (node->body) {
+            for (const auto& d : node->body->decs) {
+                if (d) maxBodyLine = std::max(maxBodyLine, d->line);
+            }
+            for (const auto& s : node->body->stats) {
+                if (s) maxBodyLine = std::max(maxBodyLine, s->line);
+            }
+        }
+        incStat->line = maxBodyLine + 1; // ensure synthesized increment is after user decls/stats
 
         // While body: iterator binding + original body + increment
         std::vector<std::shared_ptr<DecNode>> bodyDecs;
@@ -1809,7 +1818,16 @@ void SemanticAnalysisVisitor::visit(IteratorLoopNode* node) {
     auto incExpr = std::make_shared<AddExpr>("+", idxIdForInc, stepIdForInc);
     incExpr->line = node->line;
     auto incStat = std::make_shared<AssignStatNode>(idxName, incExpr);
-    incStat->line = node->line;
+    int maxBodyLine = node->line;
+    if (node->body) {
+        for (const auto& d : node->body->decs) {
+            if (d) maxBodyLine = std::max(maxBodyLine, d->line);
+        }
+        for (const auto& s : node->body->stats) {
+            if (s) maxBodyLine = std::max(maxBodyLine, s->line);
+        }
+    }
+    incStat->line = maxBodyLine + 1; // ensure synthesized increment is after user decls/stats
 
     // While body: iterator binding + original body
     std::vector<std::shared_ptr<DecNode>> bodyDecs;

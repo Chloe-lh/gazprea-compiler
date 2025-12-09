@@ -110,7 +110,9 @@ public:
         allocaVar(varInfo, line, sizes);
     }
     mlir::Value computeArraySize(VarInfo* source, int line);
+    // Allocate a 1-D vector; supports both static (int) and dynamic (Value) lengths.
     mlir::Value allocaVector(int len, VarInfo *varInfo);
+    mlir::Value allocaVector(mlir::Value len, VarInfo *varInfo);
     void zeroInitializeVar(VarInfo* varInfo);
     VarInfo castType(VarInfo* from, CompleteType* to, int line);
     VarInfo promoteType(VarInfo* from, CompleteType* to, int line);

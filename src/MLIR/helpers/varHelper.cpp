@@ -485,7 +485,7 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
              mlir::Value errorMsgPtr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalErrorMsg);
              auto sizeErrorFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("SizeError");
              if (sizeErrorFunc) builder_.create<mlir::LLVM::CallOp>(loc_, sizeErrorFunc, mlir::ValueRange{errorMsgPtr});
-             builder_.create<mlir::scf::YieldOp>(loc_);
+             // Default yield already present at end of region.
         }
 
         // Then block (Match) -> Copy
@@ -494,15 +494,15 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
             auto c0 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
             auto c1 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
 
-            builder_.create<mlir::scf::ForOp>(loc_, c0, lRows, c1, [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value i, mlir::ValueRange) {
-                b.create<mlir::scf::ForOp>(l, c0, lCols, c1, [&](mlir::OpBuilder &b2, mlir::Location l2, mlir::Value j, mlir::ValueRange) {
+            builder_.create<mlir::scf::ForOp>(loc_, c0, lRows, c1, mlir::ValueRange{}, [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value i, mlir::ValueRange) {
+                b.create<mlir::scf::ForOp>(l, c0, lCols, c1, mlir::ValueRange{}, [&](mlir::OpBuilder &b2, mlir::Location l2, mlir::Value j, mlir::ValueRange) {
                     mlir::Value val = b2.create<mlir::memref::LoadOp>(l2, rhs->value, mlir::ValueRange{i, j});
                     b2.create<mlir::memref::StoreOp>(l2, val, lhs->value, mlir::ValueRange{i, j});
                     b2.create<mlir::scf::YieldOp>(l2);
                 });
                 b.create<mlir::scf::YieldOp>(l);
             });
-            builder_.create<mlir::scf::YieldOp>(loc_);
+            // Default yield already present at end of region.
         }
         builder_.setInsertionPointAfter(ifOp);
         return;
@@ -554,11 +554,9 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
              mlir::Value errorMsgPtr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, globalErrorMsg);
              auto sizeErrorFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("SizeError");
              if (sizeErrorFunc) builder_.create<mlir::LLVM::CallOp>(loc_, sizeErrorFunc, mlir::ValueRange{errorMsgPtr});
-             builder_.create<mlir::scf::YieldOp>(loc_);
+             // Default yield already present at end of region.
         }
-        // Then block just returns
-        builder_.setInsertionPointToStart(&ifOp.getThenRegion().front());
-        builder_.create<mlir::scf::YieldOp>(loc_);
+        // Then block just returns; default yield terminates region.
         builder_.setInsertionPointAfter(ifOp);
     }
 
@@ -566,7 +564,7 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
     auto c0 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
     auto c1 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
 
-    builder_.create<mlir::scf::ForOp>(loc_, c0, lhsLen, c1, [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value idx, mlir::ValueRange) {
+   builder_.create<mlir::scf::ForOp>(loc_, c0, lhsLen, c1, mlir::ValueRange{}, [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value idx, mlir::ValueRange) {
         // If RHS is vector, check bounds for padding/truncation
         if (rhs->type.baseType == BaseType::VECTOR) {
             auto inBounds = b.create<mlir::arith::CmpIOp>(l, mlir::arith::CmpIPredicate::slt, idx, rhsLen);
@@ -662,7 +660,7 @@ void MLIRGen::assignToVector(VarInfo* literal, VarInfo* variable, int line) {
     auto c0 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
     auto c1 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
     
-    builder_.create<mlir::scf::ForOp>(loc_, c0, newLen, c1, [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value idx, mlir::ValueRange) {
+   builder_.create<mlir::scf::ForOp>(loc_, c0, newLen, c1, mlir::ValueRange{}, [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value idx, mlir::ValueRange) {
         // load source element
         mlir::Value srcElemVal = b.create<mlir::memref::LoadOp>(l, literal->value, mlir::ValueRange{idx});
 
