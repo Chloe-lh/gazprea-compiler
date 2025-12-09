@@ -1,6 +1,6 @@
 procedure main() returns integer {
     var string s1 = "Hello";
-    var character c = !;
+    var character c = '!';
     var character[1] arr = ['?'];
     
     s1 = s1 || " World";
