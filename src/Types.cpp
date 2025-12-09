@@ -628,8 +628,9 @@ bool canScalarCast(BaseType from, BaseType to) {
 }
 
 static bool canCastTypeImpl(const CompleteType& from, const CompleteType& to) {
+    // Same top-level base type: require structurally compatible subtypes that are
+    // themselves castable.
     if (from.baseType == to.baseType) {
-        // Shapes match + ensure all subtypes are mutually castable
         if (from.subTypes.size() != to.subTypes.size()) return false;
         for (size_t i = 0; i < from.subTypes.size(); ++i) {
             if (!canCastTypeImpl(from.subTypes[i], to.subTypes[i])) return false;
@@ -637,28 +638,42 @@ static bool canCastTypeImpl(const CompleteType& from, const CompleteType& to) {
         return true;
     }
 
+    auto isAggregate = [](BaseType b) {
+        return b == BaseType::ARRAY || b == BaseType::VECTOR || b == BaseType::MATRIX;
+    };
+
     // Scalar to scalar per spec
     if (isScalarType(from.baseType) && isScalarType(to.baseType)) {
         return canScalarCast(from.baseType, to.baseType);
     }
 
-    // Tuple to tuple: equal arity and pairwise scalar-castable
-    if (from.baseType == BaseType::TUPLE && to.baseType == BaseType::TUPLE) {
-        if (from.subTypes.size() != to.subTypes.size()) return false;
-        for (size_t i = 0; i < from.subTypes.size(); ++i) {
-            const auto& f = from.subTypes[i];
-            const auto& t = to.subTypes[i];
-            if (!(isScalarType(f.baseType) && isScalarType(t.baseType) && canScalarCast(f.baseType, t.baseType))) {
-                return false;
-            }
-        }
-        return true;
+    // Scalar -> aggregate broadcast 
+    if (isScalarType(from.baseType) && isAggregate(to.baseType)) {
+        if (to.subTypes.size() != 1) return false;
+        const CompleteType &elem = to.subTypes[0];
+        if (!isScalarType(elem.baseType)) return false;
+        return canScalarCast(from.baseType, elem.baseType);
     }
 
-    // TODO pt2: Support scalar -> array promotions and array<->array conversions (including
-    // multi-dimensional) once CompleteType carries dimension/size metadata.
-    // Until then, reject casts between composite non-tuple types unless shapes
-    // are strictly identical (handled by the baseType==case above).
+    // Aggregate -> aggregate conversions for ARRAY/VECTOR/MATRIX
+    if (isAggregate(from.baseType) && isAggregate(to.baseType)) {
+        if (from.subTypes.size() != 1 || to.subTypes.size() != 1) return false;
+
+        auto rankOf = [](const CompleteType &ct) -> std::size_t {
+            return ct.dims.size();
+        };
+
+        std::size_t srcRank = rankOf(from);
+        std::size_t dstRank = rankOf(to);
+
+        // Backend only supports rank-1 and rank-2 aggregates here.
+        if (srcRank == 0 || srcRank > 2 || dstRank == 0 || dstRank > 2) {
+            return false;
+        }
+
+        // Element types must be recursively castable
+        return canCastTypeImpl(from.subTypes[0], to.subTypes[0]);
+    }
     return false;
 }
 
