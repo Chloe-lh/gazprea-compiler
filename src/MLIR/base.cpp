@@ -68,7 +68,7 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<co
     // readChar(char*)
     if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("readChar")) {
         auto readCharType = mlir::LLVM::LLVMFunctionType::get(voidTy, ptrTy, false);
-        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "readCha hbvr", readCharType);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "readChar", readCharType);
     }
     // readBool(bool*)
     if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("readBool")) {
