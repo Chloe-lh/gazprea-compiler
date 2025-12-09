@@ -198,11 +198,49 @@ void SemanticAnalysisVisitor::visit(ArraySliceExpr *node) {
 // Built-in functions with a single identifier argument (length/len, shape,
 // reverse, format).
 void SemanticAnalysisVisitor::visit(BuiltInFuncNode *node) {
+    // Reset binding for this builtin node; will be set for identifier-based calls.
+    node->binding = nullptr;
     std::string fname = node->funcName;
+
+    // Special handling for FORMAT which may use expr instead of id
+    if (fname == "format") {
+        CompleteType argType(BaseType::UNKNOWN);
+        if (node->expr) {
+            node->expr->accept(*this);
+            argType = node->expr->type;
+        } else {
+             // Backward compatibility for ID
+             VarInfo* var = current_->resolveVar(node->id, node->line);
+             if (!var) {
+                 throw SymbolError(node->line, "Semantic Analysis: unknown identifier '" + node->id + "' in builtin call.");
+             }
+             // Bind the underlying variable for identifier-based format().
+             node->binding = var;
+             argType = resolveUnresolvedType(current_, var->type, node->line);
+        }
+
+        // Check scalar type
+        if (isScalarType(argType.baseType)) {
+             node->type = CompleteType(BaseType::STRING);
+             return;
+        } else if (argType.baseType == BaseType::STRING) {
+             throw TypeError(node->line, "Semantic Analysis: format() does not support string arguments.");
+        }
+        
+        throw TypeError(node->line, "Semantic Analysis: format() requires scalar argument.");
+    }
+
+    // For other functions, they expect ID
+    if (node->id.empty()) {
+         throw TypeError(node->line, "Semantic Analysis: " + fname + " requires an identifier argument.");
+    }
+
     VarInfo* var = current_->resolveVar(node->id, node->line);
     if (!var) {
         throw SymbolError(node->line, "Semantic Analysis: unknown identifier '" + node->id + "' in builtin call.");
     }
+    // Bind the underlying variable for identifier-based builtin calls.
+    node->binding = var;
     CompleteType argType = resolveUnresolvedType(current_, var->type, node->line);
 
     if (fname == "length") {
@@ -233,14 +271,6 @@ void SemanticAnalysisVisitor::visit(BuiltInFuncNode *node) {
             return;
         }
         throw TypeError(node->line, "Semantic Analysis: reverse() requires string/array/vector argument.");
-    }
-
-    if (fname == "format") {
-        if (argType.baseType == BaseType::STRING) {
-            node->type = argType;
-            return;
-        }
-        throw TypeError(node->line, "Semantic Analysis: format() requires string argument.");
     }
 
     throw SymbolError(node->line, "Semantic Analysis: unknown builtin function '" + node->funcName + "'.");
@@ -694,8 +724,94 @@ void SemanticAnalysisVisitor::visit(DotExpr *node){
         node->type = CompleteType(BaseType::MATRIX, promoted, {outRows, outCols});
         return;
     }
-    // maybe vector and matrix
     node->type = CompleteType(BaseType::UNKNOWN);
+}
+
+void SemanticAnalysisVisitor::visit(ConcatExpr* node) {
+    node->left->accept(*this);
+    node->right->accept(*this);
+
+    const CompleteType& leftType = node->left->type;
+    const CompleteType& rightType = node->right->type;
+
+    // String Concatenation Logic
+    bool leftIsString = (leftType.baseType == BaseType::STRING);
+    bool rightIsString = (rightType.baseType == BaseType::STRING);
+    
+    if (leftIsString || rightIsString) {
+        auto isCharOrCharVector = [](const CompleteType& t) {
+            if (t.baseType == BaseType::CHARACTER) return true;
+            if ((t.baseType == BaseType::ARRAY || t.baseType == BaseType::VECTOR) &&
+                !t.subTypes.empty() && t.subTypes[0].baseType == BaseType::CHARACTER) {
+                return true;
+            }
+            return false;
+        };
+
+        if (leftIsString && (rightIsString || isCharOrCharVector(rightType))) {
+            node->type = CompleteType(BaseType::STRING);
+            return;
+        }
+        if (rightIsString && (leftIsString || isCharOrCharVector(leftType))) {
+             node->type = CompleteType(BaseType::STRING);
+             return;
+        }
+    }
+
+    // Array/Vector Concatenation Logic
+    auto getElemType = [](const CompleteType& t) -> CompleteType {
+        if (t.baseType == BaseType::ARRAY || t.baseType == BaseType::VECTOR) {
+             if (t.subTypes.empty()) return CompleteType(BaseType::UNKNOWN); 
+             return t.subTypes[0];
+        }
+        return t; // Scalar
+    };
+
+    CompleteType leftElem = getElemType(leftType);
+    CompleteType rightElem = getElemType(rightType);
+
+    CompleteType commonElem = promote(leftElem, rightElem);
+    if (commonElem.baseType == BaseType::UNKNOWN) {
+        commonElem = promote(rightElem, leftElem);
+    }
+
+    if (commonElem.baseType == BaseType::UNKNOWN) {
+        throw TypeError(node->line, "Semantic Analysis: Concatenation operands have incompatible types: " + toString(leftType) + " and " + toString(rightType));
+    }
+
+    BaseType resBase = BaseType::ARRAY;
+    if (leftType.baseType == BaseType::VECTOR || rightType.baseType == BaseType::VECTOR) {
+        resBase = BaseType::VECTOR;
+    }
+
+    std::vector<int> dims;
+    if (resBase == BaseType::ARRAY) {
+         int leftSize = 1;
+         int rightSize = 1;
+         
+         if (leftType.baseType == BaseType::ARRAY) {
+             if (leftType.dims.empty() || leftType.dims[0] == -1) leftSize = -1;
+             else leftSize = leftType.dims[0];
+         }
+         if (rightType.baseType == BaseType::ARRAY) {
+             if (rightType.dims.empty() || rightType.dims[0] == -1) rightSize = -1;
+             else rightSize = rightType.dims[0];
+         }
+         
+         if (leftSize != -1 && rightSize != -1) {
+             dims.push_back(leftSize + rightSize);
+         } else {
+             dims.push_back(-1); 
+         }
+    } else {
+        dims.push_back(-1); 
+    }
+    
+    if (resBase == BaseType::VECTOR && dims.empty()) {
+        dims.push_back(-1); 
+    }
+
+    node->type = CompleteType(resBase, commonElem, dims);
 }
 
 void SemanticAnalysisVisitor::visit(ArrayLiteralNode *node) {
@@ -2372,6 +2488,21 @@ void SemanticAnalysisVisitor::visit(MethodCallStatNode* node) {
              node->args[0]->accept(*this);
              if (node->args[0]->type.baseType != BaseType::STRING) 
                  throw TypeError(node->line, "concat on string requires string argument");
+         } else if (objType.baseType == BaseType::VECTOR) {
+             // Treat concat as append for vectors
+             if (node->args.size() != 1) throw TypeError(node->line, "concat requires 1 argument");
+             node->args[0]->accept(*this);
+             
+             CompleteType argType = resolveUnresolvedType(current_, node->args[0]->type, node->line);
+             if (argType != objType && argType.baseType != BaseType::ARRAY) { 
+                 // Allow array with same element type
+                 if (argType.baseType == BaseType::ARRAY && !argType.subTypes.empty() && !objType.subTypes.empty() &&
+                     argType.subTypes[0] == objType.subTypes[0]) {
+                     // ok
+                 } else {
+                    throw TypeError(node->line, "concat argument type mismatch for vector");
+                 }
+             }
          } else {
              throw TypeError(node->line, "concat not supported on " + toString(objType));
          }

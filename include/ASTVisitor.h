@@ -61,6 +61,7 @@ public:
   virtual void visit(EqExpr *node) = 0;
   virtual void visit(AndExpr *node) = 0;
   virtual void visit(OrExpr *node) = 0;
+  virtual void visit(ConcatExpr *node) = 0;
   virtual void visit(TrueNode *node) = 0;
   virtual void visit(FalseNode *node) = 0;
   virtual void visit(CharNode *node) = 0;

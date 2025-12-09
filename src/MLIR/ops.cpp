@@ -876,3 +876,86 @@ void MLIRGen::visit(DotExpr *node){
     out.identifier = "";
     pushValue(out);
 }
+
+void MLIRGen::visit(ConcatExpr* node) {
+    if (tryEmitConstantForNode(node)) return;
+    node->left->accept(*this);
+    VarInfo left = popValue();
+    node->right->accept(*this);
+    VarInfo right = popValue();
+
+    // Helper to get length
+    auto getLength = [&](VarInfo& var) -> mlir::Value {
+        if (var.type.baseType == BaseType::CHARACTER) {
+             return builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
+        }
+        // String or Vector
+        mlir::Value desc = var.value;
+        if (var.value.getType().isa<mlir::LLVM::LLVMPointerType>()) {
+             desc = builder_.create<mlir::LLVM::LoadOp>(loc_, getLLVMType(var.type), var.value);
+        } else if (var.value.getType().isa<mlir::MemRefType>()) {
+             return builder_.create<mlir::memref::DimOp>(loc_, var.value, 0);
+        }
+
+        // Struct descriptor {ptr, len}
+        llvm::SmallVector<int64_t, 1> indices{1};
+        mlir::Value lenI64 = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, desc, indices);
+        auto idxTy = builder_.getIndexType();
+        return builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, lenI64);
+    };
+
+    mlir::Value leftLen = getLength(left);
+    mlir::Value rightLen = getLength(right);
+    mlir::Value totalLen = builder_.create<mlir::arith::AddIOp>(loc_, leftLen, rightLen);
+
+    // Allocate new buffer
+    mlir::Type elemTy = builder_.getI8Type();
+    auto memTy = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, elemTy);
+    mlir::Value newMemRef = builder_.create<mlir::memref::AllocaOp>(loc_, memTy, totalLen);
+
+    // Helper to copy data
+    auto copyData = [&](VarInfo& src, mlir::Value len, mlir::Value offset) {
+         if (src.type.baseType == BaseType::CHARACTER) {
+             mlir::Value val = getSSAValue(src);
+             builder_.create<mlir::memref::StoreOp>(loc_, val, newMemRef, mlir::ValueRange{offset});
+         } else {
+             auto c0 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+             auto c1 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
+             builder_.create<mlir::scf::ForOp>(loc_, c0, len, c1, mlir::ValueRange{},
+                [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value iv, mlir::ValueRange args) {
+                    mlir::Value srcElem = accessElement(&src, mlir::ValueRange{iv});
+                    mlir::Value destIdx = b.create<mlir::arith::AddIOp>(l, offset, iv);
+                    b.create<mlir::memref::StoreOp>(l, srcElem, newMemRef, mlir::ValueRange{destIdx});
+                    b.create<mlir::scf::YieldOp>(l);
+                }
+             );
+         }
+    };
+
+    auto c0 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+    copyData(left, leftLen, c0);
+    copyData(right, rightLen, leftLen);
+
+    // Create string descriptor
+    VarInfo outVar(node->type);
+    allocaLiteral(&outVar, node->line);
+
+    mlir::Value ptrAsIdx = builder_.create<mlir::memref::ExtractAlignedPointerAsIndexOp>(loc_, newMemRef);
+    auto i64Ty = builder_.getI64Type();
+    mlir::Value ptrI64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, ptrAsIdx);
+    auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+    mlir::Value ptr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptrTy, ptrI64);
+    
+    mlir::Value totalLenI64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, totalLen);
+
+    mlir::Value undef = builder_.create<mlir::LLVM::UndefOp>(loc_, getLLVMType(node->type));
+    llvm::SmallVector<int64_t, 1> ptrPos{0};
+    llvm::SmallVector<int64_t, 1> lenPos{1};
+    mlir::Value newDesc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, undef, ptr, ptrPos);
+    newDesc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, newDesc, totalLenI64, lenPos);
+
+    builder_.create<mlir::LLVM::StoreOp>(loc_, newDesc, outVar.value);
+
+    outVar.identifier = "";
+    pushValue(outVar);
+}

@@ -64,7 +64,7 @@ builtin_func
     : LENGTH PARENLEFT ID PARENRIGHT
     | SHAPE PARENLEFT ID PARENRIGHT
     | REVERSE PARENLEFT ID PARENRIGHT
-    | FORMAT PARENLEFT ID PARENRIGHT
+    | FORMAT PARENLEFT expr PARENRIGHT
     ;
 
 // size specification for an array
@@ -99,6 +99,7 @@ expr
     | expr op=(EQEQ|NE) expr                            #EqExpr
     | expr AND expr                                     #AndExpr
     | expr op=(OR|XOR) expr                             #OrExpr
+    | <assoc=right> expr CONCAT expr                    #ConcatExpr
     | TRUE                                              #TrueExpr
     | FALSE                                             #FalseExpr
     | CHAR                                              #CharExpr
@@ -185,6 +186,7 @@ FLOAT
 END: ';';
 
 ADD: '+';
+CONCAT: '||';
 MINUS: '-';
 DOTPROD: '**';
 MULT: '*';

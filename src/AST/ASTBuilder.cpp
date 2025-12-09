@@ -737,6 +737,13 @@ std::any ASTBuilder::visitMethodCallStat(GazpreaParser::MethodCallStatContext *c
     exprCtxs.push_back(e);
   }
   auto args = collectArgs(*this, exprCtxs);
+  
+  // Validate args
+  for(size_t i=0; i<args.size(); ++i) {
+      if (!args[i]) {
+          throw std::runtime_error("MethodCallStatNode: failed to build argument " + std::to_string(i));
+      }
+  }
 
   auto node = std::make_shared<MethodCallStatNode>(objName, methodName, std::move(args));
   setLocationFromCtx(node, ctx);

@@ -265,7 +265,24 @@ void MLIRGen::visit(MethodCallStatNode* node) {
         mlir::Value oldLen = builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, lenI64);
         
         // Get len of other
-        mlir::Value otherLen = computeArraySize(&other, node->line); // returns index
+        mlir::Value otherLen;
+        if (other.type.baseType == BaseType::STRING || other.type.baseType == BaseType::VECTOR) {
+             if (other.value.getType().isa<mlir::LLVM::LLVMPointerType>()) {
+                 // Load descriptor
+                 mlir::Value desc = builder_.create<mlir::LLVM::LoadOp>(loc_, getLLVMType(other.type), other.value);
+                 llvm::SmallVector<int64_t, 1> lenPos{1};
+                 mlir::Value lenI64 = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, desc, lenPos);
+                 otherLen = builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, lenI64);
+             } else if (other.value.getType().isa<mlir::LLVM::LLVMStructType>()) {
+                 llvm::SmallVector<int64_t, 1> lenPos{1};
+                 mlir::Value lenI64 = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, other.value, lenPos);
+                 otherLen = builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, lenI64);
+             } else {
+                 otherLen = computeArraySize(&other, node->line);
+             }
+        } else {
+             otherLen = computeArraySize(&other, node->line);
+        }
         
         mlir::Value newLen = builder_.create<mlir::arith::AddIOp>(loc_, oldLen, otherLen);
         

@@ -10,18 +10,34 @@
 
 namespace gazprea{
 std::any ASTBuilder::visitBuiltin_func(GazpreaParser::Builtin_funcContext *ctx){
-  std::string arg = ctx->ID()->getText();
+  std::string arg;
   std::string funcName;
+  std::shared_ptr<ExprNode> exprArg = nullptr;
+
   if(ctx->LENGTH()){
     funcName = ctx->LENGTH()->toString();
+    arg = ctx->ID()->getText();
   }else if(ctx->SHAPE()){
     funcName = ctx->SHAPE()->toString();
+    arg = ctx->ID()->getText();
   }else if(ctx->FORMAT()){
     funcName = ctx->FORMAT()->toString();
+    auto anyExpr = visit(ctx->expr());
+    if (anyExpr.has_value()) {
+        exprArg = safe_any_cast_ptr<ExprNode>(anyExpr);
+    }
   }else if(ctx->REVERSE()){
     funcName = ctx->REVERSE()->toString();
+    arg = ctx->ID()->getText();
   }
-  auto node = std::make_shared<BuiltInFuncNode>(funcName, arg);
+
+  std::shared_ptr<BuiltInFuncNode> node;
+  if (exprArg) {
+      node = std::make_shared<BuiltInFuncNode>(funcName, exprArg);
+  } else {
+      node = std::make_shared<BuiltInFuncNode>(funcName, arg);
+  }
+  
   setLocationFromCtx(node, ctx);
   return node_any(node);
 }

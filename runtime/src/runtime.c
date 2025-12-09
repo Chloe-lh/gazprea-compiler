@@ -2,11 +2,49 @@
 #include <stdint.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdlib.h>
 #include "../include/run_time_errors.h"
 
 // Add function named dummyPrint with signature void(int) to llvm to have this linked in.
 void dummyPrint(int i) {
-  printf("I'm a function! %d\n", i);
+  fprintf(stderr, "I'm a function! %d\n", i);
+}
+
+// Format functions
+char* gazrt_format_int(int32_t val) {
+    char* buffer = (char*)malloc(16); // Sufficient for 32-bit int
+    if (!buffer) return NULL;
+    sprintf(buffer, "%d", val);
+    return buffer;
+}
+
+char* gazrt_format_real(float val) {
+    char* buffer = (char*)malloc(32); // Sufficient for float
+    if (!buffer) return NULL;
+    sprintf(buffer, "%g", val);
+    return buffer;
+}
+
+char* gazrt_format_char(int8_t val) {
+    char* buffer = (char*)malloc(2);
+    if (!buffer) return NULL;
+    buffer[0] = (char)val;
+    buffer[1] = '\0';
+    return buffer;
+}
+
+char* gazrt_format_bool(int8_t val) {
+    if (val) {
+        char* buffer = (char*)malloc(5);
+        if (!buffer) return NULL;
+        strcpy(buffer, "true");
+        return buffer;
+    } else {
+        char* buffer = (char*)malloc(6);
+        if (!buffer) return NULL;
+        strcpy(buffer, "false");
+        return buffer;
+    }
 }
 
 // Functions for reading from std_input

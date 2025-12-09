@@ -369,18 +369,29 @@ void ASTPrinter::visit(AndExpr *node) {
 }
 
 void ASTPrinter::visit(OrExpr *node) {
-  printTreeLine("OrExpr", "op: " + node->op);
-  indent++;
+  printTreeLine("OrExpr");
   pushChildContext(false);
   node->left->accept(*this);
   popChildContext();
   pushChildContext(true);
   node->right->accept(*this);
   popChildContext();
-  indent--;
 }
 
-void ASTPrinter::visit(TrueNode *node) { printTreeLine("TrueNode", "true"); }
+void ASTPrinter::visit(ConcatExpr *node) {
+  printTreeLine("ConcatExpr");
+  pushChildContext(false);
+  node->left->accept(*this);
+  popChildContext();
+  pushChildContext(true);
+  node->right->accept(*this);
+  popChildContext();
+}
+
+void ASTPrinter::visit(TrueNode *node) {
+  printTreeLine("TrueNode", "true");
+}
+
 
 void ASTPrinter::visit(FalseNode *node) { printTreeLine("FalseNode", "false"); }
 

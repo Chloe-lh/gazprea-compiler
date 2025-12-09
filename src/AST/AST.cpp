@@ -23,6 +23,7 @@ void NotExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void EqExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void AndExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void OrExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
+void ConcatExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 void DotExpr::accept(ASTVisitor &visitor) { visitor.visit(this); }
 
 // Basic types
@@ -117,6 +118,11 @@ AndExpr::AndExpr(const std::string &op, std::shared_ptr<ExprNode> left,
 OrExpr::OrExpr(const std::string &op, std::shared_ptr<ExprNode> left,
                std::shared_ptr<ExprNode> right)
     : BinaryExprNode(op, std::move(left), std::move(right)) {}
+
+ConcatExpr::ConcatExpr(const std::string &op, std::shared_ptr<ExprNode> left,
+                       std::shared_ptr<ExprNode> right)
+    : BinaryExprNode(op, std::move(left), std::move(right)) {}
+
 EqExpr::EqExpr(const std::string &op, std::shared_ptr<ExprNode> left,
                std::shared_ptr<ExprNode> right)
     : BinaryExprNode(op, std::move(left), std::move(right)) {}

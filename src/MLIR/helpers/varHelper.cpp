@@ -697,6 +697,12 @@ void MLIRGen::assignToVector(VarInfo* literal, VarInfo* variable, int line) {
              newLenVal = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, literal->value, lenPos);
              // Convert to index for alloc
              newLenVal = builder_.create<mlir::arith::IndexCastOp>(loc_, builder_.getIndexType(), newLenVal);
+        } else if (literal->value.getType().isa<mlir::LLVM::LLVMPointerType>()) {
+             // Pointer to descriptor
+             mlir::Value desc = builder_.create<mlir::LLVM::LoadOp>(loc_, getLLVMType(literal->type), literal->value);
+             llvm::SmallVector<int64_t, 1> lenPos{1};
+             mlir::Value lenI64 = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, desc, lenPos);
+             newLenVal = builder_.create<mlir::arith::IndexCastOp>(loc_, builder_.getIndexType(), lenI64);
         } else {
              // Assume memref
              newLenVal = computeArraySize(literal, line);
