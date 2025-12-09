@@ -302,6 +302,99 @@ void MLIRGen::visit(EqExpr* node){
         } else {
             throw std::runtime_error("MLIRGen::EqExpr: Invalid dimensions for comparison of " + toString(promotedType));
         }
+    } else if (promotedType.baseType == BaseType::STRING) {
+        // String comparison
+        // Extract string descriptors
+        mlir::Value leftDesc = leftPromoted.value;
+        if (leftDesc.getType().isa<mlir::LLVM::LLVMPointerType>()) {
+             mlir::Type descTy = getLLVMType(promotedType);
+             leftDesc = builder_.create<mlir::LLVM::LoadOp>(loc_, descTy, leftDesc);
+        }
+        
+        mlir::Value rightDesc = rightPromoted.value;
+        if (rightDesc.getType().isa<mlir::LLVM::LLVMPointerType>()) {
+             mlir::Type descTy = getLLVMType(promotedType);
+             rightDesc = builder_.create<mlir::LLVM::LoadOp>(loc_, descTy, rightDesc);
+        }
+        
+        // Extract Lengths
+        llvm::SmallVector<int64_t, 1> lenPos{1};
+        mlir::Value lhsLen = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, leftDesc, lenPos);
+        mlir::Value rhsLen = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, rightDesc, lenPos);
+        
+        // Extract Pointers
+        llvm::SmallVector<int64_t, 1> ptrPos{0};
+        mlir::Value lhsPtr = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, leftDesc, ptrPos);
+        mlir::Value rhsPtr = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, rightDesc, ptrPos);
+        
+        // Compare lengths
+        mlir::Value lenEq = builder_.create<mlir::arith::CmpIOp>(
+            loc_, mlir::arith::CmpIPredicate::eq, lhsLen, rhsLen
+        );
+        
+        // Use scf.if to only check content if lengths are equal
+        auto scfIf = builder_.create<mlir::scf::IfOp>(
+            loc_, builder_.getI1Type(), lenEq,
+            /*withElseRegion=*/true
+        );
+        
+        // Then region (lengths equal -> check content)
+        builder_.setInsertionPointToStart(&scfIf.getThenRegion().front());
+        {
+             auto idxTy = builder_.getIndexType();
+             mlir::Value lenIdx = builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, lhsLen);
+             mlir::Value c0 = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, 0));
+             mlir::Value c1 = builder_.create<mlir::arith::ConstantOp>(loc_, idxTy, builder_.getIntegerAttr(idxTy, 1));
+             
+             // Accumulator for loop
+             VarInfo loopAcc{CompleteType(BaseType::BOOL)};
+             allocaLiteral(&loopAcc, node->line);
+             mlir::Value trueVal = builder_.create<mlir::arith::ConstantOp>(loc_, builder_.getI1Type(), builder_.getIntegerAttr(builder_.getI1Type(), 1));
+             builder_.create<mlir::memref::StoreOp>(loc_, trueVal, loopAcc.value, mlir::ValueRange{});
+
+             auto loop = builder_.create<mlir::scf::ForOp>(loc_, c0, lenIdx, c1, mlir::ValueRange{});
+             builder_.setInsertionPointToStart(loop.getBody());
+             {
+                 mlir::Value iv = loop.getInductionVar();
+                 mlir::Value ivI64 = builder_.create<mlir::arith::IndexCastOp>(loc_, builder_.getI64Type(), iv);
+                 
+                 mlir::Type charTy = builder_.getI8Type();
+                 mlir::Value lhsCharPtr = builder_.create<mlir::LLVM::GEPOp>(
+                     loc_, mlir::LLVM::LLVMPointerType::get(&context_),
+                     charTy, lhsPtr, mlir::ValueRange{ivI64}
+                 );
+                 mlir::Value rhsCharPtr = builder_.create<mlir::LLVM::GEPOp>(
+                     loc_, mlir::LLVM::LLVMPointerType::get(&context_),
+                     charTy, rhsPtr, mlir::ValueRange{ivI64}
+                 );
+                 
+                 mlir::Value lhsChar = builder_.create<mlir::LLVM::LoadOp>(loc_, charTy, lhsCharPtr);
+                 mlir::Value rhsChar = builder_.create<mlir::LLVM::LoadOp>(loc_, charTy, rhsCharPtr);
+                 
+                 mlir::Value charEq = builder_.create<mlir::arith::CmpIOp>(
+                     loc_, mlir::arith::CmpIPredicate::eq, lhsChar, rhsChar
+                 );
+                 
+                 mlir::Value currentAcc = builder_.create<mlir::memref::LoadOp>(loc_, loopAcc.value, mlir::ValueRange{});
+                 mlir::Value nextAcc = builder_.create<mlir::arith::AndIOp>(loc_, currentAcc, charEq);
+                 builder_.create<mlir::memref::StoreOp>(loc_, nextAcc, loopAcc.value, mlir::ValueRange{});
+             }
+             builder_.setInsertionPointAfter(loop);
+             
+             mlir::Value finalAcc = builder_.create<mlir::memref::LoadOp>(loc_, loopAcc.value, mlir::ValueRange{});
+             builder_.create<mlir::scf::YieldOp>(loc_, finalAcc);
+        }
+        
+        // Else - if lengths differ, return false
+        builder_.setInsertionPointToStart(&scfIf.getElseRegion().front());
+        {
+             mlir::Value falseVal = builder_.create<mlir::arith::ConstantOp>(loc_, builder_.getI1Type(), builder_.getIntegerAttr(builder_.getI1Type(), 0));
+             builder_.create<mlir::scf::YieldOp>(loc_, falseVal);
+        }
+        
+        builder_.setInsertionPointAfter(scfIf);
+        result = scfIf.getResult(0);
+
     } else if (isScalarType(promotedType.baseType)) {
         // Load the scalar values from their memrefs
         mlir::Value left = getSSAValue(leftPromoted);

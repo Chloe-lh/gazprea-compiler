@@ -267,6 +267,33 @@ namespace gazprea{
         node->constant.reset();
         // dot product constant folding is performed in the ConstantFolding pass
         return expr_any(std::move(node));
+    }    std::any ASTBuilder::visitConcatExpr(GazpreaParser::ConcatExprContext *ctx) {
+        std::shared_ptr<ExprNode> left = nullptr;
+        std::shared_ptr<ExprNode> right = nullptr;
+
+        if (ctx->expr().size() >= 1) {
+            auto anyLeft = visit(ctx->expr(0));
+            if (anyLeft.has_value()) {
+            left = safe_any_cast_ptr<ExprNode>(anyLeft);
+            }
+        }
+        if (ctx->expr().size() >= 2) {
+            auto anyRight = visit(ctx->expr(1));
+            if (anyRight.has_value()) {
+            right = safe_any_cast_ptr<ExprNode>(anyRight);
+            }
+        }
+        std::string opText;
+        if (ctx->CONCAT()) {
+            opText = ctx->CONCAT()->getText();
+        }
+        auto node = std::make_shared<ConcatExpr>(opText, left, right);
+        setLocationFromCtx(node, ctx);
+        // Constant folding for string concatenation can be implemented here if needed
+        // For now, reset constant.
+        node->constant.reset();
+        
+        return expr_any(std::move(node));
     }
 
 }

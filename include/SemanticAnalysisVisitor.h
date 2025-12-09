@@ -44,6 +44,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         virtual void visit(ContinueStatNode* node)  override;
         virtual void visit(ReturnStatNode* node)    override;
         virtual void visit(CallStatNode* node)      override;
+        virtual void visit(MethodCallStatNode* node) override;
         virtual void visit(IfNode* node)            override;
         virtual void visit(LoopNode* node)          override;
         virtual void visit(BlockNode* node)         override;
@@ -51,6 +52,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
 
         // Expressions / Operators
         void visit(ParenExpr* node) override;
+        void visit(MethodCallExpr* node) override;
         void visit(UnaryExpr* node) override;   // unary+, unary-, not
         void visit(DotExpr* node) override;
         void visit(ExpExpr* node) override;     // ^
@@ -61,6 +63,7 @@ class SemanticAnalysisVisitor: public ASTVisitor {
         void visit(EqExpr* node) override;      // ==, !=
         void visit(AndExpr* node) override;     // and
         void visit(OrExpr* node) override;      // or, xor
+        void visit(ConcatExpr* node) override;  // ||
         void visit(TrueNode* node) override;
         void visit(FalseNode* node) override;
         void visit(CharNode* node) override;

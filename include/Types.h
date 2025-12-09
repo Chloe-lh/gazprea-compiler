@@ -79,6 +79,9 @@ CompleteType promote(const CompleteType& from, const CompleteType& to);
 
 void validateSubtypes(CompleteType completeType);
 
+// For composite type hierarchy enforcing
+void validateContainmentHierarchy(const CompleteType& completeType, int line);
+
 // Type casting helpers (semantic layer consumes these)
 // Returns true iff the BaseType is a scalar (boolean, character, integer, real)
 bool isScalarType(BaseType t);

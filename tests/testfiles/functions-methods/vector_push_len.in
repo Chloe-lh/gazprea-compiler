@@ -1,0 +1,17 @@
+procedure main() returns integer {
+    var vector<integer> v;
+    
+    v.push(10);
+    v.push(20);
+    
+    v.len() -> std_output;
+    "\n" -> std_output;
+    
+    // Need to assign to array to print
+    integer[2] arr = v;
+    arr -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:vector_push_len.out

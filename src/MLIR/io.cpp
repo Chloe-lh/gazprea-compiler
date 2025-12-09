@@ -72,9 +72,14 @@ void MLIRGen::emitPrintMatrix(const VarInfo &matrixVarInfo) {
     if (matrixVarInfo.type.baseType != BaseType::MATRIX) {
         throw std::runtime_error("emitPrintMatrix: non-matrix type");
     }
-    if (!matrixVarInfo.value || !matrixVarInfo.value.getType().isa<mlir::MemRefType>()) {
-        throw std::runtime_error("emitPrintMatrix: matrix has no memref storage");
+    
+    bool isMemRef = matrixVarInfo.value && matrixVarInfo.value.getType().isa<mlir::MemRefType>();
+    bool isDescriptor = matrixVarInfo.value && matrixVarInfo.value.getType().isa<mlir::LLVM::LLVMStructType>();
+
+    if (!isMemRef && !isDescriptor) {
+        throw std::runtime_error("emitPrintMatrix: matrix has no valid storage (memref or descriptor)");
     }
+    
     if (matrixVarInfo.type.dims.size() != 2 || matrixVarInfo.type.dims[0] < 0) {
         throw std::runtime_error("emitPrintMatrix: only static 2D arrays supported for printing");
     }
@@ -126,11 +131,9 @@ void MLIRGen::emitPrintMatrix(const VarInfo &matrixVarInfo) {
                 loc_, idxTy, builder_.getIntegerAttr(idxTy, col)
             );
 
-            auto elem = builder_.create<mlir::memref::LoadOp>(
-                loc_, matrixVarInfo.value, mlir::ValueRange{rConst, cConst}
-            );
+            auto elem = accessElement(const_cast<VarInfo*>(&matrixVarInfo), mlir::ValueRange{rConst, cConst});
 
-            emitPrintScalar(elemType, elem.getResult());
+            emitPrintScalar(elemType, elem);
         }
 
         // Print inner ']'
@@ -174,13 +177,13 @@ void MLIRGen::emitPrintArray(int line, const VarInfo &arrayVarInfo) {
                                 ? CompleteType(BaseType::UNKNOWN)
                                 : arrayVarInfo.type.subTypes[0];
     
-    // Check if it's a slice struct or memref
-    bool isSliceStruct = arrayVarInfo.value.getType().isa<mlir::LLVM::LLVMStructType>();
+    // Check if it's a slice/descriptor or memref
+    bool isDescriptor = arrayVarInfo.value.getType().isa<mlir::LLVM::LLVMStructType>();
+    bool isMemRef = arrayVarInfo.value.getType().isa<mlir::MemRefType>();
     mlir::Value sizeVal;
-    mlir::Value slicePtr;
     
-    if (isSliceStruct) {
-        // Extract length from slice struct (second field)
+    if (isDescriptor) {
+        // Extract length from struct (second field, index 1)
         llvm::SmallVector<int64_t, 1> lenPos{1};
         mlir::Value sliceLen_i64 = builder_.create<mlir::LLVM::ExtractValueOp>(
             loc_, arrayVarInfo.value, lenPos
@@ -188,13 +191,7 @@ void MLIRGen::emitPrintArray(int line, const VarInfo &arrayVarInfo) {
         // Convert i64 to index
         auto idxTy = builder_.getIndexType();
         sizeVal = builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, sliceLen_i64);
-        
-        // Extract pointer from slice struct (first field)
-        llvm::SmallVector<int64_t, 1> ptrPos{0};
-        slicePtr = builder_.create<mlir::LLVM::ExtractValueOp>(
-            loc_, arrayVarInfo.value, ptrPos
-        );
-    } else if (arrayVarInfo.value.getType().isa<mlir::MemRefType>()) {
+    } else if (isMemRef) {
         // Get size from memref (static or dynamic)
         if (arrayVarInfo.type.dims.size() != 1) {
             throw std::runtime_error("emitPrintArray: Called with non-1D array");
@@ -261,21 +258,7 @@ void MLIRGen::emitPrintArray(int line, const VarInfo &arrayVarInfo) {
             );
             
             // Load element
-            mlir::Value elemVal;
-            if (isSliceStruct) {
-                // Load from slice pointer using GEP and load
-                auto i32Ty = b.getI32Type();
-                auto i32PtrTy = mlir::LLVM::LLVMPointerType::get(&context_);
-                auto i64Ty = b.getI64Type();
-                auto idx_i64 = b.create<mlir::arith::IndexCastOp>(l, i64Ty, iv);
-                mlir::Value gep = b.create<mlir::LLVM::GEPOp>(
-                    l, i32PtrTy, i32Ty, slicePtr, mlir::ValueRange{idx_i64}
-                );
-                elemVal = b.create<mlir::LLVM::LoadOp>(l, i32Ty, gep);
-            } else {
-                // Load from memref
-                elemVal = b.create<mlir::memref::LoadOp>(l, arrayVarInfo.value, mlir::ValueRange{iv});
-            }
+            mlir::Value elemVal = accessElement(const_cast<VarInfo*>(&arrayVarInfo), mlir::ValueRange{iv});
             
             // Print element (inlined emitPrintScalar logic)
             const char* formatStrName = nullptr;
@@ -440,6 +423,50 @@ void MLIRGen::visit(OutputStatNode* node) {
     } else if (exprVarInfo.type.baseType == BaseType::ARRAY) {
         emitPrintArray(node->line, exprVarInfo);
         return;
+    } else if (exprVarInfo.type.baseType == BaseType::STRING) {
+        // Print string (loop over characters)
+        // We reuse emitPrintArray logic but modified or reimplement loop here.
+        
+        mlir::Value sizeVal;
+        mlir::Value desc = exprVarInfo.value;
+        
+        // If pointer to descriptor (e.g. local variable)
+        if (desc.getType().isa<mlir::LLVM::LLVMPointerType>()) {
+             mlir::Type descTy = getLLVMType(exprVarInfo.type);
+             desc = builder_.create<mlir::LLVM::LoadOp>(loc_, descTy, desc);
+        }
+        
+        if (desc.getType().isa<mlir::LLVM::LLVMStructType>()) {
+             llvm::SmallVector<int64_t, 1> lenPos{1};
+             mlir::Value lenI64 = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, desc, lenPos);
+             sizeVal = builder_.create<mlir::arith::IndexCastOp>(loc_, builder_.getIndexType(), lenI64);
+        } else if (desc.getType().isa<mlir::MemRefType>()) {
+             // Can happen if string literal returned memref in some path (though we changed it to descriptor).
+             // Or promoted memref.
+             sizeVal = builder_.create<mlir::memref::DimOp>(loc_, desc, 0);
+        } else {
+             throw std::runtime_error("OutputStat: string is not descriptor or memref");
+        }
+        
+        auto c0 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
+        auto c1 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
+        
+        builder_.create<mlir::scf::ForOp>(loc_, c0, sizeVal, c1, mlir::ValueRange{},
+            [&](mlir::OpBuilder &b, mlir::Location l, mlir::Value iv, mlir::ValueRange args) {
+                mlir::Value elem = accessElement(const_cast<VarInfo*>(&exprVarInfo), mlir::ValueRange{iv});
+                // Print char
+                // Inline emitPrintScalar char logic
+                const char* formatStrName = "charFormat";
+                auto formatString = module_.lookupSymbol<mlir::LLVM::GlobalOp>(formatStrName);
+                auto printfFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("printf");
+                mlir::Value formatStringPtr = b.create<mlir::LLVM::AddressOfOp>(l, formatString);
+                mlir::Value valueToPrint = b.create<mlir::arith::ExtSIOp>(l, b.getI32Type(), elem);
+                b.create<mlir::LLVM::CallOp>(l, printfFunc, mlir::ValueRange{formatStringPtr, valueToPrint});
+                b.create<mlir::scf::YieldOp>(l);
+            }
+        );
+        return;
+        
     } else if (exprVarInfo.type.baseType == BaseType::VECTOR) {
         throw TypeError(node->line, "Cannot print vectors");
     } else if (isScalarType(exprVarInfo.type.baseType)) {

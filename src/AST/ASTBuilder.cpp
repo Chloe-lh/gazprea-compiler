@@ -246,6 +246,42 @@ ASTBuilder::visitExplicitTypedDec(GazpreaParser::ExplicitTypedDecContext *ctx) {
     // alias ID ID case: ID(0) alias name, ID(1) variable name
     std::string aliasName = ctx->ID(0)->getText();
     id = ctx->ID(1)->getText();
+
+    if (ctx->size()) {
+       CompleteType elem(aliasName);
+       auto *sizectx = ctx->size();
+       std::vector<int> dims;
+       auto getDimFromToken = [](antlr4::tree::ParseTree *tok) -> int {
+         if (!tok) return -1;
+         std::string t = tok->getText();
+         if (t == "*") return -1; 
+         return std::stoi(t);
+       };
+
+       if (sizectx->children.size() >= 2) {
+         dims.push_back(getDimFromToken(sizectx->children[1]));
+       }
+
+       int numDim = 1;
+       if (sizectx->children.size() > 4) {
+         numDim = 2;
+         dims.push_back(getDimFromToken(sizectx->children[4]));
+       }
+       
+       CompleteType arrType;
+       if (numDim == 2) { 
+         arrType = CompleteType(BaseType::MATRIX);
+       } else {
+         arrType = CompleteType(BaseType::ARRAY);
+       }
+       arrType.subTypes.push_back(elem);
+       arrType.dims = std::move(dims);
+
+       auto arrDec = std::make_shared<ArrayTypedDecNode>(qualifier, id, arrType, init);
+       setLocationFromCtx(arrDec, ctx);
+       return node_any(std::move(arrDec));
+    }
+
     typeAlias = std::make_shared<TypeAliasNode>(
         aliasName, CompleteType(BaseType::UNKNOWN));
   }
@@ -299,8 +335,41 @@ std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
   }
 
   // 2. Handle type aliases - will be resolved to actual types in semantic analysis
-  if (ctx->ID())
-    return CompleteType(ctx->ID()->getText());
+  if (ctx->ID()) {
+    std::string aliasName = ctx->ID()->getText();
+    if (ctx->size()) {
+       CompleteType elem(aliasName);
+       auto *sizectx = ctx->size();
+       std::vector<int> dims;
+       auto getDimFromToken = [](antlr4::tree::ParseTree *tok) -> int {
+         if (!tok) return -1;
+         std::string t = tok->getText();
+         if (t == "*") return -1; 
+         return std::stoi(t);
+       };
+
+       if (sizectx->children.size() >= 2) {
+         dims.push_back(getDimFromToken(sizectx->children[1]));
+       }
+
+       int numDim = 1;
+       if (sizectx->children.size() > 4) {
+         numDim = 2;
+         dims.push_back(getDimFromToken(sizectx->children[4]));
+       }
+       
+       CompleteType arrType;
+       if (numDim == 2) { 
+         arrType = CompleteType(BaseType::MATRIX);
+       } else {
+         arrType = CompleteType(BaseType::ARRAY);
+       }
+       arrType.subTypes.push_back(elem);
+       arrType.dims = std::move(dims);
+       return arrType;
+    }
+    return CompleteType(aliasName);
+  }
 
   // 3. handle tuples + structs
   if (ctx->tuple_dec()) 
@@ -314,26 +383,23 @@ std::any ASTBuilder::visitType(GazpreaParser::TypeContext *ctx) {
 std::any
 ASTBuilder::visitBasicTypeAlias(GazpreaParser::BasicTypeAliasContext *ctx) {
   // Grammar: TYPEALIAS type ID
-  std::string referenced = ctx->type()->getText();
+  // Allow aliasing any `type` including array/vector/matrix types
   std::string aliasName = ctx->ID()->getText();
 
   CompleteType aliasedType(BaseType::UNKNOWN);
-  if (referenced == "integer")
-    aliasedType = CompleteType(BaseType::INTEGER);
-  else if (referenced == "real")
-    aliasedType = CompleteType(BaseType::REAL);
-  else if (referenced == "boolean")
-    aliasedType = CompleteType(BaseType::BOOL);
-  else if (referenced == "character")
-    aliasedType = CompleteType(BaseType::CHARACTER);
-  else
-    throw std::runtime_error("aliasing an alias not implemented for alias '" + aliasName + "' with type '" + referenced + "'.");
+  if (ctx->type()) {
+    auto anyType = visit(ctx->type());
+    if (anyType.has_value() && anyType.type() == typeid(CompleteType)) {
+      aliasedType = std::any_cast<CompleteType>(anyType);
+    } else {
+      // Fallback: keep UNKNOWN, semantic analysis will diagnose if used.
+      aliasedType = CompleteType(BaseType::UNKNOWN);
+    }
+  }
 
   auto node = std::make_shared<TypeAliasDecNode>(aliasName, aliasedType);
   setLocationFromCtx(node, ctx);
-  // Records the original referenced name so later passes can resolve it
-  // if aliasedType was left as UNKNOWN.
-  node->declTypeName = referenced;
+  // For legacy UNKNOWN-based aliases we used declTypeName
   return node_any(std::move(node));
 }
 std::any ASTBuilder::visitAssignStat(GazpreaParser::AssignStatContext *ctx) {
@@ -636,6 +702,52 @@ std::any ASTBuilder::visitParenExpr(GazpreaParser::ParenExprContext *ctx) {
   auto node = std::make_shared<ParenExpr>(inner);
   setLocationFromCtx(node, ctx);
   return expr_any(std::move(node));
+}
+
+std::any ASTBuilder::visitMethodCallExpr(GazpreaParser::MethodCallExprContext *ctx) {
+  // Rule: struct_access PARENLEFT (expr (COMMA expr)*)? PARENRIGHT #MethodCallExpr
+  
+  // Parse struct_access to get object and method name
+  auto saCtx = ctx->struct_access();
+  // struct_access: ID '.' ID
+  std::string objName = saCtx->ID(0)->getText();
+  std::string methodName = saCtx->ID(1)->getText();
+
+  // Collect arguments
+  std::vector<GazpreaParser::ExprContext *> exprCtxs;
+  for (auto e : ctx->expr()) {
+    exprCtxs.push_back(e);
+  }
+  auto args = collectArgs(*this, exprCtxs);
+
+  auto node = std::make_shared<MethodCallExpr>(objName, methodName, std::move(args));
+  setLocationFromCtx(node, ctx);
+  return expr_any(std::move(node));
+}
+
+std::any ASTBuilder::visitMethodCallStat(GazpreaParser::MethodCallStatContext *ctx) {
+  // Rule: struct_access PARENLEFT (expr (COMMA expr)*)? PARENRIGHT END #MethodCallStat
+  
+  auto saCtx = ctx->struct_access();
+  std::string objName = saCtx->ID(0)->getText();
+  std::string methodName = saCtx->ID(1)->getText();
+
+  std::vector<GazpreaParser::ExprContext *> exprCtxs;
+  for (auto e : ctx->expr()) {
+    exprCtxs.push_back(e);
+  }
+  auto args = collectArgs(*this, exprCtxs);
+  
+  // Validate args
+  for(size_t i=0; i<args.size(); ++i) {
+      if (!args[i]) {
+          throw std::runtime_error("MethodCallStatNode: failed to build argument " + std::to_string(i));
+      }
+  }
+
+  auto node = std::make_shared<MethodCallStatNode>(objName, methodName, std::move(args));
+  setLocationFromCtx(node, ctx);
+  return stat_any(std::move(node));
 }
 
 std::any ASTBuilder::visitRealExpr(GazpreaParser::RealExprContext *ctx) {

@@ -1,0 +1,25 @@
+procedure main() returns integer {
+    var string builder;
+    var integer i = 0;
+    var character base = 'a';
+    
+    loop while (i < 3) {
+        builder.push(as<character>(as<integer>(base) + i));
+        i = i + 1;
+    }
+    
+    // Method from string.rst example
+    builder.concat("de");
+    
+    // Method from vector.rst (since string is vector)
+    builder.append(['f', 'g']);
+    
+    builder -> std_output;
+    "\n" -> std_output;
+    
+    builder.len() -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:string_methods_loop.out

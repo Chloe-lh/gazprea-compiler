@@ -1,0 +1,9 @@
+typealias integer[3] MyArray;
+
+procedure main() returns integer {
+    MyArray arr = [1, 2, 3];
+    arr -> std_output;
+    "\n" -> std_output;
+    return 0;
+}
+//CHECK_FILE:array_alias.out

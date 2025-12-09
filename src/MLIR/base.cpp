@@ -68,7 +68,7 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<co
     // readChar(char*)
     if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("readChar")) {
         auto readCharType = mlir::LLVM::LLVMFunctionType::get(voidTy, ptrTy, false);
-        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "readCha hbvr", readCharType);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "readChar", readCharType);
     }
     // readBool(bool*)
     if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("readBool")) {
@@ -77,11 +77,43 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<co
     }
     // Declaration of runtime built-in functions.
 
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("dummyPrint")) {
+        auto fnTy = mlir::LLVM::LLVMFunctionType::get(voidTy, {i32Ty}, false);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "dummyPrint", fnTy);
+    }
+
     // Stream state runtime function
     if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("stream_state_runtime")) {
         auto i32Ty = builder_.getI32Type();
         auto fnTy = mlir::LLVM::LLVMFunctionType::get(i32Ty, {i32Ty}, false);
         builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "stream_state_runtime", fnTy);
+    }
+
+    // Format functions
+    // char* gazrt_format_int(int32_t)
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("gazrt_format_int")) {
+        auto fnTy = mlir::LLVM::LLVMFunctionType::get(ptrTy, {i32Ty}, false);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "gazrt_format_int", fnTy);
+    }
+    // char* gazrt_format_real(float)
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("gazrt_format_real")) {
+        auto fnTy = mlir::LLVM::LLVMFunctionType::get(ptrTy, {f32Ty}, false);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "gazrt_format_real", fnTy);
+    }
+    // char* gazrt_format_char(int8_t)
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("gazrt_format_char")) {
+        auto fnTy = mlir::LLVM::LLVMFunctionType::get(ptrTy, {i8Ty}, false);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "gazrt_format_char", fnTy);
+    }
+    // char* gazrt_format_bool(int8_t)
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("gazrt_format_bool")) {
+        auto fnTy = mlir::LLVM::LLVMFunctionType::get(ptrTy, {i8Ty}, false); // bool passed as i8
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "gazrt_format_bool", fnTy);
+    }
+    // strlen(char*)
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("strlen")) {
+        auto fnTy = mlir::LLVM::LLVMFunctionType::get(builder_.getI64Type(), {ptrTy}, false);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "strlen", fnTy);
     }
 
     // Array slicing runtime function

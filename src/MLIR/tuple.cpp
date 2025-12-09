@@ -145,8 +145,13 @@ void MLIRGen::visit(TupleAccessNode* node) {
         tupleVarInfo->type.subTypes[static_cast<size_t>(node->index - 1)];
     VarInfo elementVarInfo(elemType);
     allocaLiteral(&elementVarInfo, node->line);
-    builder_.create<mlir::memref::StoreOp>(
-        loc_, elemVal, elementVarInfo.value, mlir::ValueRange{});
+    
+    if (elementVarInfo.value.getType().isa<mlir::MemRefType>()) {
+        builder_.create<mlir::memref::StoreOp>(
+            loc_, elemVal, elementVarInfo.value, mlir::ValueRange{});
+    } else {
+        builder_.create<mlir::LLVM::StoreOp>(loc_, elemVal, elementVarInfo.value);
+    }
 
     pushValue(elementVarInfo);
 }

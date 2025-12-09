@@ -1,0 +1,10 @@
+typealias vector<real> MyVector;
+
+procedure main() returns integer {
+    MyVector vec = [1.1, 2.2];
+    real[2] print_arr = vec;
+    print_arr -> std_output;
+    "\n" -> std_output;
+    return 0;
+}
+//CHECK_FILE:vector_alias.out

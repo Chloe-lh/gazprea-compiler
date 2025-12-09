@@ -1,0 +1,17 @@
+procedure main() returns integer {
+    var vector<integer> v = [1, 2];
+    var integer[4] reversed;
+    
+    v.append([3, 4]);
+    
+    // Reverse the vector
+    // Note: reverse(v) returns a vector/array-like. 
+    // Assigning to array for printing.
+    reversed = as<integer[4]>(reverse(v));
+    
+    reversed -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:reverse_append.out

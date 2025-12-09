@@ -20,7 +20,7 @@ param: qualifier? type ID;
 // added support for arrays in ExplicitTypedDec -> checks legality in semantic analysis
 // ei const Integer[][] id;
 dec
-    : qualifier? (builtin_type ID | ID ID) (EQ expr)? END   #ExplicitTypedDec
+    : qualifier? (builtin_type ID | ID size? ID) (EQ expr)? END   #ExplicitTypedDec
     | qualifier ID EQ expr END                              #InferredTypeDec
     | qualifier? tuple_dec ID (EQ expr)? END                #TupleTypedDec
     | qualifier? struct_dec (ID (EQ expr)?)? END              #StructTypedDec
@@ -38,6 +38,7 @@ stat
     | CONTINUE END                                            #ContinueStat
     | RETURN expr? END                                        #ReturnStat
     | CALL ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT END  #CallStat
+    | struct_access PARENLEFT (expr (COMMA expr)*)? PARENRIGHT END #MethodCallStat
     | if_stat                             #IfStat
     | loop_stat                           #LoopStat
     ;
@@ -46,7 +47,7 @@ type
     : builtin_type
     | tuple_dec
     | struct_dec
-    | ID                        // type aliasing
+    | ID size?                        // type aliasing
     ;
 
 // Built-in scalar types (used to disambiguate declarations)
@@ -63,7 +64,7 @@ builtin_func
     : LENGTH PARENLEFT ID PARENRIGHT
     | SHAPE PARENLEFT ID PARENRIGHT
     | REVERSE PARENLEFT ID PARENRIGHT
-    | FORMAT PARENLEFT ID PARENRIGHT
+    | FORMAT PARENLEFT expr PARENRIGHT
     ;
 
 // size specification for an array
@@ -84,6 +85,7 @@ expr
     | ID SQLEFT rangeExpr SQRIGHT                       #ArraySliceExpr
     | ID BY expr                                        #ArrayStrideExpr
     | ID PARENLEFT (expr (COMMA expr)*)? PARENRIGHT     #FuncCallExpr // Also used as struct_literal
+    | struct_access PARENLEFT (expr (COMMA expr)*)? PARENRIGHT #MethodCallExpr
     | builtin_func                                      #BuiltInFuncExpr
     | PARENLEFT expr PARENRIGHT                         #ParenExpr
     | STRING_LIT                                        #StringExpr
@@ -97,6 +99,7 @@ expr
     | expr op=(EQEQ|NE) expr                            #EqExpr
     | expr AND expr                                     #AndExpr
     | expr op=(OR|XOR) expr                             #OrExpr
+    | <assoc=right> expr CONCAT expr                    #ConcatExpr
     | TRUE                                              #TrueExpr
     | FALSE                                             #FalseExpr
     | CHAR                                              #CharExpr
@@ -183,6 +186,7 @@ FLOAT
 END: ';';
 
 ADD: '+';
+CONCAT: '||';
 MINUS: '-';
 DOTPROD: '**';
 MULT: '*';

@@ -1,33 +1,37 @@
+struct MixedData (
+    integer id,
+    integer[3] arr_field,
+    vector<real> vec_field,
+    integer[2][2] mat_field
+);
+
 procedure main() returns integer {
-    struct Point (integer x, integer y);
-    vector<Point> points;
-    var Point p1;
-    var Point p2;
-    var Point temp;
-    var Point check;
-    
-    // Initialize with literal
-    points = [Point(1, 2), Point(3, 4)];
-    
-    // Read
-    p1 = points[1];
-    p1.x -> std_output;
-    " " -> std_output;
-    
-    p2 = points[2];
-    p2.y -> std_output;
-    "\n" -> std_output;
-    
-    // Modify element via temp
-    temp = points[1];
-    temp.x = 10;
-    points[1] = temp;
-    
-    // Verify
-    check = points[1];
-    check.x -> std_output;
+    var MixedData data;
+    var real[2] temp_vec_print; // Intermediate array for printing vector
+
+    // Initialize the struct fields
+    data.id = 42;
+    data.arr_field = [1, 2, 3];
+    data.vec_field = [1.1, 2.2];
+    data.mat_field = [[10, 11], [12, 13]];
+
+    // Print scalar field
+    data.id -> std_output;
     "\n" -> std_output;
 
+    // Print array field
+    data.arr_field -> std_output;
+    "\n" -> std_output;
+
+    // Print vector field (via intermediate array)
+    temp_vec_print = data.vec_field; // Assign vector to array
+    temp_vec_print -> std_output;
+    "\n" -> std_output;
+
+    // Print matrix field
+    data.mat_field -> std_output;
+    "\n" -> std_output;
+    
     return 0;
 }
 //CHECK_FILE:structArrays.out

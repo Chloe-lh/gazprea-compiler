@@ -1,0 +1,15 @@
+procedure main() returns integer {
+    integer[*] arr = 1..5;
+    integer[*][*] mat = [[1, 2, 3], [4, 5, 6]];
+    
+    // Test length
+    length(arr) -> std_output;
+    "\n" -> std_output;
+    
+    // Test shape
+    shape(mat) -> std_output;
+    "\n" -> std_output;
+    
+    return 0;
+}
+//CHECK_FILE:length_shape.out
