@@ -33,9 +33,12 @@ mlir::Value MLIRGen::loadElementByFlatIndex(VarInfo *from, int64_t flatIndex, in
     if (srcRank == 1) {
         if (from->runtimeDims.empty()) {
             from->runtimeDims = from->type.dims;
+            if (from->runtimeDims.empty()) {
+                from->runtimeDims.push_back(-1); // unknown but rank-1
+            }
         }
         int64_t srcLen = from->runtimeDims.empty() ? -1 : from->runtimeDims[0];
-        if (srcLen < 0 || flatIndex >= srcLen) {
+        if (srcLen >= 0 && flatIndex >= srcLen) {
             return mlir::Value();
         }
 
