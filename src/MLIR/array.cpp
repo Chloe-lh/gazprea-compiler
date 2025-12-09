@@ -69,8 +69,9 @@ void MLIRGen::visit(ArraySliceExpr *node) {
         start_0based = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
     }
 
-    // Compute end_0based
-    mlir::Value end_0based;
+    // Compute exclusive end index (0-based)
+    mlir::Value endExclusive;
+    auto oneIndex = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
     if (node->range && node->range->end) {
         node->range->end->accept(*this);
         VarInfo endVarInfo = popValue();
@@ -80,55 +81,40 @@ void MLIRGen::visit(ArraySliceExpr *node) {
         auto isNegative = builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::slt, endIndex, zeroIndex);
         auto ifOpEnd = builder_.create<mlir::scf::IfOp>(loc_, indexTy, isNegative, true);
         builder_.setInsertionPointToStart(&ifOpEnd.getThenRegion().front());
-        auto oneIndex = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
-        mlir::Value end_1based_neg = builder_.create<mlir::arith::AddIOp>(loc_, baseLen, endIndex);
-        end_1based_neg = builder_.create<mlir::arith::AddIOp>(loc_, end_1based_neg, oneIndex);
-        builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{end_1based_neg});
+        // Negative end: offset from end, exclusive (baseLen + endIndex)
+        mlir::Value endNegExcl = builder_.create<mlir::arith::AddIOp>(loc_, baseLen, endIndex);
+        builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{endNegExcl});
         builder_.setInsertionPointToStart(&ifOpEnd.getElseRegion().front());
-        builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{endIndex});
+        // Positive end: exclusive, convert 1-based end -> 0-based exclusive (end - 1)
+        mlir::Value endPosExcl = builder_.create<mlir::arith::SubIOp>(loc_, endIndex, oneIndex);
+        builder_.create<mlir::scf::YieldOp>(loc_, mlir::ValueRange{endPosExcl});
         builder_.setInsertionPointAfter(ifOpEnd);
-        mlir::Value end_1based = ifOpEnd.getResult(0);
-        auto oneIndex2 = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
-        end_0based = builder_.create<mlir::arith::SubIOp>(loc_, end_1based, oneIndex2);
+        endExclusive = ifOpEnd.getResult(0);
     } else {
-        end_0based = baseLen;
+        endExclusive = baseLen; // open-ended slice to end
     }
 
-    // len = end - start + 1
-    auto oneIndex = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 1);
-    auto lenMinusOne = builder_.create<mlir::arith::SubIOp>(loc_, end_0based, start_0based);
-    mlir::Value len = builder_.create<mlir::arith::AddIOp>(loc_, lenMinusOne, oneIndex);
+    // len = endExclusive - start
+    mlir::Value len = builder_.create<mlir::arith::SubIOp>(loc_, endExclusive, start_0based);
 
-    // Array slice path: use runtime helper
-    auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
-    mlir::Value basePtr;
-    if (arrVarInfo->value.getType().isa<mlir::MemRefType>()) {
-        mlir::Value baseIndex = builder_.create<mlir::memref::ExtractAlignedPointerAsIndexOp>(loc_, arrVarInfo->value);
-        auto i64Ty = builder_.getI64Type();
-        mlir::Value ptrInt = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, baseIndex);
-        basePtr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptrTy, ptrInt);
-    } else {
-        throw std::runtime_error("ArraySliceExpr: array value is not a memref");
-    }
-
-    auto i64Ty = builder_.getI64Type();
-    mlir::Value baseLen_i64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, baseLen);
-    mlir::Value start_i64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, start_0based);
-    mlir::Value end_i64 = builder_.create<mlir::arith::IndexCastOp>(loc_, i64Ty, end_0based);
-
-    auto sliceFunc = module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("gaz_slice_int_checked");
-    if (!sliceFunc) {
-        throw std::runtime_error("ArraySliceExpr: gaz_slice_int_checked function not found");
-    }
-    auto callOp = builder_.create<mlir::LLVM::CallOp>(loc_, sliceFunc, mlir::ValueRange{basePtr, baseLen_i64, start_i64, end_i64});
-    mlir::Value sliceStruct = callOp.getResult();
+    // Subview of existing memref: offsets {start}, sizes {len}, strides {1}
+    llvm::SmallVector<mlir::OpFoldResult, 1> offsets{mlir::OpFoldResult(start_0based)};
+    llvm::SmallVector<mlir::OpFoldResult, 1> sizes{mlir::OpFoldResult(len)};
+    llvm::SmallVector<mlir::OpFoldResult, 1> strides{mlir::OpFoldResult(oneIndex)};
+    auto subview = builder_.create<mlir::memref::SubViewOp>(
+        loc_,
+        arrVarInfo->value,
+        offsets,
+        sizes,
+        strides);
 
     CompleteType sliceType = arrVarInfo->type;
     sliceType.dims.clear();
     sliceType.dims.push_back(-1);
     VarInfo sliceVarInfo(sliceType);
-    sliceVarInfo.value = sliceStruct;
+    sliceVarInfo.value = subview;
     sliceVarInfo.isLValue = false;
+    sliceVarInfo.runtimeDims = { -1 };
     pushValue(sliceVarInfo);
 }
 void MLIRGen::visit(ArrayAccessAssignStatNode *node) { 

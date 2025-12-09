@@ -3,10 +3,12 @@ procedure main() returns integer {
     integer[*] x = a[..4]; /* x == [1, 2, 3] */
     integer[*] y = a[4..]; /* x == [4, 5] */
     integer[*] z = a[..-1]; /* x == [1, 2, 3, 4] */
+    integer[*] xx = a[2..5]; /* xx == [2 3 4] */
 
     x -> std_output;
     y -> std_output;
     z -> std_output;
+    xx -> std_output;
 
     return 0;
 }
