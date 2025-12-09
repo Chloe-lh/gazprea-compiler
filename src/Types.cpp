@@ -642,7 +642,7 @@ static bool canCastTypeImpl(const CompleteType& from, const CompleteType& to) {
         return b == BaseType::ARRAY || b == BaseType::VECTOR || b == BaseType::MATRIX;
     };
 
-    // Scalar to scalar per spec
+    // Scalar to scalar 
     if (isScalarType(from.baseType) && isScalarType(to.baseType)) {
         return canScalarCast(from.baseType, to.baseType);
     }

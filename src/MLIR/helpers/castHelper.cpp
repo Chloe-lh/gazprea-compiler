@@ -742,15 +742,16 @@ VarInfo MLIRGen::castType(VarInfo* from, CompleteType* toType, int line) {
                                     loc_, from->value,
                                     mlir::ValueRange{rowIdx, colIdx});
                             }
-                        } else { // srcRank == 1 => flatten into matrix row-major
+                        } else { // srcRank == 1 => treat as a single row; fill first row, zero-pad others
                             int64_t srcLen = from->runtimeDims[0];
-                            int64_t flatIndex = i * dstCols + j;
-                            if (flatIndex < srcLen) {
+
+                            // Only row 0 receives data from the 1D source.
+                            // Columns beyond srcLen, and all rows i > 0, are zero-padded.
+                            if (i == 0 && j < srcLen) {
                                 hasSrc = true;
-                                mlir::Value flatIdx =
-                                    builder_.create<mlir::arith::ConstantOp>(
-                                        loc_, idxTy,
-                                        builder_.getIntegerAttr(idxTy, flatIndex));
+                                mlir::Value flatIdx = builder_.create<mlir::arith::ConstantOp>(
+                                    loc_, idxTy,
+                                    builder_.getIntegerAttr(idxTy, j));
                                 srcVal = builder_.create<mlir::memref::LoadOp>(
                                     loc_, from->value,
                                     mlir::ValueRange{flatIdx});
