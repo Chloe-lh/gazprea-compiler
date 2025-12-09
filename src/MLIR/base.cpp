@@ -47,6 +47,13 @@ MLIRGen::MLIRGen(BackEnd& backend, Scope* rootScope, const std::unordered_map<co
         auto mathErrorType = mlir::LLVM::LLVMFunctionType::get(voidTy, ptrTy, false);
         builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "MathError", mathErrorType);
     }
+    // Declaration for SizeError function
+    if (!module_.lookupSymbol<mlir::LLVM::LLVMFuncOp>("SizeError")) {
+        auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+        auto voidTy = mlir::LLVM::LLVMVoidType::get(&context_);
+        auto sizeErrorType = mlir::LLVM::LLVMFunctionType::get(voidTy, ptrTy, false);
+        builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, "SizeError", sizeErrorType);
+    }
     // Declarations for runtime input functions
     auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
     auto voidTy = mlir::LLVM::LLVMVoidType::get(&context_);

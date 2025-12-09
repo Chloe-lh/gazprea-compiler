@@ -570,32 +570,42 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
             auto inBounds = b.create<mlir::arith::CmpIOp>(l, mlir::arith::CmpIPredicate::slt, idx, rhsLen);
             auto ifBounds = b.create<mlir::scf::IfOp>(l, inBounds, /*else*/ true);
             
+            // Clear default terminators to avoid duplicate yields
+            mlir::Block &thenBlock = ifBounds.getThenRegion().front();
+            mlir::Block &elseBlock = ifBounds.getElseRegion().front();
+            thenBlock.clear();
+            elseBlock.clear();
+
             // In bounds: load from RHS
-            b.setInsertionPointToStart(&ifBounds.getThenRegion().front());
-            mlir::Value val = b.create<mlir::memref::LoadOp>(l, rhs->value, mlir::ValueRange{idx});
-            
-            // Simple promotion check (int -> real)
-            mlir::Value promotedVal = val;
-            CompleteType srcT = rhs->type.subTypes[0];
-            CompleteType dstT = lhs->type.subTypes[0];
-            if (srcT.baseType == BaseType::INTEGER && dstT.baseType == BaseType::REAL) {
-                promotedVal = b.create<mlir::arith::SIToFPOp>(l, b.getF32Type(), val);
+            {
+                mlir::OpBuilder thenB(&thenBlock, thenBlock.end());
+                mlir::Value val = thenB.create<mlir::memref::LoadOp>(l, rhs->value, mlir::ValueRange{idx});
+                
+                // Simple promotion check (int -> real)
+                mlir::Value promotedVal = val;
+                CompleteType srcT = rhs->type.subTypes[0];
+                CompleteType dstT = lhs->type.subTypes[0];
+                if (srcT.baseType == BaseType::INTEGER && dstT.baseType == BaseType::REAL) {
+                    promotedVal = thenB.create<mlir::arith::SIToFPOp>(l, thenB.getF32Type(), val);
+                }
+                
+                thenB.create<mlir::memref::StoreOp>(l, promotedVal, lhs->value, mlir::ValueRange{idx});
+                thenB.create<mlir::scf::YieldOp>(l);
             }
             
-            b.create<mlir::memref::StoreOp>(l, promotedVal, lhs->value, mlir::ValueRange{idx});
-            b.create<mlir::scf::YieldOp>(l);
-            
             // Out of bounds: store zero
-            b.setInsertionPointToStart(&ifBounds.getElseRegion().front());
-            mlir::Value zero;
-            mlir::Type dstEleTy = getLLVMType(lhs->type.subTypes[0]);
-            if (dstEleTy.isa<mlir::FloatType>())
-                zero = b.create<mlir::arith::ConstantOp>(l, dstEleTy, b.getFloatAttr(dstEleTy, 0.0));
-            else
-                zero = b.create<mlir::arith::ConstantOp>(l, dstEleTy, b.getIntegerAttr(dstEleTy, 0));
-                
-            b.create<mlir::memref::StoreOp>(l, zero, lhs->value, mlir::ValueRange{idx});
-            b.create<mlir::scf::YieldOp>(l);
+            {
+                mlir::OpBuilder elseB(&elseBlock, elseBlock.end());
+                mlir::Value zero;
+                mlir::Type dstEleTy = getLLVMType(lhs->type.subTypes[0]);
+                if (dstEleTy.isa<mlir::FloatType>())
+                    zero = elseB.create<mlir::arith::ConstantOp>(l, dstEleTy, elseB.getFloatAttr(dstEleTy, 0.0));
+                else
+                    zero = elseB.create<mlir::arith::ConstantOp>(l, dstEleTy, elseB.getIntegerAttr(dstEleTy, 0));
+                    
+                elseB.create<mlir::memref::StoreOp>(l, zero, lhs->value, mlir::ValueRange{idx});
+                elseB.create<mlir::scf::YieldOp>(l);
+            }
             
             b.setInsertionPointAfter(ifBounds);
         } else {
