@@ -745,27 +745,43 @@ void MLIRGen::visit(DotExpr *node){
         return;
     }
 
+    auto getVectorLen = [&](VarInfo &v) -> mlir::Value {
+        auto idxTy = builder_.getIndexType();
+
+        // Static size known from type
+        if (!v.type.dims.empty() && v.type.dims[0] >= 0) {
+            return builder_.create<mlir::arith::ConstantOp>(
+                loc_, idxTy, builder_.getIntegerAttr(idxTy, v.type.dims[0]));
+        }
+
+        // Memref-based vector
+        if (v.value.getType().isa<mlir::MemRefType>()) {
+            return builder_.create<mlir::memref::DimOp>(loc_, v.value, 0);
+        }
+
+        // Descriptor-based vector (LLVM pointer to { ptr, len })
+        if (v.value.getType().isa<mlir::LLVM::LLVMPointerType>()) {
+            mlir::Type descTy = getLLVMType(v.type); // struct<(ptr, i64)>
+            mlir::Value desc =
+                builder_.create<mlir::LLVM::LoadOp>(loc_, descTy, v.value);
+            llvm::SmallVector<int64_t, 1> idx{1};
+            mlir::Value lenI64 =
+                builder_.create<mlir::LLVM::ExtractValueOp>(loc_, desc, idx);
+            return builder_.create<mlir::arith::IndexCastOp>(loc_, idxTy, lenI64);
+        }
+
+        throw std::runtime_error("DotExpr: unsupported vector storage for length");
+    };
+
     if (is1D) {
         // Ensure storage exists
         if (!leftInfo.value) allocaVar(&leftInfo, node->line);
         if (!rightInfo.value) allocaVar(&rightInfo, node->line);
+        
 
         // Get runtime lengths (dim 0)
-        mlir::Value Llen, Rlen;
-        
-        // Left length
-        if (!leftInfo.type.dims.empty() && leftInfo.type.dims[0] >= 0) {
-            Llen = builder_.create<mlir::arith::ConstantOp>(loc_, builder_.getIndexType(), builder_.getIntegerAttr(builder_.getIndexType(), leftInfo.type.dims[0]));
-        } else {
-            Llen = builder_.create<mlir::memref::DimOp>(loc_, leftInfo.value, 0);
-        }
-
-        // Right length
-        if (!rightInfo.type.dims.empty() && rightInfo.type.dims[0] >= 0) {
-            Rlen = builder_.create<mlir::arith::ConstantOp>(loc_, builder_.getIndexType(), builder_.getIntegerAttr(builder_.getIndexType(), rightInfo.type.dims[0]));
-        } else {
-            Rlen = builder_.create<mlir::memref::DimOp>(loc_, rightInfo.value, 0);
-        }
+        mlir::Value Llen = getVectorLen(leftInfo);
+        mlir::Value Rlen = getVectorLen(rightInfo);
 
         // Runtime check: Llen == Rlen
         mlir::Value lenMismatch = builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::ne, Llen, Rlen);
@@ -821,8 +837,8 @@ void MLIRGen::visit(DotExpr *node){
             mlir::Value idx = forOp.getInductionVar();
 
             // load elements from each operand
-            mlir::Value lElem = builder_.create<mlir::memref::LoadOp>(loc_, leftInfo.value, mlir::ValueRange{idx});
-            mlir::Value rElem = builder_.create<mlir::memref::LoadOp>(loc_, rightInfo.value, mlir::ValueRange{idx});
+            mlir::Value lElem = accessElement(&leftInfo, mlir::ValueRange{idx});
+            mlir::Value rElem = accessElement(&rightInfo, mlir::ValueRange{idx});
 
             // Wrap and promote element types to the accumulator type
             if (leftInfo.type.subTypes.empty() || rightInfo.type.subTypes.empty()) {
