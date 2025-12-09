@@ -248,11 +248,35 @@ void MLIRGen::visit(MethodCallStatNode* node) {
         newDesc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, newDesc, newLenI64, lenPos);
         
         builder_.create<mlir::LLVM::StoreOp>(loc_, newDesc, var->value);
-        
+
+        // Update runtimeDims for vectors after push
+        if (var->runtimeDims.empty()) {
+            var->runtimeDims = var->type.dims;
+        }
+        if (var->type.baseType == BaseType::VECTOR && !var->runtimeDims.empty()) {
+            if (var->runtimeDims[0] >= 0) {
+                var->runtimeDims[0] += 1;
+            }
+            // else, leave as -1 (unknown)
+        }
+
     } else if (node->methodName == "append" || node->methodName == "concat") {
         if (node->args.size() != 1) throw TypeError(node->line, "Method '" + node->methodName + "' takes 1 argument");
         node->args[0]->accept(*this);
         VarInfo other = popValue();
+
+        // Sync runtimeDims for both operands before use
+        syncRuntimeDims(var);
+        syncRuntimeDims(&other);
+        // Compute new static length for vectors
+        int newStaticLen = -1;
+        if (var->type.baseType == BaseType::VECTOR) {
+            int lhsLen = (!var->runtimeDims.empty() ? var->runtimeDims[0] : -1);
+            int rhsLenStatic = (!other.runtimeDims.empty() ? other.runtimeDims[0] : -1);
+            if (lhsLen >= 0 && rhsLenStatic >= 0) {
+                newStaticLen = lhsLen + rhsLenStatic;
+            }
+        }
         
         // Get len of this
         mlir::Value descriptor = var->value; 
@@ -330,5 +354,18 @@ void MLIRGen::visit(MethodCallStatNode* node) {
         newDesc = builder_.create<mlir::LLVM::InsertValueOp>(loc_, newDesc, newLenI64, lenPos);
         
         builder_.create<mlir::LLVM::StoreOp>(loc_, newDesc, var->value);
+
+        // Update runtimeDims for vector after append/concat 
+        if (var->type.baseType == BaseType::VECTOR) {
+            if (newStaticLen >= 0) {
+                if (var->runtimeDims.empty()) {
+                    var->runtimeDims.push_back(newStaticLen);
+                } else {
+                    var->runtimeDims[0] = newStaticLen;
+                }
+            } else {
+                var->runtimeDims = {-1};
+            }
+        }
     }
 }
