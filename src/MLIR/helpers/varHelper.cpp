@@ -525,7 +525,21 @@ mlir::Value MLIRGen::computeArraySize(VarInfo* source, int line) {
         auto zeroIdx = builder_.create<mlir::arith::ConstantIndexOp>(loc_, 0);
         return builder_.create<mlir::memref::DimOp>(loc_, source->value, zeroIdx);
     }
-    
+
+    // Descriptor pointers (vector/string/array descriptors stored by pointer)
+    if (auto ptrTy = source->value.getType().dyn_cast<mlir::LLVM::LLVMPointerType>()) {
+        // Descriptors are stored via pointer to struct; element type is opaque on
+        // opaque-pointer builds, so use the declared source type to recover the
+        // struct layout.
+        mlir::Type descTy = getLLVMType(source->type);
+        if (auto structTy = descTy.dyn_cast<mlir::LLVM::LLVMStructType>()) {
+            mlir::Value desc = builder_.create<mlir::LLVM::LoadOp>(loc_, structTy, source->value);
+            llvm::SmallVector<int64_t, 1> lenPos{1};
+            mlir::Value lenI64 = builder_.create<mlir::LLVM::ExtractValueOp>(loc_, desc, lenPos);
+            return builder_.create<mlir::arith::IndexCastOp>(loc_, builder_.getIndexType(), lenI64);
+        }
+    }
+
     // Check if source is a slice struct (LLVM struct type)
     if (source->value.getType().isa<mlir::LLVM::LLVMStructType>()) {
         // Slice struct layout: { i32* ptr, i64 len }
@@ -543,8 +557,15 @@ mlir::Value MLIRGen::computeArraySize(VarInfo* source, int line) {
             loc_, idxTy, sliceLen_i64
         );
     }
-    
-    throw std::runtime_error("computeArraySize: source is not a memref, slice struct, or array type");
+    std::string valTypeStr;
+    {
+        std::string tmp;
+        llvm::raw_string_ostream rso(tmp);
+        source->value.getType().print(rso);
+        valTypeStr = rso.str();
+    }
+    throw std::runtime_error("computeArraySize: source is not a memref, slice struct, or array type. value type=" +
+                             valTypeStr + ", source type=" + toString(source->type));
 }
 
 void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
@@ -697,11 +718,21 @@ void MLIRGen::assignToArray(VarInfo* rhs, VarInfo* lhs, int line) {
             thenBlock.clear();
             elseBlock.clear();
 
-            // In bounds: load from RHS
+            // In bounds: load from RHS (descriptor-backed vector)
             {
                 mlir::OpBuilder thenB(&thenBlock, thenBlock.end());
-                mlir::Value val = thenB.create<mlir::memref::LoadOp>(l, rhs->value, mlir::ValueRange{idx});
-                
+                mlir::Type elemTy = getLLVMType(rhs->type.subTypes[0]);
+                auto descTy = getLLVMType(rhs->type);
+                mlir::Value desc = thenB.create<mlir::LLVM::LoadOp>(l, descTy, rhs->value);
+                llvm::SmallVector<int64_t, 1> ptrPos{0};
+                mlir::Value ptr = thenB.create<mlir::LLVM::ExtractValueOp>(l, desc, ptrPos);
+                auto i64Ty = thenB.getI64Type();
+                mlir::Value idxI64 = thenB.create<mlir::arith::IndexCastOp>(l, i64Ty, idx);
+                auto ptrTy = mlir::LLVM::LLVMPointerType::get(&context_);
+                mlir::Value gep = thenB.create<mlir::LLVM::GEPOp>(
+                    l, ptrTy, elemTy, ptr, mlir::ValueRange{idxI64});
+                mlir::Value val = thenB.create<mlir::LLVM::LoadOp>(l, elemTy, gep);
+
                 // Simple promotion check (int -> real)
                 mlir::Value promotedVal = val;
                 CompleteType srcT = rhs->type.subTypes[0];
