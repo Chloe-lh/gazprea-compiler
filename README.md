@@ -1,4 +1,17 @@
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/aA3Yncmw)
+# Gazprea Compiler
+Contributors: Chloe Haynes and Jacob Yang
+
+## Description
+This is a compiler designed for IBM's coding language Gazprea. Our comiler translates Gazprea source code into intermediate representation (IR), performing lexical analysis, semantic checks, and error reporting. 
+
+## Features
+- **Lexical Analysis**: Tokenizes source code according to the Gazprea grammar.
+- **Parsing**: Implements bottom‑up parsing to construct abstract syntax trees (ASTs).
+- **Semantic Analysis**: Performs type checking, scope resolution, and detects semantic errors.
+- **Intermediate Representation (IR)**: Generates a structured IR for further analysis or optimization.
+- **Constant Folding**: Optimizes expressions by evaluating constant sub-expressions at compile time
+- **Error Handling**: Provides clear, informative diagnostics for syntax and semantic issues.
+
 # GazpreaBase
 The base cmake setup for Gazprea assignment.
 
@@ -7,26 +20,6 @@ Author: Braedy Kuzma (braedy@ualberta.ca)
 Updated by: Deric Cheung (dacheung@ualberta.ca)
 
 Updated by: Quinn Pham (qpham@ualberta.ca)
-
-# Usage
-## Installing MLIR
-In this project you will be working with MLIR and LLVM.
-Due to the complex nature (and size) of the project we did not want to include
-MLIR as a subproject. Therefore, there is some additional setup required to get
-your build up and running.
-
-### On a personal machine
-  1. Follow the instructions on the
-     [setup page](https://cmput415.github.io/415-docs/setup/cs_computers.html)
-     for your machine.
-
-### On a university machine
-You won't be building MLIR on the university machines: AICT wouldn't be very
-happy with you. Instead, we are providing a **RELEASE** build available for
-everyone.
-  1. Follow the instructions on the
-     [setup page](https://cmput415.github.io/415-docs/setup/cs_computers.html)
-     for the CS computers and MLIR/LLVM will be available to you.
 
 ## Building
 ### Linux
@@ -38,18 +31,3 @@ everyone.
   1. Run `cmake <path-to-Gazprea-Base>`.
   1. Run `make`.
   1. Done.
-
-## Pulling in upstream changes
-If there are updates to your assignment you can retrieve them using the
-instructions here.
-  1. Add the upstream as a remote using `git remote add upstream <clone-link>`.
-  1. Fetch updates from the upstream using `git fetch upstream`
-  1. Merge the updates into a local branch using
-     `git merge <local branch> upstream/<upstream branch>`. Usually both
-     branches are `master`.
-  1. Make sure that everything builds before committing to your personal
-     master! It's much easier to try again if you can make a fresh clone
-     without the merge!
-
-Once the remote has been added, future updates are simply the `fetch` and
-`merge` steps.
