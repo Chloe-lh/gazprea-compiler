@@ -1,5 +1,5 @@
 # Gazprea Compiler
-Contributors: Chloe Haynes and Jacob Yang
+Contributors: Chloe Haynes, Jacob Yang, and Maksimus Andruchow
 
 ## Description
 This is a compiler designed for IBM's coding language Gazprea. Our comiler translates Gazprea source code into intermediate representation (IR), performing lexical analysis, semantic checks, and error reporting. 
